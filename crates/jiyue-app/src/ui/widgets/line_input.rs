@@ -22,7 +22,7 @@ use gpui::{
 };
 
 use super::text_edit::{self, EditKind, TextState};
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, RADIUS_M};
 use crate::ui::UI_FONT;
 use crate::ui::keymap::primary;
 use crate::ui::text_input::{
@@ -879,12 +879,14 @@ impl Render for LineInput {
             .w_full()
             .h(px(HEIGHT))
             .px(px(10.0))
-            .rounded(px(8.0))
+            .rounded(px(RADIUS_M))
             .overflow_hidden()
             .bg(t.raised)
+            // Same 1px border in both states (no layout shift); focus only changes its colour to the
+            // accent, the same rule the select trigger uses (`controls::select`).
             .border_1()
             .border_color(if focused && !disabled { t.ac } else { t.line })
-            .font_family(UI_FONT)
+            .font_family(crate::ui::fonts::ui_name())
             .text_size(px(FONT_SIZE))
             .text_color(if disabled { t.tx3 } else { t.tx })
             .key_context(CONTEXT)

@@ -16,7 +16,6 @@ use super::controls::{self, BadgeKind, ButtonKind, ListAction};
 use super::line_input::{LineInput, LineInputEvent};
 use super::overlay::{self, MenuItem};
 use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
 
 const SELECT_OPTIONS: [&str; 3] = ["日记", "笔记", "项目"];
 const SEGMENT_OPTIONS: [&str; 3] = ["纸", "雾", "墨"];
@@ -474,7 +473,7 @@ impl Render for DemoView {
         );
 
         let title = div()
-            .font_family(UI_FONT)
+            .font_family(crate::ui::fonts::ui_name())
             .text_size(px(20.0))
             .font_weight(gpui::FontWeight::SEMIBOLD)
             .text_color(t.tx)
@@ -540,7 +539,7 @@ impl Render for DemoView {
             .overflow_hidden()
             .bg(t.sheet)
             .text_color(t.tx)
-            .font_family(UI_FONT)
+            .font_family(crate::ui::fonts::ui_name())
             .text_size(px(13.0))
             .track_focus(&self.focus)
             // The demo covers the window: keep clicks away from the page underneath.

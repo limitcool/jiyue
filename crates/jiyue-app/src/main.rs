@@ -217,6 +217,8 @@ pub struct RustdianApp {
     /// `Context`, so the queue is drained at the next render, which runs them with `cx`.
     /// Use `dispatch_ext` instead when a `Context` is at hand.
     pub pending_ext: Vec<ui::ext::ExtCommand>,
+    /// Back and forward history of the visited notes (see `nav_history`).
+    pub nav: ui::nav_history::NavHistory,
     /// `ExtEvent::Started` has been sent (once, at the first render).
     ext_started: bool,
     /// Theme as last reported to the modules (detects cycles and explicit sets).
@@ -338,6 +340,7 @@ impl RustdianApp {
             open_widgets_demo: false,
             ext: Default::default(),
             pending_ext: Vec::new(),
+            nav: ui::nav_history::NavHistory::default(),
             ext_started: false,
             ext_theme_seen: kind,
         };
@@ -346,6 +349,12 @@ impl RustdianApp {
         ui::graph::install(&mut app, cx);
         let user_dir = jiyue_core::config::user_dir();
         app.configs.open(&user_dir, Some(&app.vault.root_dir));
+        // The interface preferences of the last run (the theme comes from `--theme` or the saved
+        // value, see `parse_args`). Written back by `config_store::sync_ui` when they change.
+        let ui = app.configs.ui_prefs_on_disk();
+        app.live_preview = ui.live_preview;
+        app.left_sidebar_open = ui.left_sidebar;
+        app.right_sidebar_open = ui.right_sidebar;
         if let Some(notice) = app.configs.startup_notice.clone() {
             app.toast(
                 ui::ext::ToastKind::Error,
@@ -859,6 +868,10 @@ impl RustdianApp {
         }
         // The other pane's notes are kept in step first, so the open-note list below is current.
         ui::split::sync(self);
+        // Theme, sidebars and live preview are saved as soon as they change (see config_store).
+        config_store::sync_ui(self);
+        // The window title shows the vault's name (see `config_store::sync_window_title`).
+        config_store::sync_window_title(self, window);
 
         // The 外观/编辑器 setting picks the default mode when it changes.
         if let Some(mode) = mode_after_setting(self.live_seen, self.live_preview) {
@@ -1208,6 +1221,9 @@ pub enum AppCommand {
     ToggleSidebar,
     ToggleRightPanel,
     OpenNote(usize),
+    /// 后退 / 前进: back and forward in the note history (`nav_history`).
+    NavBack,
+    NavForward,
     /// A command of a feature module (`ui/ext.rs`).
     Ext(ui::ext::ExtCommand),
 }
@@ -1259,6 +1275,8 @@ impl RustdianApp {
             }
             AppCommand::DailyPrev => self.open_adjacent_daily(false),
             AppCommand::DailyNext => self.open_adjacent_daily(true),
+            AppCommand::NavBack => ui::nav_history::go(self, false),
+            AppCommand::NavForward => ui::nav_history::go(self, true),
             AppCommand::ToggleSidebar => self.left_sidebar_open = !self.left_sidebar_open,
             AppCommand::ToggleRightPanel => self.right_sidebar_open = !self.right_sidebar_open,
             AppCommand::OpenNote(idx) => self.open_note_by_index(idx),
@@ -1294,6 +1312,7 @@ impl RustdianApp {
         for cmd in std::mem::take(&mut self.pending_ext) {
             ui::ext::run(self, cmd, cx);
         }
+        ui::nav_history::observe(self);
         if !self.ext_started {
             self.ext_started = true;
             ui::ext::on_event(self, &ui::ext::ExtEvent::Started, cx);
@@ -1377,6 +1396,21 @@ impl Render for RustdianApp {
                     }
                 }),
             )
+            // Mouse buttons 4 and 5 go back and forward in the note history (see `nav_history`).
+            .on_mouse_down(
+                gpui::MouseButton::Navigate(gpui::NavigationDirection::Back),
+                cx.listener(|this, _: &gpui::MouseDownEvent, _window, cx| {
+                    this.run_command(AppCommand::NavBack);
+                    cx.notify();
+                }),
+            )
+            .on_mouse_down(
+                gpui::MouseButton::Navigate(gpui::NavigationDirection::Forward),
+                cx.listener(|this, _: &gpui::MouseDownEvent, _window, cx| {
+                    this.run_command(AppCommand::NavForward);
+                    cx.notify();
+                }),
+            )
             .when(self.left_sidebar_open, |d| {
                 d.child(ui::sidebar::render_sidebar(this, cx))
             })
@@ -1424,13 +1458,15 @@ fn parse_args() -> Cli {
         .map(|p| p.display().to_string())
         .unwrap_or_default();
     let plan = launch::resolve_launch(&args, &cwd, &launch::RealFs);
-    let theme = match plan.theme.as_deref() {
-        Some(name) => ThemeKind::from_name(name).unwrap_or_else(|| {
-            eprintln!("unknown theme '{name}', using ink");
-            ThemeKind::Ink
-        }),
-        None => ThemeKind::Ink,
-    };
+    // `--theme` wins when it names a known theme; otherwise the theme saved in config.toml; otherwise ink.
+    if let Some(name) = plan.theme.as_deref()
+        && !jiyue_core::config::prefs::is_known_theme(name)
+    {
+        eprintln!("unknown theme '{name}', using the saved theme");
+    }
+    let saved = config_store::saved_theme();
+    let theme_name = jiyue_core::config::prefs::startup_theme(plan.theme.as_deref(), &saved);
+    let theme = ThemeKind::from_name(&theme_name).unwrap_or(ThemeKind::Ink);
     let (recent, warning) = vaults::load_store(&vaults::store_path());
     if let Some(warning) = warning {
         eprintln!("{warning}");
@@ -1495,11 +1531,12 @@ fn main() {
     Application::new()
         .with_assets(ui::assets::Assets)
         .run(move |cx: &mut App| {
-            let bounds = Bounds::centered(None, size(px(1280.0), px(800.0)), cx);
+            // The place and size of the last run (state.toml [window]), or centred 1280 x 800.
+            let window_bounds = config_store::startup_window(cx, (1280.0, 800.0));
             // Windows: `appears_transparent` removes the native title bar (WM_NCCALCSIZE) and the
             // tab strip becomes the title bar (see ui/tabbar.rs). The title is kept for the taskbar.
             let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_bounds: Some(window_bounds),
                 titlebar: Some(TitlebarOptions {
                     title: Some(SharedString::from("霁月 Jiyue")),
                     appears_transparent: true,
@@ -1541,7 +1578,8 @@ fn main() {
                 let on_close = view.clone();
                 // The sync module saves dirty notes and may keep the window open for one last
                 // sync (bounded, see `sync_ui::on_close_requested`).
-                window.on_window_should_close(cx, move |_, cx| {
+                window.on_window_should_close(cx, move |window, cx| {
+                    config_store::save_window(window);
                     on_close.update(cx, ui::sync_ui::on_close_requested)
                 });
                 view

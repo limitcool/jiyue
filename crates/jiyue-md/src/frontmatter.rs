@@ -803,12 +803,303 @@ pub fn remove_from_list(text: &str, key: &str, item: &str) -> String {
     finish_with(text, candidate)
 }
 
+/// Renames the top-level property `old` to `new`. Only the key's own text is replaced: the value,
+/// its continuation lines, the comments and the order stay as they are. The text is unchanged when
+/// `old` is absent, `new` is already a property (case-sensitive), or the result would be invalid.
+pub fn rename_property(text: &str, old: &str, new: &str) -> String {
+    if old == new {
+        return text.to_string();
+    }
+    let Scan::Valid(p) = scan(text) else {
+        return text.to_string();
+    };
+    let Some(e) = find_entry(&p, old) else {
+        return text.to_string();
+    };
+    if p.entries.iter().any(|x| x.key == new) {
+        return text.to_string();
+    }
+    let candidate = splice(text, e.start..e.colon, &render_scalar(new));
+    finish_with(text, candidate)
+}
+
+/// Splits a list written as one scalar (`a, b` or `a b`) into its items. Commas (also the
+/// Chinese `，` and `、`) and whitespace separate them. Empty and repeated items are dropped.
+pub fn split_tokens(s: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for tok in s.split(|c: char| matches!(c, ',' | '，' | '、') || c.is_whitespace()) {
+        let t = tok.trim();
+        if !t.is_empty() && !out.iter().any(|x| x == t) {
+            out.push(t.to_string());
+        }
+    }
+    out
+}
+
+/// The value of a property that is a plain scalar (text, number, boolean), not a sequence.
+fn scalar_text(y: &Yaml) -> Option<String> {
+    match y {
+        Yaml::String(_) | Yaml::Integer(_) | Yaml::Real(_) | Yaml::Boolean(_) => scalar_string(y),
+        _ => None,
+    }
+}
+
+/// Separator for a rewritten comma-form value: the one already used, `, ` by default.
+fn scalar_separator(s: &str) -> &'static str {
+    let has_comma = s.contains([',', '，', '、']);
+    if !has_comma && s.chars().any(char::is_whitespace) {
+        " "
+    } else {
+        ", "
+    }
+}
+
+/// Writes the entry `e` back as one scalar line `key: a, b`, keeping the key text.
+fn rewrite_scalar_list(text: &str, e: &Entry, eol: &str, tokens: &[String], sep: &str) -> String {
+    let value = if tokens.is_empty() {
+        "[]".to_string()
+    } else {
+        tokens
+            .iter()
+            .map(|t| render_scalar(t))
+            .collect::<Vec<_>>()
+            .join(sep)
+    };
+    let line = format!("{}: {}{}", key_part(text, e), value, eol);
+    finish_with(text, splice(text, e.start..e.end, &line))
+}
+
+/// Adds every tag in `tags` to the property `key`, one undo step for the caller. Each tag is added
+/// in the form the property already has: a block or flow sequence (see `add_to_list`), or a
+/// comma/space separated scalar (`tags: a, b`). Tags already present are skipped.
+pub fn add_tags(text: &str, key: &str, tags: &[String]) -> String {
+    let mut out = text.to_string();
+    for tag in tags {
+        out = add_one_tag(&out, key, tag);
+    }
+    out
+}
+
+fn add_one_tag(text: &str, key: &str, tag: &str) -> String {
+    let tag = tag.trim();
+    if tag.is_empty() {
+        return text.to_string();
+    }
+    if let Scan::Valid(p) = scan(text)
+        && let Some(e) = find_entry(&p, key)
+        && let Some(y) = entry_yaml(text, e)
+        && let Some(s) = scalar_text(&y)
+    {
+        let mut tokens = split_tokens(&s);
+        if tokens.iter().any(|x| x == tag) {
+            return text.to_string();
+        }
+        let sep = scalar_separator(&s);
+        tokens.push(tag.to_string());
+        return rewrite_scalar_list(text, e, p.eol, &tokens, sep);
+    }
+    add_to_list(text, key, tag)
+}
+
+/// Removes `tag` from the property `key`, in whatever form it has (sequence or comma/space
+/// separated scalar). Text is unchanged when the tag is absent.
+pub fn remove_tag(text: &str, key: &str, tag: &str) -> String {
+    if let Scan::Valid(p) = scan(text)
+        && let Some(e) = find_entry(&p, key)
+        && let Some(y) = entry_yaml(text, e)
+        && let Some(s) = scalar_text(&y)
+    {
+        let tokens = split_tokens(&s);
+        if !tokens.iter().any(|x| x == tag) {
+            return text.to_string();
+        }
+        let rest: Vec<String> = tokens.into_iter().filter(|x| x != tag).collect();
+        let sep = scalar_separator(&s);
+        return rewrite_scalar_list(text, e, p.eol, &rest, sep);
+    }
+    remove_from_list(text, key, tag)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn fm(text: &str) -> String {
         format!("---\n{text}---\nBody\n")
+    }
+
+    fn keys_of(text: &str) -> Vec<String> {
+        properties(text).into_iter().map(|p| p.key).collect()
+    }
+
+    #[test]
+    fn rename_keeps_value_order_and_comments() {
+        let text =
+            "---\n# 备注\ntitle: 标题\nstatus: 进行中\n  续行\ndone: false # 行尾\n---\n正文\n";
+        let next = rename_property(text, "status", "状态");
+        assert_eq!(
+            next,
+            "---\n# 备注\ntitle: 标题\n状态: 进行中\n  续行\ndone: false # 行尾\n---\n正文\n"
+        );
+        assert_eq!(get(&next, "状态"), Some(Value::Text("进行中 续行".into())));
+        assert_eq!(get(&next, "status"), None);
+        // The body after the block is untouched.
+        assert!(next.ends_with("---\n正文\n"));
+    }
+
+    #[test]
+    fn rename_to_a_key_that_needs_quotes() {
+        let text = fm("title: 标题\n");
+        let colon = rename_property(&text, "title", "a: b");
+        assert_eq!(get(&colon, "a: b"), Some(Value::Text("标题".into())));
+        let number = rename_property(&text, "title", "2026");
+        assert_eq!(get(&number, "2026"), Some(Value::Text("标题".into())));
+        let boolish = rename_property(&text, "title", "true");
+        assert_eq!(get(&boolish, "true"), Some(Value::Text("标题".into())));
+        let hash = rename_property(&text, "title", "# 不是注释");
+        assert_eq!(get(&hash, "# 不是注释"), Some(Value::Text("标题".into())));
+        assert_valid(&hash);
+    }
+
+    #[test]
+    fn rename_from_a_quoted_key_and_to_cjk() {
+        let text = fm("\"my key\": 1\n'x y': 2\n");
+        let next = rename_property(&text, "my key", "项目 名称");
+        assert_eq!(
+            keys_of(&next),
+            vec!["项目 名称".to_string(), "x y".to_string()]
+        );
+        assert_eq!(get(&next, "项目 名称"), Some(Value::Number(1.0)));
+        let next = rename_property(&next, "x y", "x:y");
+        assert_eq!(get(&next, "x:y"), Some(Value::Number(2.0)));
+    }
+
+    #[test]
+    fn rename_keeps_multi_line_list_values() {
+        let text = fm("aliases:\n  - 甲\n  - 乙\nnext: 1\n");
+        let next = rename_property(&text, "aliases", "别名");
+        assert!(next.contains("别名:\n  - 甲\n  - 乙\n"), "{next}");
+        assert_eq!(
+            get(&next, "别名"),
+            Some(Value::List(vec!["甲".into(), "乙".into()]))
+        );
+    }
+
+    #[test]
+    fn rename_refuses_duplicates_and_missing_keys() {
+        let text = fm("a: 1\nb: 2\n");
+        assert_eq!(rename_property(&text, "a", "b"), text, "duplicate");
+        assert_eq!(rename_property(&text, "a", "a"), text, "same name");
+        assert_eq!(rename_property(&text, "zz", "c"), text, "missing");
+        // Case-sensitive: `A` is a different key from `a`.
+        assert_eq!(keys_of(&rename_property(&text, "a", "A")), vec!["A", "b"]);
+    }
+
+    #[test]
+    fn rename_on_a_note_without_a_block_does_nothing() {
+        let text = "# 无属性\n正文\n";
+        assert_eq!(rename_property(text, "a", "b"), text);
+    }
+
+    #[test]
+    fn add_tags_adds_many_to_a_flow_list_in_its_form() {
+        let text = fm("tags: [读书, 随笔]\n");
+        let next = add_tags(&text, "tags", &["项目/霁月".into(), "新".into()]);
+        assert!(
+            next.contains("tags: [读书, 随笔, 项目/霁月, 新]\n"),
+            "{next}"
+        );
+    }
+
+    #[test]
+    fn add_tags_to_a_block_list_adds_block_items() {
+        let text = fm("tags:\n  - 读书\nnext: 1\n");
+        let next = add_tags(&text, "tags", &["随笔".into()]);
+        assert!(
+            next.contains("tags:\n  - 读书\n  - 随笔\nnext: 1\n"),
+            "{next}"
+        );
+    }
+
+    #[test]
+    fn add_tags_to_an_empty_key_and_to_a_missing_key() {
+        let text = fm("tags:\n");
+        let next = add_tags(&text, "tags", &["甲".into()]);
+        assert_eq!(get(&next, "tags"), Some(Value::List(vec!["甲".into()])));
+        let text = fm("title: x\n");
+        let next = add_tags(&text, "tags", &["乙".into(), "丙".into()]);
+        assert_eq!(
+            get(&next, "tags"),
+            Some(Value::List(vec!["乙".into(), "丙".into()]))
+        );
+        assert!(next.contains("title: x\n"));
+    }
+
+    #[test]
+    fn add_tags_keeps_a_comma_string_as_a_comma_string() {
+        let text = fm("tags: 读书, 随笔 # 行尾\n");
+        let next = add_tags(&text, "tags", &["项目".into()]);
+        assert!(next.contains("tags: 读书, 随笔, 项目"), "{next}");
+        assert_eq!(
+            tags(&next),
+            vec!["读书".to_string(), "随笔".to_string(), "项目".to_string()]
+        );
+        // A space-separated string keeps spaces.
+        let spaced = fm("tags: 读书 随笔\n");
+        let next = add_tags(&spaced, "tags", &["项目".into()]);
+        assert!(next.contains("tags: 读书 随笔 项目"), "{next}");
+    }
+
+    #[test]
+    fn add_tags_skips_existing_and_empty_tags() {
+        let text = fm("tags: [读书]\n");
+        assert_eq!(add_tags(&text, "tags", &["读书".into(), " ".into()]), text);
+        let comma = fm("tags: 读书\n");
+        assert_eq!(add_tags(&comma, "tags", &["读书".into()]), comma);
+    }
+
+    #[test]
+    fn remove_one_tag_from_each_form() {
+        let flow = fm("tags: [读书, 随笔, 项目/霁月]\n");
+        let next = remove_tag(&flow, "tags", "随笔");
+        assert_eq!(
+            get(&next, "tags"),
+            Some(Value::List(vec!["读书".into(), "项目/霁月".into()]))
+        );
+        let block = fm("tags:\n  - 读书\n  - 随笔\n");
+        let next = remove_tag(&block, "tags", "读书");
+        assert_eq!(get(&next, "tags"), Some(Value::List(vec!["随笔".into()])));
+        let comma = fm("tags: 读书, 随笔, 项目\n");
+        let next = remove_tag(&comma, "tags", "随笔");
+        assert!(next.contains("tags: 读书, 项目\n"), "{next}");
+        let last = remove_tag(&fm("tags: 唯一\n"), "tags", "唯一");
+        assert_eq!(get(&last, "tags"), Some(Value::List(vec![])));
+        assert_eq!(remove_tag(&comma, "tags", "没有"), comma);
+    }
+
+    #[test]
+    fn split_tokens_handles_cjk_separators_and_duplicates() {
+        assert_eq!(
+            split_tokens("读书，随笔、 项目,读书"),
+            vec!["读书".to_string(), "随笔".to_string(), "项目".to_string()]
+        );
+        assert!(split_tokens(" , ，").is_empty());
+    }
+
+    #[test]
+    fn rename_and_tag_edits_are_robust_on_odd_input() {
+        // Broken blocks are returned unchanged.
+        let broken = "---\nkey: [unclosed\n---\n正文\n";
+        assert_eq!(rename_property(broken, "key", "k2"), broken);
+        assert_eq!(add_tags(broken, "tags", &["a".into()]), broken);
+        assert_eq!(remove_tag(broken, "tags", "a"), broken);
+        // A tag with a colon or quote is written as a quoted item and reads back unchanged.
+        let text = fm("tags: []\n");
+        let next = add_tags(&text, "tags", &["a: b".into(), "\"q\"".into()]);
+        assert_eq!(
+            get(&next, "tags"),
+            Some(Value::List(vec!["a: b".into(), "\"q\"".into()]))
+        );
     }
 
     fn val(text: &str, key: &str) -> Value {

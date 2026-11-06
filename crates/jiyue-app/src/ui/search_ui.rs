@@ -39,6 +39,11 @@ pub enum Command {
 
 pub fn init(_app: &mut RustdianApp, _cx: &mut Context<RustdianApp>) {}
 
+/// The text of the global search field (empty when the panel was never opened).
+pub fn query_text(app: &RustdianApp, cx: &App) -> String {
+    panel::query_text(app, cx)
+}
+
 /// Opens the global search with `query` and runs it (a saved-search bookmark).
 pub fn open_query(app: &mut RustdianApp, query: &str, cx: &mut Context<RustdianApp>) {
     panel::open_with_query(app, query, cx);

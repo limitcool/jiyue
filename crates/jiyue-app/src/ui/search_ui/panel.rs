@@ -17,7 +17,6 @@ use super::{focus_soon, index};
 use crate::jobs::spawn_blocking;
 use crate::session::Debounce;
 use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
 use crate::ui::widgets::{LineInput, LineInputEvent, controls};
@@ -86,6 +85,11 @@ fn title_ranges(title: &str, terms: &[String]) -> Vec<Range<usize>> {
         .iter()
         .flat_map(|term| logic::find_matches(title, term, opts))
         .collect()
+}
+
+/// Current text of the search field (pub for the callers that extend the query).
+pub fn query_text(app: &RustdianApp, cx: &App) -> String {
+    input_text(app, cx)
 }
 
 /// Current text of the search field.
@@ -684,7 +688,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         .rounded(px(14.0))
         .shadow_lg()
         .overflow_hidden()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(13.0))
         .text_color(t.tx)
         .child(header)

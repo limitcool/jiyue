@@ -2,21 +2,22 @@
 //! and the floating filter card and zoom pill.
 
 use std::cell::{Cell, RefCell};
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 use gpui::{
     App, Bounds, Context, Corners, Edges, ElementId, Entity, FontWeight, Hsla, IntoElement,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels, Point, Rgba,
-    SharedString, Subscription, TextRun, Window, canvas, div, fill, font, point, prelude::*, px,
-    size, transparent_black,
+    ScrollDelta, ScrollWheelEvent, SharedString, Subscription, TextRun, Window, canvas, div, fill,
+    font, point, prelude::*, px, size, transparent_black,
 };
 
 use super::UI_FONT;
 use crate::RustdianApp;
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, RADIUS_L};
 use crate::ui::icons::icon;
 use crate::ui::widgets::{LineInput, LineInputEvent};
-use crate::vault::KnowledgeGraph;
+use crate::vault::{GraphEdge, KnowledgeGraph};
 
 /// Space kept free around the graph inside the canvas, in px.
 const MARGIN: f32 = 48.0;
@@ -41,6 +42,13 @@ const SIZE_MIN: f32 = 0.6;
 const SIZE_MAX: f32 = 2.0;
 const ZOOM_MIN: f32 = 0.35;
 const ZOOM_MAX: f32 = 4.0;
+/// Pixels that one line of wheel scroll counts for (Windows reports wheel notches in lines).
+const WHEEL_LINE_PX: f32 = 20.0;
+/// Exponential zoom per scrolled pixel: a 60 px notch (three lines) zooms by about 1.15.
+const WHEEL_ZOOM_K: f32 = 0.0023;
+/// Largest zoom change per wheel event, so one big touchpad delta cannot jump the view.
+const WHEEL_STEP_MIN: f32 = 0.5;
+const WHEEL_STEP_MAX: f32 = 2.0;
 
 #[derive(Clone, Copy)]
 struct Drag {
@@ -326,6 +334,99 @@ fn screen_positions(
         .collect()
 }
 
+/// Inverse of `to_screen`: the canvas-local point before zoom and pan that is drawn at `s`.
+fn to_world(s: (f32, f32), w: f32, h: f32, zoom: f32, pan: (f32, f32)) -> (f32, f32) {
+    let z = if zoom > 0.0 { zoom } else { 1.0 };
+    (
+        w * 0.5 + (s.0 - w * 0.5 - pan.0) / z,
+        h * 0.5 + (s.1 - h * 0.5 - pan.1) / z,
+    )
+}
+
+/// New zoom and pan so that the point under `anchor` (canvas-local) stays under it when the zoom
+/// changes to `next`. `center` is the canvas centre, the pivot of `to_screen`. `next` is clamped
+/// to `[ZOOM_MIN, ZOOM_MAX]`.
+fn zoom_about(
+    zoom: f32,
+    pan: (f32, f32),
+    anchor: (f32, f32),
+    center: (f32, f32),
+    next: f32,
+) -> (f32, (f32, f32)) {
+    let next = next.clamp(ZOOM_MIN, ZOOM_MAX);
+    // World point under the anchor at the old zoom (inverse of `to_screen`), then the pan that
+    // draws it at the anchor again at the new zoom: anchor = centre + (world - centre) * next + pan.
+    let z = if zoom > 0.0 { zoom } else { 1.0 };
+    let world = (
+        center.0 + (anchor.0 - center.0 - pan.0) / z,
+        center.1 + (anchor.1 - center.1 - pan.1) / z,
+    );
+    let pan = (
+        anchor.0 - center.0 - (world.0 - center.0) * next,
+        anchor.1 - center.1 - (world.1 - center.1) * next,
+    );
+    (next, pan)
+}
+
+/// Zoom factor for one wheel event. `dy` is the vertical scroll in px, positive when scrolling up
+/// (zoom in). Exponential, so equal scrolls cancel out. Non-finite input does nothing.
+fn wheel_factor(dy: f32) -> f32 {
+    if !dy.is_finite() {
+        return 1.0;
+    }
+    (dy * WHEEL_ZOOM_K)
+        .exp()
+        .clamp(WHEEL_STEP_MIN, WHEEL_STEP_MAX)
+}
+
+/// Pixel scroll of a wheel event: exact pixels as they are, lines scaled by `WHEEL_LINE_PX`.
+fn scroll_px(delta: ScrollDelta) -> f32 {
+    match delta {
+        ScrollDelta::Pixels(p) => f32::from(p.y),
+        ScrollDelta::Lines(p) => p.y * WHEEL_LINE_PX,
+    }
+}
+
+/// Distinct links between visible notes, as ascending `(low, high)` index pairs. A pair linked
+/// both ways or by several wikilinks counts once. Self links, links to hidden notes and links
+/// with an index outside `visible` are left out. The drawn edges and the counts both use this.
+fn visible_links(edges: &[GraphEdge], visible: &[bool]) -> Vec<(usize, usize)> {
+    let is_visible = |i: usize| visible.get(i).copied().unwrap_or(false);
+    let mut set = BTreeSet::new();
+    for e in edges {
+        let (a, b) = (e.from_index, e.to_index);
+        if a != b && is_visible(a) && is_visible(b) {
+            set.insert((a.min(b), a.max(b)));
+        }
+    }
+    set.into_iter().collect()
+}
+
+/// Number of visible notes.
+fn visible_node_count(visible: &[bool]) -> usize {
+    visible.iter().filter(|&&v| v).count()
+}
+
+/// Whether a note passes the filters: an orphan (no links) is hidden when isolated notes are off,
+/// and a note fails the tag filter when `tag_ok` is false.
+fn node_visible(show_isolated: bool, link_count: usize, tag_ok: bool) -> bool {
+    (show_isolated || link_count > 0) && tag_ok
+}
+
+/// Window-space point as canvas-local px (`bounds` is the canvas in window space).
+fn to_local(bounds: Bounds<Pixels>, pos: Point<Pixels>) -> (f32, f32) {
+    (
+        f32::from(pos.x) - f32::from(bounds.origin.x),
+        f32::from(pos.y) - f32::from(bounds.origin.y),
+    )
+}
+
+/// Zoom and pan of the fit view: the layout is already fitted into the canvas at zoom 1.
+fn fit_view(st: &mut GraphState) {
+    st.zoom = 1.0;
+    st.pan = (0.0, 0.0);
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum NodeKind {
     Plain,
@@ -575,17 +676,15 @@ fn visible_mask(app: &RustdianApp) -> Vec<bool> {
         .nodes
         .iter()
         .map(|n| {
-            if !st.show_isolated && n.link_count == 0 {
-                return false;
-            }
-            match &st.tag {
+            let tag_ok = match &st.tag {
                 Some(tag) => app
                     .vault
                     .notes
                     .get(n.note_index)
                     .is_some_and(|note| note.tags.iter().any(|t| t == tag)),
                 None => true,
-            }
+            };
+            node_visible(st.show_isolated, n.link_count, tag_ok)
         })
         .collect()
 }
@@ -648,6 +747,33 @@ fn draw_radius(link_count: usize, max_lc: f32, size_factor: f32) -> f32 {
 
 fn node_radius(link_count: usize, max_lc: f32, size_factor: f32) -> f32 {
     (4.0 + 7.0 * (link_count as f32 / max_lc).sqrt()) * size_factor
+}
+
+/// Opens the note of graph node `idx` in a tab. A note that already has a tab gets focused, else
+/// its tab is added at the end (`open_note_by_index`, the same as the sidebar in split view: the
+/// focused pane gets the tab). Plain click leaves the graph for the note. `background` (Ctrl or
+/// Cmd click, middle click) adds the tab without changing the active tab, and the graph stays.
+fn open_node(app: &mut RustdianApp, idx: usize, background: bool) {
+    let Some(node) = app.vault.graph.nodes.get(idx) else {
+        return;
+    };
+    let note = node.note_index;
+    let title = node.title.clone();
+    // The graph is rebuilt after edits; a node whose note moved is found again by its title.
+    let in_sync = app.vault.notes.get(note).is_some_and(|n| n.id == node.id);
+    if !in_sync {
+        if !background {
+            app.open_note_by_title(&title);
+        }
+        return;
+    }
+    if background && !app.vault.open_tabs.is_empty() {
+        if !app.vault.open_tabs.contains(&note) {
+            app.vault.open_tabs.push(note);
+        }
+    } else {
+        app.open_note_by_index(note);
+    }
 }
 
 /// Creates the search box's `LineInput` (IME-capable) and subscribes to it. The `filter` string
@@ -736,13 +862,11 @@ impl RustdianApp {
             });
         }
 
+        // Distinct links between visible notes: the same list is drawn and counted.
+        let links = visible_links(&graph.edges, &visible);
         let mut plain_edges = Vec::new();
         let mut hot_edges = Vec::new();
-        for e in &graph.edges {
-            let (a, b) = (e.from_index, e.to_index);
-            if a >= graph.nodes.len() || b >= graph.nodes.len() || !visible[a] || !visible[b] {
-                continue;
-            }
+        for &(a, b) in &links {
             let hot = Some(a) == selected
                 || Some(b) == selected
                 || Some(a) == hovered
@@ -812,15 +936,14 @@ impl RustdianApp {
         let track_cell = st.track_bounds.clone();
 
         // Filter card contents.
-        let search_focused = st.search_focused;
         let tags: Vec<String> = self.vault.all_tags().into_iter().take(8).collect();
         let active_tag = st.tag.clone();
         let show_isolated = st.show_isolated;
         let size_factor = st.size_factor;
         let slider_frac = (size_factor - SIZE_MIN) / (SIZE_MAX - SIZE_MIN);
-        let node_count = graph.nodes.len();
-        let edge_count = graph.edges.len();
-        let empty = node_count == 0;
+        let node_count = visible_node_count(&visible);
+        let edge_count = links.len();
+        let empty = graph.nodes.is_empty();
 
         let mut area = div()
             .id("graph_area")
@@ -833,6 +956,10 @@ impl RustdianApp {
                 cx.listener(|this, ev: &MouseDownEvent, window, cx| {
                     this.graph_ui.search_focused = false;
                     window.focus(&this.focus);
+                    // Double click on empty canvas fits the view.
+                    if ev.click_count >= 2 && node_at(this, ev.position).is_none() {
+                        fit_view(&mut this.graph_ui);
+                    }
                     this.graph_ui.drag = Some(Drag {
                         last: ev.position,
                         start: ev.position,
@@ -873,12 +1000,43 @@ impl RustdianApp {
                         && !drag.moved
                         && let Some(idx) = node_at(this, ev.position)
                     {
-                        let title = this.vault.graph.nodes[idx].title.clone();
-                        this.open_note_by_title(&title);
+                        let background = crate::ui::keymap::primary_held(&ev.modifiers);
+                        open_node(this, idx, background);
                     }
                     cx.notify();
                 }),
             )
+            .on_mouse_up(
+                MouseButton::Middle,
+                cx.listener(|this, ev: &MouseUpEvent, _, cx| {
+                    if let Some(idx) = node_at(this, ev.position) {
+                        open_node(this, idx, true);
+                    }
+                    cx.notify();
+                }),
+            )
+            .on_scroll_wheel(cx.listener(|this, ev: &ScrollWheelEvent, _, cx| {
+                let Some(bounds) = this.graph_ui.canvas_bounds.get() else {
+                    return;
+                };
+                let step = wheel_factor(scroll_px(ev.delta));
+                if (step - 1.0).abs() < 1e-6 {
+                    return;
+                }
+                let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+                let st = &mut this.graph_ui;
+                // Zoom about the pointer: the point under the mouse stays under it.
+                let (zoom, pan) = zoom_about(
+                    st.zoom,
+                    st.pan,
+                    to_local(bounds, ev.position),
+                    (w * 0.5, h * 0.5),
+                    st.zoom * step,
+                );
+                st.zoom = zoom;
+                st.pan = pan;
+                cx.notify();
+            }))
             .child(
                 canvas(
                     |_, _, _| (),
@@ -906,18 +1064,13 @@ impl RustdianApp {
             );
         }
 
-        // Search box.
+        // Search box: layout only. The LineInput draws the one border (accent when focused), so
+        // the wrapper adds no border, fill or radius of its own.
         let search_box = div()
             .id("graph_search")
-            .h(px(32.0))
-            .px(px(10.0))
             .flex()
             .items_center()
             .gap(px(8.0))
-            .rounded(px(8.0))
-            .border_1()
-            .border_color(if search_focused { t.ac_line } else { t.line })
-            .bg(t.sheet)
             .text_color(t.tx3)
             .cursor_text()
             .on_mouse_down(
@@ -1076,7 +1229,7 @@ impl RustdianApp {
             .flex()
             .flex_col()
             .gap(px(12.0))
-            .rounded(px(12.0))
+            .rounded(px(RADIUS_L))
             .bg(t.raised)
             .border_1()
             .border_color(t.line)
@@ -1351,5 +1504,161 @@ mod tests {
         assert!(node_radius(10, 10.0, 1.0) > node_radius(0, 10.0, 1.0));
         assert!((node_radius(0, 10.0, 1.0) - 4.0).abs() < 1e-4);
         assert!((node_radius(10, 10.0, 1.0) - 11.0).abs() < 1e-4);
+    }
+
+    fn edge(from_index: usize, to_index: usize) -> GraphEdge {
+        GraphEdge {
+            from_index,
+            to_index,
+        }
+    }
+
+    fn near(a: (f32, f32), b: (f32, f32)) -> bool {
+        (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3
+    }
+
+    #[test]
+    fn zoom_about_keeps_the_anchor_under_the_pointer() {
+        let (w, h) = (900.0, 600.0);
+        let center = (w * 0.5, h * 0.5);
+        for (zoom, pan, anchor, next) in [
+            (1.0, (0.0, 0.0), (120.0, 80.0), 1.6),
+            (2.0, (-40.0, 25.0), (700.0, 500.0), 0.8),
+            (0.5, (100.0, -30.0), (450.0, 300.0), 3.0),
+        ] {
+            let before = to_world(anchor, w, h, zoom, pan);
+            let (z2, pan2) = zoom_about(zoom, pan, anchor, center, next);
+            assert!(
+                near(to_screen(before, w, h, z2, pan2), anchor),
+                "anchor moved"
+            );
+        }
+    }
+
+    #[test]
+    fn zoom_about_centre_only_changes_zoom() {
+        let (w, h) = (800.0, 500.0);
+        let center = (w * 0.5, h * 0.5);
+        let (z, pan) = zoom_about(1.0, (0.0, 0.0), center, center, 2.0);
+        assert!((z - 2.0).abs() < 1e-6);
+        assert!(near(pan, (0.0, 0.0)));
+    }
+
+    #[test]
+    fn zoom_is_clamped_to_the_range() {
+        let center = (400.0, 300.0);
+        let (max, _) = zoom_about(3.9, (0.0, 0.0), center, center, 100.0);
+        let (min, _) = zoom_about(0.4, (0.0, 0.0), center, center, 0.001);
+        assert!((max - ZOOM_MAX).abs() < 1e-6);
+        assert!((min - ZOOM_MIN).abs() < 1e-6);
+    }
+
+    #[test]
+    fn wheel_step_is_exponential_and_bounded() {
+        assert!((wheel_factor(0.0) - 1.0).abs() < 1e-6);
+        // Three lines (60 px) up is one notch in.
+        assert!((wheel_factor(60.0) - 1.148).abs() < 0.01);
+        assert!((wheel_factor(-60.0) * wheel_factor(60.0) - 1.0).abs() < 1e-5);
+        assert!((wheel_factor(1.0e6) - WHEEL_STEP_MAX).abs() < 1e-6);
+        assert!((wheel_factor(-1.0e6) - WHEEL_STEP_MIN).abs() < 1e-6);
+        assert!((wheel_factor(f32::NAN) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn scroll_px_handles_lines_and_pixels() {
+        let lines = ScrollDelta::Lines(point(0.0, 3.0));
+        assert!((scroll_px(lines) - 60.0).abs() < 1e-6);
+        let pixels = ScrollDelta::Pixels(point(px(0.0), px(-7.5)));
+        assert!((scroll_px(pixels) + 7.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn links_are_distinct_undirected_pairs_between_visible_notes() {
+        // 0-1 twice, 1-0 once (bidirectional), a self link, a link to hidden 3, a link to 9.
+        let edges = [
+            edge(0, 1),
+            edge(0, 1),
+            edge(1, 0),
+            edge(2, 2),
+            edge(0, 3),
+            edge(2, 9),
+        ];
+        let visible = [true, true, true, false];
+        assert_eq!(visible_links(&edges, &visible), vec![(0, 1)]);
+        // All notes visible: 0-1 and 0-3 (the link to 9 is out of range).
+        assert_eq!(visible_links(&edges, &[true; 4]).len(), 2);
+    }
+
+    #[test]
+    fn node_visibility_follows_orphan_and_tag_filters() {
+        assert!(!node_visible(false, 0, true));
+        assert!(node_visible(true, 0, true));
+        assert!(node_visible(false, 2, true));
+        assert!(!node_visible(true, 2, false));
+        assert_eq!(visible_node_count(&[true, false, true]), 2);
+    }
+
+    /// Stats of a graph built from wikilinks, with the given orphan switch and tag predicate.
+    fn stats_of(
+        g: &KnowledgeGraph,
+        show_isolated: bool,
+        tag: impl Fn(usize) -> bool,
+    ) -> (usize, usize) {
+        let visible: Vec<bool> = g
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| node_visible(show_isolated, n.link_count, tag(i)))
+            .collect();
+        (
+            visible_node_count(&visible),
+            visible_links(&g.edges, &visible).len(),
+        )
+    }
+
+    fn sample_graph() -> KnowledgeGraph {
+        use crate::vault::{GraphSource, build_graph};
+        let src = |id: &str, title: &str, content: &str| GraphSource {
+            id: id.into(),
+            title: title.into(),
+            content: content.into(),
+        };
+        // Alpha links Beta twice (`[[Beta]]` and `[[beta]]`) and itself and a missing note;
+        // Beta links Alpha twice; Gamma links Beta once; Lone has no links at all.
+        build_graph(&[
+            src("a", "Alpha", "[[Beta]] [[beta]] [[Alpha]] [[Missing]]"),
+            src("b", "Beta", "[[Alpha]] [[Alpha]]"),
+            src("c", "Gamma", "[[Beta]]"),
+            src("d", "Lone", ""),
+        ])
+    }
+
+    #[test]
+    fn counts_use_distinct_visible_links_not_raw_wikilinks() {
+        let g = sample_graph();
+        // Raw wikilink edges: 4 (A-B via `Beta` and `beta`, B-A, C-B); distinct undirected links: 2.
+        assert_eq!(g.edges.len(), 4);
+        assert_eq!(stats_of(&g, true, |_| true), (4, 2));
+    }
+
+    #[test]
+    fn counts_drop_orphans_when_isolated_notes_are_off() {
+        let g = sample_graph();
+        assert_eq!(stats_of(&g, false, |_| true), (3, 2));
+    }
+
+    #[test]
+    fn counts_follow_the_tag_filter() {
+        let g = sample_graph();
+        // Only Alpha and Beta carry the tag: one link between them.
+        assert_eq!(stats_of(&g, true, |i| i <= 1), (2, 1));
+        // Only Alpha: no links left.
+        assert_eq!(stats_of(&g, true, |i| i == 0), (1, 0));
+    }
+
+    #[test]
+    fn empty_graph_counts_nothing() {
+        let g = KnowledgeGraph::default();
+        assert_eq!(stats_of(&g, true, |_| true), (0, 0));
     }
 }

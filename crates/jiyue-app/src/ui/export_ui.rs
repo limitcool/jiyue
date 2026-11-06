@@ -29,7 +29,6 @@ use jiyue_export::{SiteOptions, export_vault_site};
 use crate::AppCommand;
 use crate::RustdianApp;
 use crate::jobs::spawn_blocking;
-use crate::ui::UI_FONT;
 use crate::ui::ext::{ExtCommand, PaletteCommand, ToastAction, ToastKind};
 use crate::ui::widgets::{ButtonKind, button, modal, overlay};
 
@@ -329,7 +328,7 @@ pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElem
                 .border_color(if on { t.ac } else { t.line })
                 .bg(if on { t.active } else { t.sheet })
                 .cursor_pointer()
-                .font_family(UI_FONT)
+                .font_family(crate::ui::fonts::ui_name())
                 .text_size(px(13.0))
                 .font_weight(if on {
                     FontWeight::SEMIBOLD
@@ -352,7 +351,7 @@ pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElem
         .flex()
         .flex_col()
         .gap(px(12.0))
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(div().text_size(px(12.5)).text_color(t.tx3).child("主题"))
         .child(choices)
         .child(

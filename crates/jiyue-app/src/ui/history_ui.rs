@@ -62,6 +62,11 @@ pub struct State {
     /// Index into `rows` of the version shown on the right.
     pub selected: Option<usize>,
     pub loaded: Option<Loaded>,
+    /// Version (entry id) that `loaded` belongs to. While a newer pick loads, `loaded` still shows
+    /// the previous version; copying uses this to copy only the text that is really shown.
+    pub loaded_id: Option<u64>,
+    /// Diffs already computed in this session, so flipping back and forth does not recompute them.
+    pub diff_cache: pure::DiffCache<Loaded>,
     pub loading_version: bool,
     /// Message under the version view.
     pub note: String,
@@ -238,6 +243,8 @@ pub fn open_modal(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     h.list_error = None;
     h.selected = None;
     h.loaded = None;
+    h.loaded_id = None;
+    h.loading_version = false;
     h.note.clear();
     load_rows(app, cx);
     cx.notify();
@@ -245,9 +252,12 @@ pub fn open_modal(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
 
 /// Closes the dialog.
 pub fn close_modal(app: &mut RustdianApp) {
-    app.ext.history.modal = false;
-    app.ext.history.loaded = None;
-    app.ext.history.selected = None;
+    let h = &mut app.ext.history;
+    h.modal = false;
+    h.loaded = None;
+    h.loaded_id = None;
+    h.loading_version = false;
+    h.selected = None;
 }
 
 /// Reads the versions of the dialog's note in the background.
@@ -290,10 +300,18 @@ pub fn select(app: &mut RustdianApp, index: usize, cx: &mut Context<RustdianApp>
     };
     let path = app.ext.history.path.clone();
     let current = current_text(app, &path, cx);
+    let key = pure::DiffKey::new(row.id.0, &current);
     let h = &mut app.ext.history;
     h.selected = Some(index);
-    h.loaded = None;
     h.note.clear();
+    if let Some(cached) = h.diff_cache.get(key) {
+        h.loading_version = false;
+        h.loaded = Some(cached);
+        h.loaded_id = Some(row.id.0);
+        cx.notify();
+        return;
+    }
+    // The previous diff stays on screen until this one is ready: no empty frame in between.
     h.loading_version = true;
     let asked = path.clone();
     let id = row.id;
@@ -301,14 +319,30 @@ pub fn select(app: &mut RustdianApp, index: usize, cx: &mut Context<RustdianApp>
         cx,
         move || ops::load_version(&store, id, &current),
         move |app, result, cx| {
-            if app.ext.history.path != asked || app.ext.history.selected != Some(index) {
+            if app.ext.history.path != asked {
                 return;
             }
             let h = &mut app.ext.history;
-            h.loading_version = false;
+            // A slow result for an earlier pick is still cached, but it must not replace the view.
+            let is_current = h.selected == Some(index);
             match result {
-                Ok(loaded) => h.loaded = Some(loaded),
-                Err(e) => h.note = format!("无法读取此版本：{e}"),
+                Ok(loaded) => {
+                    h.diff_cache.insert(key, loaded.clone());
+                    if is_current {
+                        h.loaded = Some(loaded);
+                        h.loaded_id = Some(id.0);
+                    }
+                }
+                Err(e) => {
+                    if is_current {
+                        h.loaded = None;
+                        h.loaded_id = None;
+                        h.note = format!("无法读取此版本：{e}");
+                    }
+                }
+            }
+            if is_current {
+                h.loading_version = false;
             }
             cx.notify();
         },
@@ -363,7 +397,16 @@ pub fn restore(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
 
 /// 复制此版本文本: the text of the selected version goes to the clipboard.
 pub fn copy_selected(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
-    let Some(text) = app.ext.history.loaded.as_ref().map(|l| l.text.clone()) else {
+    // Copy only the version the pane shows: while a newer pick loads, `loaded` is the old one.
+    let h = &app.ext.history;
+    let selected_id = h.selected.and_then(|i| h.rows.get(i)).map(|r| r.id.0);
+    let shown = h.loaded_id.filter(|id| Some(*id) == selected_id);
+    let Some(text) = h
+        .loaded
+        .as_ref()
+        .filter(|_| shown.is_some())
+        .map(|l| l.text.clone())
+    else {
         return;
     };
     cx.write_to_clipboard(ClipboardItem::new_string(text));

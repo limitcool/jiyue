@@ -29,7 +29,6 @@ use super::{
     ai_ui, attach_ui, crumb, export_ui, files_ui, history_ui, search_ui, sync_ui, template_ui,
     vaults_ui,
 };
-use crate::ui::UI_FONT;
 use crate::ui::icons::icon;
 use crate::{AppCommand, RustdianApp};
 
@@ -299,7 +298,7 @@ fn toast_layer(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
                 .border_1()
                 .border_color(t.line)
                 .shadow_md()
-                .font_family(UI_FONT)
+                .font_family(crate::ui::fonts::ui_name())
                 .text_size(px(13.0))
                 .text_color(t.tx)
                 .cursor_pointer()

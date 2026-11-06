@@ -10,8 +10,7 @@ use super::ops::{Loaded, Row};
 use super::pure;
 use super::{Backend, close_modal, copy_selected, restore, select};
 use crate::RustdianApp;
-use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
+use crate::theme::{ActiveTheme, RADIUS_M};
 use crate::ui::widgets::{BadgeKind, ButtonKind, badge, button, modal};
 
 /// Most diff lines shown.
@@ -83,7 +82,10 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     modal(
         &t,
         &title,
-        div().w_full().font_family(UI_FONT).child(body),
+        div()
+            .w_full()
+            .font_family(crate::ui::fonts::ui_name())
+            .child(body),
         footer,
         820.0,
         cx.listener(|this, _, _, cx| {
@@ -131,7 +133,9 @@ fn ready_body(t: &ActiveTheme, app: &RustdianApp, cx: &mut Context<RustdianApp>)
         pane = pane.child(text(t, t.st, &h.note));
     }
     if let Some(loaded) = &h.loaded {
-        pane = pane.child(diff_view(t, loaded));
+        // Dimmed while a newer pick loads. The same element stays, so the scroll position is kept.
+        let dim = if h.loading_version { 0.5 } else { 1.0 };
+        pane = pane.child(div().w_full().opacity(dim).child(diff_view(t, loaded)));
     }
 
     div()
@@ -174,7 +178,7 @@ fn version_row(
         .gap(px(3.0))
         .px(px(10.0))
         .py(px(8.0))
-        .rounded(px(8.0))
+        .rounded(px(RADIUS_M))
         .cursor_pointer()
         .bg(if selected { t.active } else { t.sheet })
         .hover(|s| s.bg(t.hover))
@@ -217,7 +221,7 @@ fn diff_view(t: &ActiveTheme, loaded: &Loaded) -> AnyElement {
         .max_h(px(380.0))
         .overflow_y_scroll()
         .p(px(8.0))
-        .rounded(px(8.0))
+        .rounded(px(RADIUS_M))
         .border_1()
         .border_color(t.line_soft)
         .font_family(crate::ui::MONO_FONT)

@@ -9,19 +9,17 @@
 //! right edge of the editor splits the view (`split::split_with_tab`). Ctrl+PageUp/PageDown
 //! switch tabs and Ctrl+Shift+PageUp/PageDown move the active one (`tab_key`).
 
-use gpui::{
-    AnyElement, App, Bounds, Context, DragMoveEvent, ElementId, Entity, FontWeight, IntoElement,
-    MouseButton, MouseDownEvent, Pixels, Point, Rgba, SharedString, Svg, Window, WindowControlArea,
-    div, point, prelude::*, px, relative, rgb, svg,
-};
-
-use super::UI_FONT;
 use super::files_ui::{self, Target};
 use super::icons::icon;
 use super::split;
 use crate::RustdianApp;
 use crate::session;
 use crate::theme::ActiveTheme;
+use gpui::{
+    AnyElement, App, Bounds, Context, DragMoveEvent, ElementId, Entity, FontWeight, IntoElement,
+    MouseButton, MouseDownEvent, Pixels, Point, Rgba, ScrollHandle, SharedString, Svg, Window,
+    WindowControlArea, div, point, prelude::*, px, relative, rgb, svg,
+};
 
 const CAPTION_W: f32 = 46.0;
 const CAPTION_H: f32 = 30.0;
@@ -272,23 +270,23 @@ fn render_strip(
         .filter(|d| d.pane == pane)
         .and_then(|d| d.slot);
 
-    let mut tabs = div()
-        .flex()
-        .flex_row()
-        .items_end()
-        .gap(px(2.0))
-        .h_full()
-        .font_family(UI_FONT);
+    // The tabs are direct children of the scroller, so gpui can scroll the active one into view
+    // (`scroll_to_item`). `active_child` is its index among those children.
+    let mut children: Vec<AnyElement> = Vec::new();
+    let mut active_child = None;
     for (pos, &note_idx) in tab_list.iter().enumerate() {
         if slot == Some(pos) {
-            tabs = tabs.child(insertion_marker(&t));
+            children.push(insertion_marker(&t).into_any_element());
         }
-        tabs = tabs.child(tab_el(app, pane, pos, note_idx, pos == active_pos, cx));
+        if pos == active_pos {
+            active_child = Some(children.len());
+        }
+        children.push(tab_el(app, pane, pos, note_idx, pos == active_pos, cx));
     }
     if slot == Some(tab_list.len()) {
-        tabs = tabs.child(insertion_marker(&t));
+        children.push(insertion_marker(&t).into_any_element());
     }
-    tabs = tabs.child(
+    children.push(
         div()
             .flex()
             .items_center()
@@ -308,8 +306,27 @@ fn render_strip(
                     this.new_note();
                     cx.notify();
                 }),
-            ),
+            )
+            .into_any_element(),
     );
+
+    // Keep the active tab in view when it changed or the strip was resized since the last render.
+    let handle = app.layout.strips[pane].clone();
+    if let Some(child) = active_child {
+        let active_note = tab_list.get(active_pos).copied().unwrap_or(usize::MAX);
+        let width = f32::from(handle.bounds().size.width).round().max(0.0) as u32;
+        let count = children.len();
+        let prev = app.layout.strip_seen[pane].replace(Some((active_note, width, count)));
+        let moved = prev.map(|(n, w, _)| (n, w)) != Some((active_note, width));
+        if moved {
+            // The item bounds of the last frame match the children only when their number did not
+            // change; otherwise gpui reveals the tab once this frame's layout is known.
+            let same_layout = prev.is_some_and(|(_, _, c)| c == count);
+            if !(same_layout && reveal_child(&handle, child)) {
+                handle.scroll_to_item(child);
+            }
+        }
+    }
 
     // The scroller: as wide as its tabs, shrinking (and scrolling) when they do not fit.
     let scroller = div()
@@ -319,12 +336,15 @@ fn render_strip(
         ))
         .flex()
         .flex_row()
+        .items_end()
+        .gap(px(2.0))
         .flex_shrink()
         .min_w_0()
         .mt(px(6.0))
         .h(px(36.0))
+        .font_family(crate::ui::fonts::ui_name())
         .overflow_x_scroll()
-        .track_scroll(&app.layout.strips[pane])
+        .track_scroll(&handle)
         .on_drag_move::<TabDrag>(
             cx.listener(move |this, ev: &DragMoveEvent<TabDrag>, _, cx| {
                 let (dpane, dfrom) = {
@@ -346,7 +366,45 @@ fn render_strip(
                 }
             }),
         )
-        .child(tabs);
+        .children(children);
+
+    // Chevrons at the ends of the strip while its tabs overflow it (the wheel scrolls it too).
+    let scroll_max = f32::from(handle.max_offset().width).max(0.0);
+    let scrolled = -f32::from(handle.offset().x);
+    let (more_left, more_right) = overflow_hints(scrolled, scroll_max);
+    let chevron = |forward: bool| {
+        div()
+            .id(ElementId::NamedInteger(
+                SharedString::from(if forward { "tabs-next" } else { "tabs-prev" }),
+                pane as u64,
+            ))
+            .flex()
+            .items_center()
+            .justify_center()
+            .flex_none()
+            .w(px(20.0))
+            .h(px(36.0))
+            .mt(px(6.0))
+            .rounded(px(6.0))
+            .cursor_pointer()
+            .hover(|s| s.bg(t.hover))
+            .child(icon(
+                if forward {
+                    "chevron-right"
+                } else {
+                    "chevron-left"
+                },
+                13.0,
+                t.tx3,
+            ))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    scroll_strip(this, pane, forward);
+                    cx.notify();
+                }),
+            )
+    };
 
     // The drag area: the empty title bar. It stays clear of the tabs (window control areas are
     // hit-tested apart from the elements), and the last strip leaves the caption buttons' room.
@@ -383,7 +441,9 @@ fn render_strip(
             }
             cx.notify();
         }))
+        .when(more_left, |d| d.child(chevron(false)))
         .child(scroller)
+        .when(more_right, |d| d.child(chevron(true)))
         .child(drag_area);
     wrap = match split_ratio {
         Some(r) if pane == 0 => wrap.flex_none().w(relative(r)),
@@ -610,6 +670,85 @@ fn autoscroll(app: &RustdianApp, pane: usize, x: Pixels, bounds: Bounds<Pixels>)
     true
 }
 
+/// Space kept between a revealed tab and the edge of the strip.
+pub const REVEAL_MARGIN: f32 = 24.0;
+
+/// Scroll amount that shows the content range `start..end` in a viewport of `viewport` px, keeping
+/// `margin` px clear at both edges. `current` is the scroll amount now and `max` the most the strip
+/// can scroll. A range that is wider than the viewport shows its start.
+pub fn reveal_scroll(
+    current: f32,
+    viewport: f32,
+    start: f32,
+    end: f32,
+    margin: f32,
+    max: f32,
+) -> f32 {
+    let want_start = start - margin;
+    let want_end = end + margin;
+    let next = if want_start < current || want_end - want_start > viewport {
+        want_start
+    } else if want_end > current + viewport {
+        want_end - viewport
+    } else {
+        current
+    };
+    next.clamp(0.0, max.max(0.0))
+}
+
+/// Scrolls the strip so that the child `child` is in view with `REVEAL_MARGIN`. Uses the item bounds
+/// of the last frame, so the caller must know that the children did not change. Returns false when
+/// the bounds are not known.
+fn reveal_child(handle: &ScrollHandle, child: usize) -> bool {
+    let Some(item) = handle.bounds_for_item(child) else {
+        return false;
+    };
+    let view = handle.bounds();
+    let offset = handle.offset();
+    let current = -f32::from(offset.x);
+    let max = f32::from(handle.max_offset().width);
+    // The item's position in the viewport moves with the scroll: content = viewport + scroll.
+    let start = f32::from(item.left() - view.left()) + current;
+    let end = start + f32::from(item.size.width);
+    let next = reveal_scroll(
+        current,
+        f32::from(view.size.width),
+        start,
+        end,
+        REVEAL_MARGIN,
+        max,
+    );
+    if (next - current).abs() > 0.5 {
+        handle.set_offset(point(px(-next), offset.y));
+    }
+    true
+}
+
+/// Pixels a chevron scrolls the strip by.
+const STRIP_STEP: f32 = 160.0;
+
+/// Scroll amount after moving by `delta` (negative goes left), kept between 0 and `max` (the most
+/// the strip can scroll: its content width minus its width).
+pub fn scroll_by(current: f32, delta: f32, max: f32) -> f32 {
+    (current + delta).clamp(0.0, max.max(0.0))
+}
+
+/// Which chevrons are shown for a scroll amount: (more to the left, more to the right).
+pub fn overflow_hints(current: f32, max: f32) -> (bool, bool) {
+    let max = max.max(0.0);
+    (current > 0.5, current < max - 0.5)
+}
+
+/// Scrolls the strip of `pane` one step to the left or right (the chevrons).
+fn scroll_strip(app: &RustdianApp, pane: usize, forward: bool) {
+    let handle = &app.layout.strips[pane];
+    let offset = handle.offset();
+    let max = f32::from(handle.max_offset().width);
+    let delta = if forward { STRIP_STEP } else { -STRIP_STEP };
+    let next = scroll_by(-f32::from(offset.x), delta, max);
+    handle.set_offset(point(px(-next), offset.y));
+}
+
 /// Makes the tab at `pos` of the focused pane the active one.
 pub fn activate_tab(app: &mut RustdianApp, pos: usize) {
     if let Some(&note_idx) = app.vault.open_tabs.get(pos) {
@@ -648,5 +787,66 @@ pub fn tab_key(app: &mut RustdianApp, forward: bool, moving: bool) {
         }
     } else if let Some(next) = session::cycle_index(len, active, forward) {
         activate_tab(app, next);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{overflow_hints, reveal_scroll, scroll_by};
+
+    #[test]
+    fn reveal_keeps_the_margin_at_the_left_edge() {
+        // Tab at 200..260, scrolled to 180: the tab starts at 20 px, inside the margin.
+        assert_eq!(
+            reveal_scroll(180.0, 300.0, 200.0, 260.0, 24.0, 900.0),
+            176.0
+        );
+    }
+
+    #[test]
+    fn reveal_keeps_the_margin_at_the_right_edge() {
+        // Tab at 380..440 in a 300 px view scrolled to 0: it ends past the edge less the margin.
+        assert_eq!(reveal_scroll(0.0, 300.0, 380.0, 440.0, 24.0, 900.0), 164.0);
+    }
+
+    #[test]
+    fn visible_tab_does_not_move() {
+        assert_eq!(
+            reveal_scroll(100.0, 300.0, 200.0, 260.0, 24.0, 900.0),
+            100.0
+        );
+    }
+
+    #[test]
+    fn reveal_is_clamped_to_the_strip() {
+        // The first tab: the margin would go below zero.
+        assert_eq!(reveal_scroll(50.0, 300.0, 0.0, 60.0, 24.0, 900.0), 0.0);
+        // The last tab: the margin would go past the strip's end.
+        assert_eq!(reveal_scroll(0.0, 300.0, 880.0, 940.0, 24.0, 620.0), 620.0);
+    }
+
+    #[test]
+    fn wide_tab_shows_its_start() {
+        assert_eq!(reveal_scroll(0.0, 100.0, 300.0, 600.0, 24.0, 900.0), 276.0);
+    }
+
+    #[test]
+    fn scroll_stays_within_the_strip() {
+        assert_eq!(scroll_by(0.0, -160.0, 500.0), 0.0);
+        assert_eq!(scroll_by(0.0, 160.0, 500.0), 160.0);
+        assert_eq!(scroll_by(400.0, 160.0, 500.0), 500.0);
+    }
+
+    #[test]
+    fn no_overflow_means_no_scrolling() {
+        assert_eq!(scroll_by(0.0, 160.0, 0.0), 0.0);
+        assert_eq!(overflow_hints(0.0, 0.0), (false, false));
+    }
+
+    #[test]
+    fn chevrons_follow_the_scroll_position() {
+        assert_eq!(overflow_hints(0.0, 300.0), (false, true));
+        assert_eq!(overflow_hints(150.0, 300.0), (true, true));
+        assert_eq!(overflow_hints(300.0, 300.0), (true, false));
     }
 }

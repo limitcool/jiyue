@@ -359,6 +359,20 @@ pub const SPECS: &[Spec] = &[
         when: When::Global,
         defaults: &["ctrl-shift-pagedown"],
     },
+    Spec {
+        id: "nav.back",
+        label: "后退",
+        category: Category::View,
+        when: When::Global,
+        defaults: &["alt-left"],
+    },
+    Spec {
+        id: "nav.forward",
+        label: "前进",
+        category: Category::View,
+        when: When::Global,
+        defaults: &["alt-right"],
+    },
 ];
 
 /// Ids handled outside `action_for`: the sidebar (`files_ui::tree_key`), the editor (GPUI binding)
@@ -990,6 +1004,8 @@ pub fn action_for(id: &str) -> Option<AppCommand> {
         "pane.split_right" => Some(AppCommand::SplitRight),
         "pane.split_down" => Some(AppCommand::SplitDown),
         "pane.close_split" => Some(AppCommand::CloseSplit),
+        "nav.back" => Some(AppCommand::NavBack),
+        "nav.forward" => Some(AppCommand::NavForward),
         "search.global" => ext(ExtCommand::Search(search_ui::Command::OpenGlobalSearch)),
         "search.find" => ext(ExtCommand::Search(search_ui::Command::OpenFind)),
         "search.replace" => ext(ExtCommand::Search(search_ui::Command::OpenReplace)),
@@ -1038,6 +1054,8 @@ pub fn command_key(command: &AppCommand) -> Option<&'static str> {
         AppCommand::SplitRight => Some("pane.split_right"),
         AppCommand::SplitDown => Some("pane.split_down"),
         AppCommand::CloseSplit => Some("pane.close_split"),
+        AppCommand::NavBack => Some("nav.back"),
+        AppCommand::NavForward => Some("nav.forward"),
         AppCommand::Ext(c) => ext(c),
         _ => None,
     }

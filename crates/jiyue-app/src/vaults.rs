@@ -222,7 +222,11 @@ pub fn recent_rows(
         .iter()
         .map(|path| RecentRow {
             path: path.clone(),
-            name: display_name(path),
+            // The vault's own display name when it has one, otherwise the folder name.
+            name: jiyue_core::config::vault_meta::shown_name(
+                &jiyue_core::config::vault_meta::read_name(Path::new(path)),
+                &display_name(path),
+            ),
             current: current.is_some_and(|c| same_path(c, path)),
             missing: !exists(path),
         })

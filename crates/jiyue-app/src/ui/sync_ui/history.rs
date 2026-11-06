@@ -14,7 +14,6 @@ use super::{Modal, close_modal};
 use crate::RustdianApp;
 use crate::jobs::spawn_blocking;
 use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
 use crate::ui::ext::ToastKind;
 use crate::ui::widgets::{BadgeKind, ButtonKind, badge, button, modal};
 
@@ -300,7 +299,10 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     modal(
         &t,
         &title,
-        div().w_full().font_family(UI_FONT).child(body),
+        div()
+            .w_full()
+            .font_family(crate::ui::fonts::ui_name())
+            .child(body),
         footer,
         780.0,
         cx.listener(|this, _, _, cx| {

@@ -14,21 +14,21 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, ClipboardItem, Context, Div, Entity, FontWeight, IntoElement, KeyDownEvent,
-    MouseDownEvent, PathPromptOptions, Render, SharedString, Window, div, prelude::*, px,
+    AnyElement, App, ClipboardItem, Context, Div, Entity, Focusable, FontWeight, IntoElement,
+    KeyDownEvent, MouseDownEvent, PathPromptOptions, Render, SharedString, Window, div, prelude::*,
+    px,
 };
 
 use crate::AppCommand;
 use crate::RustdianApp;
 use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
 use crate::ui::ext::{ExtCommand, PaletteCommand, ToastKind, reveal_in_explorer};
 use crate::ui::icons::icon;
 use crate::ui::settings::{CAT_LIBRARY, setting_row};
 use crate::ui::widgets::controls::PickIndex;
 use crate::ui::widgets::{
-    BadgeKind, ButtonKind, MenuItem, badge, button, confirm_dialog, context_menu, is_escape,
-    section_title, tooltip,
+    BadgeKind, ButtonKind, LineInput, LineInputEvent, MenuItem, badge, button, confirm_dialog,
+    context_menu, is_escape, modal, section_title, tooltip,
 };
 use crate::vaults::{self, Action, Facts, Mode, RecentRow, RecentStore};
 use jiyue_core::platform;
@@ -50,6 +50,27 @@ pub enum Command {
     CopyPath,
     /// 管理笔记库…: opens the 笔记库 settings page.
     Manage,
+    /// 重命名笔记库…: the display name (stored in the vault's config).
+    RenameName,
+    /// 重命名文件夹…: renames the vault folder on disk and restarts into it.
+    RenameFolder,
+}
+
+/// The rename field of the display name or of the folder name, while its dialog is open.
+pub struct RenameDialog {
+    /// `true` for the folder name, `false` for the display name.
+    pub folder: bool,
+    pub input: Entity<LineInput>,
+    /// The reason the typed name was refused.
+    pub error: Option<String>,
+    /// Keeps the event subscription alive.
+    pub _sub: gpui::Subscription,
+}
+
+/// A folder rename that waits for the user's confirmation.
+pub struct PendingFolder {
+    pub new_name: String,
+    pub target: PathBuf,
 }
 
 /// A switch waiting for the user's answer to a warning.
@@ -76,6 +97,10 @@ pub struct VaultMenu {
 pub struct State {
     pub menu: Option<VaultMenu>,
     pub confirm: Option<PendingSwitch>,
+    /// The rename dialog of the display name or the folder name, while it is open.
+    pub rename: Option<RenameDialog>,
+    /// A folder rename waiting for the user's confirmation.
+    pub folder_go: Option<PendingFolder>,
 }
 
 /// Palette rows of this module.
@@ -99,20 +124,33 @@ pub fn palette_commands() -> Vec<PaletteCommand> {
             shortcut: "",
             command: AppCommand::Ext(ExtCommand::Vaults(Command::Manage)),
         },
+        PaletteCommand {
+            label: "重命名笔记库…",
+            icon: "pencil",
+            shortcut: "",
+            command: AppCommand::Ext(ExtCommand::Vaults(Command::RenameName)),
+        },
     ]
 }
 
 /// True while the sidebar menu or a confirmation is open.
 pub fn overlay_open(app: &RustdianApp) -> bool {
-    app.ext.vaults.menu.is_some() || app.ext.vaults.confirm.is_some()
+    app.ext.vaults.menu.is_some()
+        || app.ext.vaults.confirm.is_some()
+        || app.ext.vaults.rename.is_some()
+        || app.ext.vaults.folder_go.is_some()
 }
 
-/// Escape closes the sidebar menu or cancels the confirmation.
+/// Escape closes the sidebar menu, the rename dialog, or cancels a confirmation.
 pub fn handle_key(app: &mut RustdianApp, ev: &KeyDownEvent, cx: &mut Context<RustdianApp>) -> bool {
     if !is_escape(ev) {
         return false;
     }
-    if app.ext.vaults.menu.take().is_some() || app.ext.vaults.confirm.take().is_some() {
+    let closed = app.ext.vaults.menu.take().is_some()
+        | app.ext.vaults.confirm.take().is_some()
+        | app.ext.vaults.rename.take().is_some()
+        | app.ext.vaults.folder_go.take().is_some();
+    if closed {
         cx.notify();
         return true;
     }
@@ -151,7 +189,137 @@ pub fn run(app: &mut RustdianApp, cmd: Command, cx: &mut Context<RustdianApp>) {
             app.settings.scroll.scroll_to_item(0);
             cx.notify();
         }
+        Command::RenameName => open_rename(app, false, cx),
+        Command::RenameFolder => open_rename(app, true, cx),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Renaming the vault: the display name, and the folder on disk
+// ---------------------------------------------------------------------------
+
+/// Opens the rename dialog with the current name typed in: the display name, or the folder name.
+fn open_rename(app: &mut RustdianApp, folder: bool, cx: &mut Context<RustdianApp>) {
+    let current = if folder {
+        app.vault
+            .root_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string()
+    } else {
+        app.configs.vault_title()
+    };
+    let theme = app.theme;
+    let placeholder = if folder {
+        "文件夹名"
+    } else {
+        "笔记库名称"
+    };
+    let input = cx.new(|cx| LineInput::new(cx, placeholder));
+    input.update(cx, |field, cx| {
+        field.set_theme(theme, cx);
+        field.set_text(&current, cx);
+    });
+    let handle = input.read(cx).focus_handle(cx);
+    crate::ui::search_ui::focus_soon(cx, handle);
+    let sub = cx.subscribe(
+        &input,
+        |this: &mut RustdianApp, _, ev: &LineInputEvent, cx| {
+            on_rename_event(this, ev, cx);
+        },
+    );
+    app.ext.vaults.rename = Some(RenameDialog {
+        folder,
+        input,
+        error: None,
+        _sub: sub,
+    });
+    cx.notify();
+}
+
+fn on_rename_event(app: &mut RustdianApp, ev: &LineInputEvent, cx: &mut Context<RustdianApp>) {
+    match ev {
+        LineInputEvent::Changed(_) => {}
+        LineInputEvent::Cancel => app.ext.vaults.rename = None,
+        LineInputEvent::Submit(raw) => submit_rename(app, raw, cx),
+    }
+    cx.notify();
+}
+
+/// Checks the typed name. A display name is saved at once. A folder name is checked against the
+/// disk and then asks for the confirmation that restarts the app into the new folder.
+fn submit_rename(app: &mut RustdianApp, raw: &str, cx: &mut Context<RustdianApp>) {
+    let Some(folder) = app.ext.vaults.rename.as_ref().map(|d| d.folder) else {
+        return;
+    };
+    if folder {
+        match jiyue_core::config::vault_meta::folder_rename_target(&app.vault.root_dir, raw) {
+            Ok(target) => {
+                app.ext.vaults.rename = None;
+                app.ext.vaults.folder_go = Some(PendingFolder {
+                    new_name: raw.trim().to_string(),
+                    target,
+                });
+            }
+            Err(message) => set_rename_error(app, message),
+        }
+    } else {
+        let root = app.vault.root_dir.clone();
+        match jiyue_core::config::vault_meta::write_name(&root, raw) {
+            Ok(()) => {
+                app.configs.set_vault_display(raw);
+                app.ext.vaults.rename = None;
+                app.toast(ToastKind::Success, "笔记库名称已更新");
+            }
+            Err(message) => set_rename_error(app, message),
+        }
+    }
+    cx.notify();
+}
+
+fn set_rename_error(app: &mut RustdianApp, message: String) {
+    if let Some(dialog) = app.ext.vaults.rename.as_mut() {
+        dialog.error = Some(message);
+    }
+}
+
+/// Renames the vault folder, then restarts into it: the same hand-over as a vault switch (save,
+/// exit sync, a new process for the new path). Nothing is renamed when a save fails.
+pub fn apply_folder_rename(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    let Some(pending) = app.ext.vaults.folder_go.take() else {
+        return;
+    };
+    let old = app.vault.root_dir.clone();
+    let failed = app.prepare_exit(cx);
+    if !failed.is_empty() {
+        app.toast(
+            ToastKind::Error,
+            format!("{} 个笔记未能保存，暂不重命名文件夹", failed.len()),
+        );
+        cx.notify();
+        return;
+    }
+    if let Err(err) = std::fs::rename(&old, &pending.target) {
+        app.toast(
+            ToastKind::Error,
+            format!("无法重命名文件夹（可能正被其他程序占用）：{err}"),
+        );
+        cx.notify();
+        return;
+    }
+    let new = pending.target.display().to_string();
+    if let Err(err) = vaults::update_store(|s| s.remove(&old.display().to_string())) {
+        app.toast(ToastKind::Warn, format!("无法更新最近笔记库：{err}"));
+    }
+    if let Err(err) = vaults::record_opened(&new) {
+        app.toast(ToastKind::Warn, format!("无法记录最近笔记库：{err}"));
+    }
+    vaults::request_relaunch(&new, app.theme.kind);
+    if crate::ui::sync_ui::on_close_requested(app, cx) {
+        cx.quit();
+    }
+    cx.notify();
 }
 
 // ---------------------------------------------------------------------------
@@ -399,6 +567,16 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
             |app, cx| {
                 run(app, Command::NewPicker, cx);
             },
+        ))
+        .child(app_button(
+            &me,
+            &t,
+            "重命名文件夹…",
+            ButtonKind::Secondary,
+            "folder",
+            |app, cx| {
+                run(app, Command::RenameFolder, cx);
+            },
         ));
 
     let mut list = div().flex().flex_col();
@@ -419,6 +597,34 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
         .flex()
         .flex_col()
         .mt(px(10.0))
+        .child(setting_row(
+            &t,
+            "笔记库名称",
+            "显示在侧栏、窗口标题和最近列表中",
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.0))
+                .child(
+                    div()
+                        .max_w(px(200.0))
+                        .overflow_hidden()
+                        .text_size(px(13.0))
+                        .text_color(t.tx)
+                        .child(SharedString::from(app.configs.vault_title())),
+                )
+                .child(app_button(
+                    &me,
+                    &t,
+                    "重命名",
+                    ButtonKind::Secondary,
+                    "pencil",
+                    |app, cx| {
+                        run(app, Command::RenameName, cx);
+                    },
+                )),
+            false,
+        ))
         .child(setting_row(
             &t,
             "笔记库位置",
@@ -563,6 +769,8 @@ pub fn open_menu(app: &mut RustdianApp, pos: (f32, f32), window: &Window) {
         items.push(MenuItem::separator());
         acts.push(None);
     }
+    items.push(MenuItem::new("重命名笔记库…").icon("pencil"));
+    acts.push(Some(Command::RenameName));
     items.push(MenuItem::new("打开其他笔记库…").icon("folder-open"));
     acts.push(Some(Command::OpenPicker));
     items.push(MenuItem::new("新建笔记库…").icon("folder-plus"));
@@ -577,11 +785,116 @@ pub fn open_menu(app: &mut RustdianApp, pos: (f32, f32), window: &Window) {
     });
 }
 
+/// The dialog that renames the display name or the folder name.
+fn rename_modal(
+    app: &RustdianApp,
+    dialog: &RenameDialog,
+    cx: &mut Context<RustdianApp>,
+) -> AnyElement {
+    let t = app.theme;
+    let (title, hint) = if dialog.folder {
+        ("重命名文件夹", "文件夹会改名，霁月随后重新打开它。")
+    } else {
+        (
+            "重命名笔记库",
+            "显示在侧栏、窗口标题和最近列表中，不会改动文件夹。",
+        )
+    };
+    let mut body = div()
+        .flex()
+        .flex_col()
+        .gap(px(8.0))
+        .child(div().text_size(px(12.5)).text_color(t.tx3).child(hint))
+        .child(dialog.input.clone());
+    if let Some(message) = dialog.error.as_ref() {
+        body = body.child(
+            div()
+                .text_size(px(11.5))
+                .text_color(gpui::rgb(0xE5484D))
+                .child(SharedString::from(message.clone())),
+        );
+    }
+    let footer = vec![
+        button(
+            &t,
+            "取消",
+            ButtonKind::Ghost,
+            None,
+            cx.listener(|this: &mut RustdianApp, _: &MouseDownEvent, _, cx| {
+                this.ext.vaults.rename = None;
+                cx.notify();
+            }),
+        )
+        .into_any_element(),
+        button(
+            &t,
+            "保存",
+            ButtonKind::Primary,
+            None,
+            cx.listener(|this: &mut RustdianApp, _: &MouseDownEvent, _, cx| {
+                let raw = this
+                    .ext
+                    .vaults
+                    .rename
+                    .as_ref()
+                    .map(|d| d.input.read(cx).text())
+                    .unwrap_or_default();
+                submit_rename(this, &raw, cx);
+            }),
+        )
+        .into_any_element(),
+    ];
+    modal(
+        &t,
+        title,
+        body,
+        footer,
+        420.0,
+        cx.listener(|this: &mut RustdianApp, _: &MouseDownEvent, _, cx| {
+            this.ext.vaults.rename = None;
+            cx.notify();
+        }),
+    )
+}
+
+/// The confirmation before a folder rename: the app saves, renames the folder and restarts.
+fn folder_confirm(
+    app: &RustdianApp,
+    pending: &PendingFolder,
+    cx: &mut Context<RustdianApp>,
+) -> AnyElement {
+    let t = app.theme;
+    let message = format!(
+        "文件夹将改名为「{}」。霁月会先保存所有笔记，然后关闭，并重新打开新的文件夹。",
+        pending.new_name
+    );
+    confirm_dialog(
+        &t,
+        "重命名文件夹？",
+        &message,
+        "重命名并重新打开",
+        false,
+        cx.listener(|this: &mut RustdianApp, _: &MouseDownEvent, _, cx| {
+            apply_folder_rename(this, cx);
+        }),
+        cx.listener(|this: &mut RustdianApp, _: &MouseDownEvent, _, cx| {
+            this.ext.vaults.folder_go = None;
+            cx.notify();
+        }),
+    )
+}
+
 /// The sidebar menu and the confirmation, drawn over the window.
 pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElement> {
     let t = app.theme;
     let me = cx.entity();
     let mut out = Vec::new();
+    if let Some(dialog) = app.ext.vaults.rename.as_ref() {
+        out.push(rename_modal(app, dialog, cx));
+    }
+    if let Some(pending) = app.ext.vaults.folder_go.as_ref() {
+        out.push(folder_confirm(app, pending, cx));
+    }
     if let Some(menu) = app.ext.vaults.menu.as_ref() {
         let pick_me = me.clone();
         let close_me = me.clone();
@@ -849,7 +1162,7 @@ impl Render for VaultChooser {
             .pt(px(36.0))
             .pb(px(24.0))
             .bg(t.raised)
-            .font_family(UI_FONT)
+            .font_family(crate::ui::fonts::ui_name())
             .text_size(px(13.0))
             .text_color(t.tx)
             .child(

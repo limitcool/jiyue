@@ -16,7 +16,6 @@ use super::pure::{self, DiffKind, DiffRow, MoveCheck};
 use super::recovery::{self, RecoveryItem};
 use super::{actions, watch};
 use crate::RustdianApp;
-use crate::ui::UI_FONT;
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
 use crate::ui::widgets::controls::{ButtonKind, button, empty_state, icon_button};
@@ -35,8 +34,8 @@ pub enum Modal {
     },
     /// Pick a folder to move `path` into.
     Move {
-        path: String,
-        is_dir: bool,
+        /// The rows to move (`(path, is_dir)`): one row, or the effective roots of a selection.
+        items: Vec<(String, bool)>,
         filter: Entity<LineInput>,
         query: String,
         _sub: Subscription,
@@ -58,6 +57,8 @@ pub enum Modal {
 pub enum Confirm {
     /// Move a note or folder to the trash.
     Delete { path: String, is_dir: bool },
+    /// Move several rows (`(path, is_dir)`) to the trash at once.
+    DeleteMany(Vec<(String, bool)>),
     /// Delete a trash entry for good.
     Purge(TrashEntry),
     /// Empty the trash (the number of entries).
@@ -90,8 +91,26 @@ pub fn confirm_delete(app: &mut RustdianApp, path: String, is_dir: bool) {
     app.ext.files.modal = Some(Modal::Confirm(Confirm::Delete { path, is_dir }));
 }
 
+/// One confirmation for the rows of a multi-selection.
+pub fn confirm_delete_many(app: &mut RustdianApp, items: Vec<(String, bool)>) {
+    app.ext.files.menu = None;
+    if items.is_empty() {
+        return;
+    }
+    app.ext.files.modal = Some(Modal::Confirm(Confirm::DeleteMany(items)));
+}
+
 /// Opens the folder picker for moving `path`.
 pub fn open_move(app: &mut RustdianApp, path: String, is_dir: bool, cx: &mut Context<RustdianApp>) {
+    open_move_items(app, vec![(path, is_dir)], cx);
+}
+
+/// Opens the folder picker for moving several rows (`(path, is_dir)`).
+pub fn open_move_items(
+    app: &mut RustdianApp,
+    items: Vec<(String, bool)>,
+    cx: &mut Context<RustdianApp>,
+) {
     app.ext.files.menu = None;
     let theme = app.theme;
     let filter = cx.new(|cx| {
@@ -112,14 +131,9 @@ pub fn open_move(app: &mut RustdianApp, path: String, is_dir: bool, cx: &mut Con
                 LineInputEvent::Submit(_) => {
                     // Enter moves into the first folder that matches the filter.
                     let first = match app.ext.files.modal.as_ref() {
-                        Some(Modal::Move {
-                            path,
-                            is_dir,
-                            query,
-                            ..
-                        }) => move_candidates(app, path, *is_dir, query)
-                            .into_iter()
-                            .next(),
+                        Some(Modal::Move { items, query, .. }) => {
+                            move_candidates(app, items, query).into_iter().next()
+                        }
                         _ => None,
                     };
                     if let Some(dest) = first {
@@ -135,8 +149,7 @@ pub fn open_move(app: &mut RustdianApp, path: String, is_dir: bool, cx: &mut Con
     );
     let focus = filter.clone();
     app.ext.files.modal = Some(Modal::Move {
-        path,
-        is_dir,
+        items,
         filter,
         query: String::new(),
         _sub: sub,
@@ -151,24 +164,26 @@ pub fn open_move(app: &mut RustdianApp, path: String, is_dir: bool, cx: &mut Con
 }
 
 /// Folders a move of `path` can go to, matching `query` (case-insensitive). The root is `""`.
-fn move_candidates(app: &RustdianApp, path: &str, is_dir: bool, query: &str) -> Vec<String> {
+fn move_candidates(app: &RustdianApp, items: &[(String, bool)], query: &str) -> Vec<String> {
     let needle = query.trim().to_lowercase();
     std::iter::once(String::new())
         .chain(app.vault.folders.iter().cloned())
-        .filter(|dest| matches!(pure::move_target(path, is_dir, dest), MoveCheck::Move(_)))
+        .filter(|dest| {
+            items.iter().any(|(path, is_dir)| {
+                matches!(pure::move_target(path, *is_dir, dest), MoveCheck::Move(_))
+            })
+        })
         .filter(|dest| needle.is_empty() || dest.to_lowercase().contains(&needle))
         .collect()
 }
 
 /// Moves the item of the open picker into `dest` and closes the picker.
 fn move_from_picker(app: &mut RustdianApp, dest: String, cx: &mut Context<RustdianApp>) {
-    let Some(Modal::Move { path, is_dir, .. }) = app.ext.files.modal.take() else {
+    let Some(Modal::Move { items, .. }) = app.ext.files.modal.take() else {
         return;
     };
     super::with_window(cx, move |app, window, cx| {
-        if let Err(message) = actions::move_item(app, window, &path, is_dir, &dest, cx) {
-            app.toast(ToastKind::Error, message);
-        }
+        actions::move_items(app, window, &items, &dest, cx);
         cx.notify();
     });
     cx.notify();
@@ -286,13 +301,12 @@ pub fn overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Option<AnyEl
             modal(&t, "回收站", body, footer, 580.0, on_close)
         }
         Modal::Move {
-            path,
-            is_dir,
+            items,
             filter,
             query,
             ..
         } => {
-            let candidates = move_candidates(app, path, *is_dir, query);
+            let candidates = move_candidates(app, items, query);
             let mut list = div()
                 .id("move-folder-list")
                 .flex()
@@ -343,7 +357,10 @@ pub fn overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Option<AnyEl
                         }),
                 );
             }
-            let name = pure::name_of(path).to_string();
+            let name = match items.as_slice() {
+                [(one, _)] => pure::name_of(one).to_string(),
+                many => format!("{} 项", many.len()),
+            };
             let body = div()
                 .flex()
                 .flex_col()
@@ -444,6 +461,12 @@ fn confirm_texts(confirm: &ConfirmKey) -> (String, String, String, bool) {
             "移到回收站".to_string(),
             true,
         ),
+        ConfirmKey::DeleteMany(items) => (
+            "移到回收站".to_string(),
+            format!("将选中的 {} 项移到回收站，之后仍可以恢复。", items.len()),
+            "移到回收站".to_string(),
+            true,
+        ),
         ConfirmKey::Purge { name, .. } => (
             "永久删除".to_string(),
             format!("「{name}」将被永久删除，无法恢复。"),
@@ -478,6 +501,7 @@ fn confirm_texts(confirm: &ConfirmKey) -> (String, String, String, bool) {
 #[derive(Clone)]
 enum ConfirmKey {
     Delete { path: String, is_dir: bool },
+    DeleteMany(Vec<(String, bool)>),
     Purge { entry: TrashEntry, name: String },
     Empty(usize),
     DiscardRecovery(Vec<String>),
@@ -495,6 +519,7 @@ impl CloneKey for Confirm {
                 path: path.clone(),
                 is_dir: *is_dir,
             },
+            Confirm::DeleteMany(items) => ConfirmKey::DeleteMany(items.clone()),
             Confirm::Purge(entry) => ConfirmKey::Purge {
                 entry: entry.clone(),
                 name: entry.original.clone(),
@@ -525,6 +550,10 @@ fn run_confirm(app: &mut RustdianApp, confirm: ConfirmKey, cx: &mut Context<Rust
             if let Err(message) = actions::delete_item(app, &path, is_dir, cx) {
                 app.toast(ToastKind::Error, message);
             }
+        }
+        ConfirmKey::DeleteMany(items) => {
+            app.ext.files.selection.clear();
+            actions::delete_items(app, &items, cx);
         }
         ConfirmKey::Purge { entry, .. } => {
             match purge_entry(app, &entry) {
@@ -649,7 +678,7 @@ pub(super) fn diff_body(t: &crate::theme::ActiveTheme, rows: Option<&[DiffRow]>)
     let mut column = div()
         .flex()
         .flex_col()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(12.5));
     column = column.child(
         div()

@@ -10,7 +10,6 @@ use super::service::RunKind;
 use super::{Confirm, close_modal, reset_state, schedule, start_run};
 use crate::RustdianApp;
 use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
 use crate::ui::ext::{ExtEvent, ToastKind};
 use crate::ui::widgets::controls::clamp_fraction;
 use crate::ui::widgets::{
@@ -33,7 +32,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         .flex_col()
         .gap(px(14.0))
         .w_full()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(status_block(&t, app))
         .child(report_block(&t, app, cx))
         .child(conflicts_block(&t, app, cx));

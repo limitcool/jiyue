@@ -18,7 +18,6 @@ use super::{Confirm, new_vault_id};
 use crate::RustdianApp;
 use crate::jobs::spawn_blocking;
 use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
 use crate::ui::text_input::TextEditor;
 use crate::ui::widgets::line_input::LineInput;
 use crate::ui::widgets::{
@@ -312,7 +311,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         .h(px(440.0))
         .pr(px(10.0))
         .overflow_y_scroll()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(
             div()
                 .flex()

@@ -7,9 +7,9 @@ use gpui::{
 };
 
 use crate::daily::{self, DailySettings, Date};
-use crate::theme::{ActiveTheme, ThemeKind};
+use crate::theme::{ActiveTheme, RADIUS_L, ThemeKind};
 use crate::ui::icons::icon;
-use crate::ui::{UI_FONT, display_family};
+use crate::ui::{display_family, fonts};
 use crate::{AppCommand, RustdianApp};
 
 /// Index of the 外观 category (the default when the dialog opens).
@@ -50,6 +50,8 @@ pub struct SettingsState {
     pub daily: Option<DailySettings>,
     /// Scroll position of the right pane. Reset to the top when the category changes.
     pub scroll: ScrollHandle,
+    /// Open font picker and number field of the 外观 page (see `ui/fonts_ui.rs`).
+    pub fonts: crate::ui::fonts_ui::FontUi,
 }
 
 impl Default for SettingsState {
@@ -59,6 +61,7 @@ impl Default for SettingsState {
             category: CAT_APPEARANCE,
             daily: None,
             scroll: ScrollHandle::default(),
+            fonts: Default::default(),
         }
     }
 }
@@ -66,6 +69,9 @@ impl Default for SettingsState {
 /// Keyboard handling while the dialog is open. Return true when the key was consumed.
 pub fn handle_key(app: &mut RustdianApp, ev: &KeyDownEvent) -> bool {
     if app.settings.open && ev.keystroke.key == "escape" {
+        if crate::ui::fonts_ui::handle_escape(app) {
+            return true;
+        }
         app.settings.open = false;
         return true;
     }
@@ -116,6 +122,8 @@ impl RustdianApp {
             .flex_none()
             .h_full()
             .bg(t.chrome)
+            // The dialog clips only its rectangle: the nav paints its own left corners.
+            .rounded_l(px(RADIUS_L))
             .pt(px(20.0))
             .pb(px(14.0))
             .pl(px(12.0))
@@ -196,7 +204,7 @@ impl RustdianApp {
             .flex()
             .w(px(820.0))
             .h(px(540.0))
-            .rounded(px(14.0))
+            .rounded(px(RADIUS_L))
             .overflow_hidden()
             .bg(t.raised)
             .border_1()
@@ -216,7 +224,7 @@ impl RustdianApp {
             .bg(scrim)
             // Blocks the mouse for the sidebar and the editor below the scrim.
             .occlude()
-            .font_family(UI_FONT)
+            .font_family(fonts::ui_name())
             .text_size(px(13.0))
             .text_color(t.tx)
             .on_mouse_down(
@@ -629,6 +637,7 @@ fn appearance_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             right_toggle,
             true,
         ))
+        .child(crate::ui::fonts_ui::render_section(app, cx))
 }
 
 fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {

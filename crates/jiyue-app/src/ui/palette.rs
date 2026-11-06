@@ -1,6 +1,7 @@
 //! Command palette and quick switcher (Ctrl+K: notes first, Ctrl+P: commands first).
 //! Layout follows the original palette mock-up.
 
+use crate::ui::{ext, folder_key, keymap};
 use gpui::{
     AnyElement, Context, ElementId, Entity, FontWeight, IntoElement, KeyDownEvent, MouseButton,
     ScrollHandle, SharedString, Subscription, div, prelude::*, px,
@@ -9,7 +10,6 @@ use gpui::{
 use crate::theme::{ActiveTheme, ThemeKind};
 use crate::ui::icons::icon;
 use crate::ui::widgets::{LineInput, LineInputEvent};
-use crate::ui::{UI_FONT, ext, folder_key, keymap};
 use crate::{AppCommand, RustdianApp};
 
 /// Notes shown under 最近笔记 when the query is empty.
@@ -97,6 +97,8 @@ pub fn commands() -> Vec<PaletteCommand> {
         ),
         cmd("向下拆分", "arrow-down", "", AppCommand::SplitDown),
         cmd("关闭分屏", "x", "", AppCommand::CloseSplit),
+        cmd("后退", "chevron-left", "", AppCommand::NavBack),
+        cmd("前进", "chevron-right", "", AppCommand::NavForward),
         cmd("切换侧栏", "folder", "Ctrl B", AppCommand::ToggleSidebar),
         cmd(
             "切换右栏",
@@ -559,7 +561,7 @@ impl RustdianApp {
             .rounded(px(14.0))
             .shadow_lg()
             .overflow_hidden()
-            .font_family(UI_FONT)
+            .font_family(crate::ui::fonts::ui_name())
             .text_size(px(13.0))
             .text_color(t.tx)
             .child(search)

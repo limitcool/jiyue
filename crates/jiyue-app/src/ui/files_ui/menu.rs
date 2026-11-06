@@ -7,7 +7,7 @@ use std::rc::Rc;
 use gpui::{AnyElement, App, Context, MouseDownEvent, Window};
 
 use super::pure::{Act, Target};
-use super::{InlineKind, actions, modals, pure, start_inline, with_window};
+use super::{InlineKind, actions, batch, modals, pure, selected_items, start_inline, with_window};
 use crate::RustdianApp;
 use crate::ui::split;
 use crate::ui::split_model::SplitDir;
@@ -51,8 +51,16 @@ pub struct Menu {
 
 /// Opens the menu for `target` at `pos`.
 pub fn open(app: &mut RustdianApp, target: Target, pos: (f32, f32), win: (f32, f32)) {
+    let batch_menu = match &target {
+        Target::Tree { path, .. } => super::acts_on_selection(app, path),
+        _ => false,
+    };
     let rows: Vec<(MenuItem, Option<Cmd>)> = match &target {
         Target::Tab(p) => tab_rows(app, *p),
+        _ if batch_menu => pure::batch_menu_rows()
+            .into_iter()
+            .map(|(item, act)| (item, act.map(Cmd::Files)))
+            .collect(),
         _ => pure::menu_rows(&target)
             .into_iter()
             .map(|(item, act)| (item, act.map(Cmd::Files)))
@@ -235,6 +243,35 @@ fn run_act(app: &mut RustdianApp, act: Act, window: &mut Window, cx: &mut Contex
         Act::Bookmark(path) => crate::ui::ext::bookmarks::toggle_path(app, &path, cx),
         Act::Reveal(path) => actions::reveal(app, &path),
         Act::Delete { path, is_dir } => modals::confirm_delete(app, path, is_dir),
+        Act::BatchMove => {
+            let items = selected_items(app);
+            modals::open_move_items(app, items, cx);
+        }
+        Act::BatchCopyPath => {
+            let rels: Vec<String> = selected_items(app).into_iter().map(|(p, _)| p).collect();
+            actions::copy_paths(app, &rels, cx);
+        }
+        Act::BatchBookmark => {
+            let paths: Vec<String> = selected_items(app).into_iter().map(|(p, _)| p).collect();
+            let toggles = {
+                let st: &RustdianApp = app;
+                batch::bookmark_toggles(&paths, &|p| {
+                    crate::ui::ext::bookmarks::is_bookmarked(st, p)
+                })
+            };
+            for path in toggles {
+                crate::ui::ext::bookmarks::toggle_path(app, &path, cx);
+            }
+        }
+        Act::BatchReveal => {
+            if let Some((first, _)) = selected_items(app).into_iter().next() {
+                actions::reveal(app, &first);
+            }
+        }
+        Act::BatchDelete => {
+            let items = selected_items(app);
+            modals::confirm_delete_many(app, items);
+        }
         Act::CloseTab(_)
         | Act::CloseOthers(_)
         | Act::CloseRight(_)

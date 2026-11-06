@@ -18,7 +18,6 @@ use super::{
 };
 use crate::RustdianApp;
 use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
 use crate::ui::widgets::controls::PickIndex;
@@ -718,7 +717,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         .h(px(SCROLL_HEIGHT))
         .overflow_y_scroll()
         .pr(px(6.0))
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(col)
         .into_any_element()
 }

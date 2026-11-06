@@ -24,6 +24,8 @@ pub struct TreeDrag {
     /// Vault-relative path of the note, or the folder key.
     pub path: String,
     pub is_dir: bool,
+    /// Every row that moves with this drag: the selection when the dragged row is part of it, else the row alone.
+    pub items: Vec<(String, bool)>,
     pub theme: ActiveTheme,
 }
 
@@ -58,7 +60,11 @@ pub fn preview(
     _window: &mut Window,
     cx: &mut App,
 ) -> Entity<DragPreview> {
-    let label = name_of(&value.path).to_string();
+    let label = if value.items.len() > 1 {
+        format!("{} 项", value.items.len())
+    } else {
+        name_of(&value.path).to_string()
+    };
     let theme = value.theme;
     cx.new(|_| DragPreview {
         label: SharedString::from(label),
@@ -86,7 +92,11 @@ pub fn drop_into(
     cx: &mut Context<RustdianApp>,
 ) {
     app.ext.files.drag_hover = None;
-    if let Err(message) = actions::move_item(app, window, &drag.path, drag.is_dir, dest_dir, cx) {
+    if drag.items.len() > 1 {
+        actions::move_items(app, window, &drag.items, dest_dir, cx);
+    } else if let Err(message) =
+        actions::move_item(app, window, &drag.path, drag.is_dir, dest_dir, cx)
+    {
         app.toast(ToastKind::Error, message);
     }
     cx.notify();

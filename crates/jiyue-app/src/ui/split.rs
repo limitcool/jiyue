@@ -37,6 +37,10 @@ pub struct Layout {
     pub split: Option<SplitState>,
     /// Scroll position of each pane's tab strip (index = physical pane).
     pub strips: [ScrollHandle; 2],
+    /// Per pane, as last rendered: the active note, the strip width and the number of its children
+    /// (see `tabbar::render_strip`). A change of the active note or the width brings the active tab
+    /// into view.
+    pub strip_seen: [std::cell::Cell<Option<(usize, u32, usize)>>; 2],
     /// A tab being dragged, and the gap it would land in.
     pub tab_drag: Option<TabDragState>,
     /// The workspace file text as last written, so an unchanged layout is not written again.

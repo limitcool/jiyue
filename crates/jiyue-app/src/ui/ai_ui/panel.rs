@@ -7,8 +7,6 @@ use super::markdown::{self, Block};
 use super::{editing, effective_config, errors};
 use crate::RustdianApp;
 use crate::theme::ActiveTheme;
-use crate::ui::MONO_FONT;
-use crate::ui::UI_FONT;
 use crate::ui::icons::icon;
 use crate::ui::widgets::{ButtonKind, button, icon_button};
 use gpui::{
@@ -150,7 +148,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         .rounded(px(12.0))
         .shadow_lg()
         .overflow_hidden()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(13.0))
         .text_color(t.tx)
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -740,7 +738,12 @@ fn render_blocks(app: &RustdianApp, text: &str, cx: &mut Context<RustdianApp>) -
                                         ),
                                 ),
                         )
-                        .child(div().font_family(MONO_FONT).text_size(px(12.0)).child(text)),
+                        .child(
+                            div()
+                                .font_family(crate::ui::fonts::code_name())
+                                .text_size(px(12.0))
+                                .child(text),
+                        ),
                 );
             }
         }

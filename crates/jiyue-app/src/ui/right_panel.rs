@@ -14,7 +14,7 @@ use super::inline::rich_text;
 use super::widgets::{LineInput, LineInputEvent};
 use crate::RustdianApp;
 use crate::buffer::HeadingItem;
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, ICON_GAP_TIGHT, ICON_SIZE, RADIUS_M, RADIUS_S};
 
 /// Red of the inline hint (the same red as the palette's danger rows).
 const DANGER_RGB: u32 = 0xE5484D;
@@ -53,7 +53,7 @@ pub fn render_right_panel(
         .pb(px(12.0))
         .border_l_1()
         .border_color(t.line_soft)
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(properties_section(app, cx))
         .child(section_title(&t, "大纲", headings.len(), 0.0))
         .child(outline(app, &headings, cx))
@@ -114,7 +114,7 @@ fn properties_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEl
             div()
                 .flex()
                 .items_center()
-                .gap(px(6.0))
+                .gap(px(ICON_GAP_TIGHT))
                 .child(icon(
                     if collapsed {
                         "chevron-right"
@@ -160,15 +160,15 @@ fn properties_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEl
                 .mt(px(4.0))
                 .flex()
                 .items_center()
-                .gap(px(6.0))
+                .gap(px(ICON_GAP_TIGHT))
                 .h(px(26.0))
                 .px(px(8.0))
-                .rounded(px(6.0))
+                .rounded(px(RADIUS_S))
                 .text_size(px(12.0))
                 .text_color(t.ac)
                 .cursor_pointer()
                 .hover(|s| s.bg(t.hover))
-                .child(icon("plus", 12.0, t.ac))
+                .child(icon("plus", ICON_SIZE, t.ac))
                 .child("添加属性")
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                     attach_ui::edit_active_text(this, props::add_property, cx);
@@ -200,7 +200,7 @@ fn prop_row(
                 .items_center()
                 .justify_center()
                 .size(px(16.0))
-                .rounded(px(4.0))
+                .rounded(px(RADIUS_S))
                 .border_1()
                 .cursor_pointer()
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -221,48 +221,10 @@ fn prop_row(
             };
             boxed.into_any_element()
         }
-        Value::List(items) => {
-            let mut chips = div().flex().flex_wrap().gap(px(5.0));
-            for (j, item) in items.iter().enumerate() {
-                let item_text = item.clone();
-                let key = key.clone();
-                chips = chips.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.0))
-                        .h(px(20.0))
-                        .pl(px(8.0))
-                        .pr(px(4.0))
-                        .rounded_full()
-                        .bg(t.ac_soft)
-                        .text_size(px(12.0))
-                        .text_color(t.ac)
-                        .child(SharedString::from(item.clone()))
-                        .child(
-                            div()
-                                .id(ElementId::NamedInteger(
-                                    SharedString::from("prop-chip"),
-                                    (idx * 1000 + j) as u64,
-                                ))
-                                .px(px(3.0))
-                                .rounded_full()
-                                .cursor_pointer()
-                                .hover(|s| s.bg(t.hover))
-                                .child(icon("x", 10.0, t.ac))
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    let key = key.clone();
-                                    let item_text = item_text.clone();
-                                    attach_ui::edit_active_text(
-                                        this,
-                                        move |text| props::remove_list_item(text, &key, &item_text),
-                                        cx,
-                                    );
-                                })),
-                        ),
-                );
-            }
-            chips.into_any_element()
+        Value::List(items) => chip_row(app, idx, &key, items, cx),
+        // A tag list written as one string (`tags: a, b`) is shown as chips too.
+        Value::Text(s) if props::is_tag_key(&key) => {
+            chip_row(app, idx, &key, &frontmatter::split_tokens(s), cx)
         }
         other => match props::kind_of(other) {
             Some(kind) => inline_value(app, idx, prop, kind, cx),
@@ -275,6 +237,13 @@ fn prop_row(
     };
 
     let del_key = prop.key.clone();
+    // The name column is wider while its rename field is open.
+    let editing = app
+        .ext
+        .attach
+        .key_edit
+        .as_ref()
+        .is_some_and(|e| e.key == prop.key);
     div()
         .flex()
         .items_start()
@@ -284,13 +253,13 @@ fn prop_row(
         .border_color(t.line_soft)
         .child(
             div()
-                .w(px(78.0))
+                .w(px(if editing { 150.0 } else { 78.0 }))
                 .flex_none()
                 .pt(px(2.0))
                 .text_size(px(12.0))
                 .text_color(t.tx3)
                 .overflow_hidden()
-                .child(SharedString::from(prop.key.clone())),
+                .child(key_label(app, idx, &prop.key, cx)),
         )
         .child(div().flex_1().min_w_0().child(value))
         .child(
@@ -301,7 +270,7 @@ fn prop_row(
                 ))
                 .flex_none()
                 .p(px(2.0))
-                .rounded(px(4.0))
+                .rounded(px(RADIUS_S))
                 .cursor_pointer()
                 .hover(|s| s.bg(t.hover))
                 .child(icon("x", 12.0, t.tx3))
@@ -315,6 +284,170 @@ fn prop_row(
                 })),
         )
         .into_any_element()
+}
+
+/// The chips of a list of items (a tag list). The × removes that item from the property.
+fn chip_row(
+    app: &RustdianApp,
+    idx: usize,
+    key: &str,
+    items: &[String],
+    cx: &mut Context<RustdianApp>,
+) -> AnyElement {
+    let t = app.theme;
+    let mut chips = div().flex().flex_wrap().gap(px(5.0));
+    for (j, item) in items.iter().enumerate() {
+        let item_text = item.clone();
+        let key = key.to_string();
+        chips = chips.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.0))
+                .h(px(20.0))
+                .pl(px(8.0))
+                .pr(px(4.0))
+                .rounded_full()
+                .bg(t.ac_soft)
+                .text_size(px(12.0))
+                .text_color(t.ac)
+                .child(SharedString::from(item.clone()))
+                .child(
+                    div()
+                        .id(ElementId::NamedInteger(
+                            SharedString::from("prop-chip"),
+                            (idx * 1000 + j) as u64,
+                        ))
+                        .px(px(3.0))
+                        .rounded_full()
+                        .cursor_pointer()
+                        .hover(|s| s.bg(t.hover))
+                        .child(icon("x", 10.0, t.ac))
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            let key = key.clone();
+                            let item_text = item_text.clone();
+                            attach_ui::edit_active_text(
+                                this,
+                                move |text| frontmatter::remove_tag(text, &key, &item_text),
+                                cx,
+                            );
+                        })),
+                ),
+        );
+    }
+    chips.into_any_element()
+}
+
+/// The name of a property row. A click opens the rename field (Enter renames, Esc cancels).
+fn key_label(
+    app: &RustdianApp,
+    idx: usize,
+    key: &str,
+    cx: &mut Context<RustdianApp>,
+) -> AnyElement {
+    let t = app.theme;
+    if let Some(edit) = app.ext.attach.key_edit.as_ref().filter(|e| e.key == key) {
+        let mut col = div()
+            .flex()
+            .flex_col()
+            .gap(px(3.0))
+            .child(edit.input.clone());
+        if let Some(msg) = edit.error {
+            col = col.child(
+                div()
+                    .text_size(px(11.5))
+                    .text_color(gpui::rgb(DANGER_RGB))
+                    .child(msg),
+            );
+        }
+        return col.into_any_element();
+    }
+    let owned = key.to_string();
+    div()
+        .id(ElementId::NamedInteger(
+            SharedString::from("prop-key"),
+            idx as u64,
+        ))
+        .rounded(px(RADIUS_S))
+        .cursor_pointer()
+        .hover(|s| s.bg(t.hover))
+        .child(SharedString::from(key.to_string()))
+        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+            open_key_edit(this, &owned, window, cx);
+        }))
+        .into_any_element()
+}
+
+/// Opens the rename field of property `key` with its name selected for typing.
+fn open_key_edit(
+    this: &mut RustdianApp,
+    key: &str,
+    window: &mut Window,
+    cx: &mut Context<RustdianApp>,
+) {
+    let theme = this.theme;
+    let input = cx.new(|cx| LineInput::new(cx, "属性名"));
+    input.update(cx, |field, cx| {
+        field.set_theme(theme, cx);
+        field.set_text(key, cx);
+    });
+    input.read(cx).focus(window);
+    let old = key.to_string();
+    let sub = cx.subscribe(
+        &input,
+        move |this: &mut RustdianApp, _, ev: &LineInputEvent, cx| {
+            on_key_event(this, &old, ev, cx);
+        },
+    );
+    this.ext.attach.key_edit = Some(attach_ui::KeyEdit {
+        key: key.to_string(),
+        input,
+        error: None,
+        _sub: sub,
+    });
+    cx.notify();
+}
+
+/// Enter renames the property (one undo step; value, order and comments stay), Esc closes the
+/// field, and a rejected name keeps the field open with a hint.
+fn on_key_event(
+    this: &mut RustdianApp,
+    old: &str,
+    ev: &LineInputEvent,
+    cx: &mut Context<RustdianApp>,
+) {
+    match ev {
+        LineInputEvent::Changed(_) => {}
+        LineInputEvent::Cancel => this.ext.attach.key_edit = None,
+        LineInputEvent::Submit(raw) => {
+            let note = this
+                .vault
+                .active_note()
+                .map(|n| n.content().to_string())
+                .unwrap_or_default();
+            let others: Vec<String> = props::keys(&note)
+                .into_iter()
+                .filter(|k| k != old)
+                .collect();
+            match props::check_key(raw, old, &others) {
+                Ok(new) => {
+                    this.ext.attach.key_edit = None;
+                    let old = old.to_string();
+                    attach_ui::edit_active_text(
+                        this,
+                        move |text| frontmatter::rename_property(text, &old, &new),
+                        cx,
+                    );
+                }
+                Err(msg) => {
+                    if let Some(edit) = this.ext.attach.key_edit.as_mut() {
+                        edit.error = Some(msg);
+                    }
+                }
+            }
+        }
+    }
+    cx.notify();
 }
 
 /// A text, number or date value: a click opens the inline field (Enter saves, Esc cancels). The
@@ -358,7 +491,7 @@ fn inline_value(
             idx as u64,
         ))
         .min_h(px(20.0))
-        .rounded(px(4.0))
+        .rounded(px(RADIUS_S))
         .cursor_pointer()
         .hover(|s| s.bg(t.hover))
         .text_size(px(12.5))
@@ -444,7 +577,13 @@ fn tag_add_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     let t = app.theme;
     let mut row = div().flex().flex_col().gap(px(4.0));
     match app.ext.attach.tag_input.as_ref() {
-        Some((input, _)) => row = row.child(input.clone()),
+        Some((input, _)) => {
+            row =
+                row.child(input.clone())
+                    .child(div().text_size(px(11.5)).text_color(t.tx3).child(
+                    "Enter 添加；逗号或空格可一次添加多个；空白时 Backspace 删除最后一个；Esc 关闭",
+                ));
+        }
         None => {
             row = row.child(
                 div()
@@ -452,15 +591,15 @@ fn tag_add_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
                     .mt(px(4.0))
                     .flex()
                     .items_center()
-                    .gap(px(6.0))
+                    .gap(px(ICON_GAP_TIGHT))
                     .h(px(26.0))
                     .px(px(8.0))
-                    .rounded(px(6.0))
+                    .rounded(px(RADIUS_S))
                     .text_size(px(12.0))
                     .text_color(t.ac)
                     .cursor_pointer()
                     .hover(|s| s.bg(t.hover))
-                    .child(icon("plus", 12.0, t.ac))
+                    .child(icon("plus", ICON_SIZE, t.ac))
                     .child("添加标签")
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         open_tag_input(this, window, cx);
@@ -471,8 +610,8 @@ fn tag_add_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     row.into_any_element()
 }
 
-/// Opens the 添加标签 field. Enter appends the tag to the `tags` list (created when missing), Esc
-/// closes the field.
+/// Opens the 添加标签 field. Enter adds the typed tags to the `tags` property (created when missing)
+/// and clears the field, so the next tag can be typed at once; the field stays open until Esc.
 fn open_tag_input(this: &mut RustdianApp, window: &mut Window, cx: &mut Context<RustdianApp>) {
     let theme = this.theme;
     let input = cx.new(|cx| LineInput::new(cx, "标签名"));
@@ -485,11 +624,15 @@ fn open_tag_input(this: &mut RustdianApp, window: &mut Window, cx: &mut Context<
                 LineInputEvent::Changed(_) => {}
                 LineInputEvent::Cancel => this.ext.attach.tag_input = None,
                 LineInputEvent::Submit(raw) => {
-                    this.ext.attach.tag_input = None;
-                    if let Some(tag) = props::tag_from_input(raw) {
+                    let tags = props::tags_from_input(raw);
+                    if !tags.is_empty() {
+                        if let Some((input, _)) = this.ext.attach.tag_input.as_ref() {
+                            let input = input.clone();
+                            input.update(cx, |field, cx| field.set_text("", cx));
+                        }
                         attach_ui::edit_active_text(
                             this,
-                            move |text| frontmatter::add_to_list(text, "tags", &tag),
+                            move |text| frontmatter::add_tags(text, "tags", &tags),
                             cx,
                         );
                     }
@@ -557,7 +700,7 @@ fn outline(
                 .h(px(26.0))
                 .pl(px(20.0))
                 .pr(px(8.0))
-                .rounded(px(6.0))
+                .rounded(px(RADIUS_S))
                 .text_size(px(12.5))
                 .text_color(text_color)
                 .when(on, |d| d.font_weight(FontWeight::MEDIUM))
@@ -629,19 +772,19 @@ fn cards(
                 .flex_col()
                 .px(px(10.0))
                 .py(px(9.0))
-                .rounded(px(9.0))
+                .rounded(px(RADIUS_M))
                 .cursor_pointer()
                 .hover(|s| s.bg(t.hover))
                 .child(
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(7.0))
+                        .gap(px(ICON_GAP_TIGHT))
                         .mb(px(4.0))
                         .text_size(px(12.5))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(t.tx)
-                        .child(icon("file-text", 14.0, t.tx3))
+                        .child(icon("file-text", ICON_SIZE, t.tx3))
                         .child(div().child(SharedString::from(title.clone()))),
                 )
                 .child(

@@ -13,7 +13,6 @@ use jiyue_md::frontmatter;
 use super::resolve::{COLUMN_WIDTH, EmbedGuard, basename, caption, display_size, embed_guard};
 use crate::RustdianApp;
 use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
 use crate::ui::display_family;
 use crate::ui::editor::{Clicks, body_blocks};
 use crate::ui::icons::icon;
@@ -89,7 +88,7 @@ fn file_block(
                 .bg(t.raised)
                 .border_1()
                 .border_color(t.line)
-                .font_family(UI_FONT)
+                .font_family(crate::ui::fonts::ui_name())
                 .text_size(px(13.5))
                 .text_color(t.tx2)
                 .child(icon("file-text", 16.0, t.tx3))
@@ -159,7 +158,7 @@ fn image_block(
         block = block.child(
             div()
                 .mt(px(6.0))
-                .font_family(UI_FONT)
+                .font_family(crate::ui::fonts::ui_name())
                 .text_size(px(12.5))
                 .text_color(t.tx3)
                 .child(SharedString::from(text)),
@@ -182,7 +181,7 @@ pub fn placeholder(t: &ActiveTheme, icon_name: &str, text: &str, detail: &str) -
         .bg(t.raised)
         .border_1()
         .border_color(t.line)
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(icon(icon_name, 18.0, t.tx3))
         .child(
             div()
@@ -264,7 +263,7 @@ fn note_embed(
         .px(px(12.0))
         .border_b_1()
         .border_color(t.line_soft)
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(icon("file-text", 14.0, t.tx3))
         .child(
             div()

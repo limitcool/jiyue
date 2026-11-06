@@ -200,9 +200,29 @@ pub enum Act {
     CloseRight(usize),
     CopyTabPath(usize),
     RevealTab(usize),
+    /// The rows of a multi-selection (`menu.rs` reads the selection when the row runs).
+    BatchMove,
+    BatchBookmark,
+    BatchCopyPath,
+    BatchReveal,
+    BatchDelete,
 }
 
 /// Rows of the context menu for `target`, each with its command (`None` for separators).
+/// Rows of the menu of a multi-selection.
+pub fn batch_menu_rows() -> Vec<(MenuItem, Option<Act>)> {
+    let mut rows = vec![
+        row("移动到…", "folder", None, Act::BatchMove),
+        row("加入/取消书签", "bookmark", None, Act::BatchBookmark),
+        row("复制路径", "copy", None, Act::BatchCopyPath),
+        row("在资源管理器中显示", "folder-open", None, Act::BatchReveal),
+        sep(),
+    ];
+    let (delete, act) = row("删除到回收站", "trash", Some("Delete"), Act::BatchDelete);
+    rows.push((delete.danger(), act));
+    rows
+}
+
 pub fn menu_rows(target: &Target) -> Vec<(MenuItem, Option<Act>)> {
     match target {
         Target::Tree { path, is_dir } => {

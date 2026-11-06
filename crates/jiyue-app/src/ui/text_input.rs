@@ -59,11 +59,11 @@ pub mod map;
 /// GFM table parsing and column widths of the live view (see `ui/live/table.rs`).
 #[path = "live/table.rs"]
 pub mod table;
-use super::{MONO_FONT, UI_FONT, display_family};
 use crate::editor_state::{EditorState, Selection};
 use crate::md_edit::{self, EditPlan};
 use crate::theme::{ActiveTheme, ThemeMode};
 use crate::ui::attach_ui::resolve::{basename, caption};
+use crate::ui::fonts::{self, Face};
 use gpui::RenderImage;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -129,7 +129,7 @@ pub fn scroll_to_reveal(top: f32, bottom: f32, scroll: f32, viewport: f32) -> f3
 
 /// Vertical centre of the visual row `rows` below (negative: above) a row whose top is `top`.
 pub fn row_centre_y(top: f32, rows: i32) -> f32 {
-    top + LINE_HEIGHT * rows as f32 + LINE_HEIGHT / 2.0
+    top + fonts::current_metrics().line * rows as f32 + fonts::current_metrics().line / 2.0
 }
 
 /// The selection a plan leaves behind (its offsets are already in the resulting text).
@@ -177,12 +177,9 @@ const NEWLINE_MARK_WIDTH: f32 = 8.0;
 const CARET_BLINK_MS: u64 = 500;
 /// Side of a task box in the live view.
 const CHECK_SIZE: f32 = 14.0;
-/// Footnote labels: the font size of an ordinal, the width of one blank cell (see `map::GAP_CELL`),
-/// the top of a label below its row top (raised), and its line height.
-const FOOTNOTE_SIZE: f32 = FONT_SIZE * 0.72;
-const FOOTNOTE_CELL: f32 = FONT_SIZE * 0.5;
+/// Footnote labels: the font size of an ordinal is 0.72 of the body size, the width of one blank
+/// cell is half of it (see `map::GAP_CELL`), and the top of a label is raised below its row top.
 const FOOTNOTE_TOP: f32 = 3.0;
-const FOOTNOTE_LINE_H: f32 = FOOTNOTE_SIZE * 1.4;
 /// Width of a block quote bar in the live view.
 const QUOTE_BAR_WIDTH: f32 = 3.0;
 /// Code panel of the live view: header band height, side and top/bottom padding, the row height
@@ -573,7 +570,9 @@ impl Layout {
         let disp = match cell.wrapped.as_ref() {
             Some(wl) => {
                 let p = point(px(x - cell.text_x), px(yy - cell.text_y));
-                match wl.closest_index_for_position(p, px(TABLE_LINE_H)) {
+                match wl
+                    .closest_index_for_position(p, px(TABLE_LINE_H * fonts::current_metrics().k))
+                {
                     Ok(i) | Err(i) => i,
                 }
             }
@@ -598,6 +597,16 @@ impl Layout {
         })
     }
 
+    /// Whether document-space `(x, y)` is on a widget a plain click acts on: a task box, a copy
+    /// button, an embed title or widget link, a callout fold row or a footnote back arrow.
+    fn widget_at(&self, x: f32, y: f32) -> bool {
+        self.check_at(x, y).is_some()
+            || self.button_at(x, y).is_some()
+            || self.link_at(x, y).is_some()
+            || self.fold_at(x, y).is_some()
+            || self.back_at(x, y).is_some()
+    }
+
     /// Source offset of the task box under document-space `(x, y)`, if any.
     fn check_at(&self, x: f32, y: f32) -> Option<usize> {
         self.checks.iter().find_map(|&(bx, by, bw, bh, at)| {
@@ -611,7 +620,7 @@ impl Layout {
         self.lines
             .get(self.lines.partition_point(|l| l.start + l.len < index))
             .or(self.lines.last())
-            .map_or(LINE_HEIGHT, |l| l.line_h)
+            .map_or(fonts::current_metrics().line, |l| l.line_h)
     }
 
     /// Centre y of the visual row above or below the row that contains document-space `y`.
@@ -734,14 +743,17 @@ fn line_metrics(segs: &[Segment]) -> (f32, f32) {
     let heading = segs.iter().map(|s| s.style.heading).max().unwrap_or(0);
     if heading > 0 {
         let i = usize::from(heading.min(6)) - 1;
-        (HEADING_FONT_SIZE[i], HEADING_LINE_HEIGHT[i])
+        (
+            fonts::current_metrics().heading[i],
+            fonts::current_metrics().heading_lh[i],
+        )
     } else if segs
         .iter()
         .any(|s| s.style.has(SpanStyle::CODE_BLOCK) || s.style.has(SpanStyle::CODE_FENCE))
     {
-        (CODE_FONT_SIZE, LINE_HEIGHT)
+        (fonts::current_metrics().code, fonts::current_metrics().line)
     } else {
-        (FONT_SIZE, LINE_HEIGHT)
+        (fonts::current_metrics().font, fonts::current_metrics().line)
     }
 }
 
@@ -749,7 +761,7 @@ fn line_metrics(segs: &[Segment]) -> (f32, f32) {
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Look {
     color: Rgba,
-    family: &'static str,
+    family: Face,
     weight: FontWeight,
     italic: bool,
     strike: bool,
@@ -764,7 +776,7 @@ struct Look {
 fn look_for(s: SpanStyle, t: &ActiveTheme) -> Look {
     let mut look = Look {
         color: t.tx,
-        family: UI_FONT,
+        family: Face::Editor,
         weight: FontWeight::NORMAL,
         italic: false,
         strike: false,
@@ -772,7 +784,7 @@ fn look_for(s: SpanStyle, t: &ActiveTheme) -> Look {
         background: None,
     };
     if s.heading > 0 {
-        look.family = display_family(t);
+        look.family = Face::Heading;
         look.weight = if s.heading <= 2 {
             FontWeight::BOLD
         } else {
@@ -780,7 +792,7 @@ fn look_for(s: SpanStyle, t: &ActiveTheme) -> Look {
         };
     }
     if s.has(SpanStyle::CODE) || s.has(SpanStyle::CODE_BLOCK) || s.has(SpanStyle::CODE_FENCE) {
-        look.family = MONO_FONT;
+        look.family = Face::Code;
     }
     if s.has(SpanStyle::BOLD) {
         look.weight = FontWeight::BOLD;
@@ -824,7 +836,7 @@ fn look_for(s: SpanStyle, t: &ActiveTheme) -> Look {
 
 /// One `TextRun` for a piece of text. The marked (IME) range is underlined in the text colour.
 fn make_run(look: &Look, len: usize, ime_underline: bool, t: &ActiveTheme) -> TextRun {
-    let mut f = font(look.family);
+    let mut f = font(fonts::face_name(look.family, t.kind));
     f.weight = look.weight;
     if look.italic {
         f.style = FontStyle::Italic;
@@ -1075,9 +1087,14 @@ fn widget_estimate(kind: map::BlockKind, block: &str) -> f32 {
     let lines = block.matches('\n').count() + 1;
     match kind {
         map::BlockKind::Code => {
-            CODE_HEADER_H + 2.0 * CODE_PAD_Y + lines as f32 * CODE_LINE_H + CODE_GAP
+            CODE_HEADER_H
+                + 2.0 * CODE_PAD_Y
+                + lines as f32 * fonts::current_metrics().code_row
+                + CODE_GAP
         }
-        map::BlockKind::Table => lines as f32 * TABLE_LINE_H + CODE_GAP,
+        map::BlockKind::Table => {
+            lines as f32 * TABLE_LINE_H * fonts::current_metrics().k + CODE_GAP
+        }
         map::BlockKind::Frontmatter => FRONTMATTER_GAP,
         _ => 120.0,
     }
@@ -1191,9 +1208,6 @@ fn build_line(
     }
 }
 
-/// The pixel size an inline formula is rendered at: the body size.
-const INLINE_MATH_PX: f32 = FONT_SIZE;
-
 /// The LaTeX of an inline formula's source (`$...$`), `None` when the source is not one.
 fn inline_latex(src: &str) -> Option<String> {
     jiyue_math::find_math_spans(src)
@@ -1228,7 +1242,12 @@ fn inline_math_pass(
         };
         let t = ctx.theme;
         let colour = embed::hex_colour(t.tx.r, t.tx.g, t.tx.b);
-        let key: context::MathKey = (latex, colour, (INLINE_MATH_PX * 10.0).round() as u32, false);
+        let key: context::MathKey = (
+            latex,
+            colour,
+            (fonts::current_metrics().font * 10.0).round() as u32,
+            false,
+        );
         let state = {
             let mut v = vault.borrow_mut();
             v.queue_math(key.clone());
@@ -1240,7 +1259,9 @@ fn inline_math_pass(
             baseline,
         }) = state
         {
-            let cells = (css.0 / (INLINE_MATH_PX * 0.5)).ceil().max(1.0) as usize;
+            let cells = (css.0 / (fonts::current_metrics().font * 0.5))
+                .ceil()
+                .max(1.0) as usize;
             for p in pieces
                 .iter_mut()
                 .filter(|p| p.src.start >= h.src.start && p.src.end <= h.src.end)
@@ -1428,8 +1449,8 @@ fn shape_one(
 }
 
 /// A single-style run list for a label.
-fn label_runs(text: &str, color: Rgba, family: &'static str) -> Vec<TextRun> {
-    let mut f = font(family);
+fn label_runs(text: &str, color: Rgba, family: &str) -> Vec<TextRun> {
+    let mut f = font(family.to_string());
     f.weight = FontWeight::NORMAL;
     vec![TextRun {
         len: text.len(),
@@ -1489,23 +1510,34 @@ fn code_widget(window: &Window, ctx: &LineCtx, start: usize, block: &str) -> (f3
     if !body_text.is_empty() {
         for line in body_text.split('\n') {
             if line.is_empty() {
-                y += CODE_LINE_H;
+                y += fonts::current_metrics().code_row;
                 continue;
             }
             let runs = highlight::line_runs(line, ctx.theme);
-            match shape_one(window, line, &runs, CODE_FONT_SIZE_LIVE, Some(inner_w)) {
+            match shape_one(
+                window,
+                line,
+                &runs,
+                fonts::current_metrics().code_live,
+                Some(inner_w),
+            ) {
                 Some(wl) => {
                     let rows = wl.wrap_boundaries.len() + 1;
-                    texts.push(plain_text(CODE_PAD_X, y, wl, CODE_LINE_H));
-                    y += rows as f32 * CODE_LINE_H;
+                    texts.push(plain_text(
+                        CODE_PAD_X,
+                        y,
+                        wl,
+                        fonts::current_metrics().code_row,
+                    ));
+                    y += rows as f32 * fonts::current_metrics().code_row;
                 }
-                None => y += CODE_LINE_H,
+                None => y += fonts::current_metrics().code_row,
             }
         }
     }
     let panel_h = y + CODE_PAD_Y;
     if !lang.is_empty() {
-        let label = label_runs(&lang, ctx.theme.tx3, MONO_FONT);
+        let label = label_runs(&lang, ctx.theme.tx3, &fonts::code_name());
         if let Some(wl) = shape_one(window, &lang, &label, 12.0, None) {
             texts.push(plain_text(
                 CODE_PAD_X,
@@ -1518,7 +1550,7 @@ fn code_widget(window: &Window, ctx: &LineCtx, start: usize, block: &str) -> (f3
     let (bw, bh) = CODE_BUTTON;
     let bx = ctx.wrap_w - bw - 10.0;
     let by = (CODE_HEADER_H - bh) / 2.0;
-    let copy = label_runs("复制", ctx.theme.tx2, UI_FONT);
+    let copy = label_runs("复制", ctx.theme.tx2, &fonts::ui_name());
     if let Some(wl) = shape_one(window, "复制", &copy, 12.0, None) {
         texts.push(plain_text(bx + 12.0, by + 4.0, wl, 16.0));
     }
@@ -1559,11 +1591,16 @@ fn table_widget(window: &Window, ctx: &LineCtx, start: usize, len: usize) -> (f3
                     window,
                     &disp,
                     &runs_for_pieces(t, &pieces),
-                    TABLE_FONT_SIZE,
+                    TABLE_FONT_SIZE * fonts::current_metrics().k,
                     None,
                 ) {
                     Some(wl) => f32::from(wl.unwrapped_layout.width),
-                    None => table::text_units(&disp) * TABLE_FONT_SIZE * 0.6,
+                    None => {
+                        table::text_units(&disp)
+                            * TABLE_FONT_SIZE
+                            * fonts::current_metrics().k
+                            * 0.6
+                    }
                 }
             };
             line.push((pieces, disp, natural));
@@ -1593,7 +1630,7 @@ fn table_widget(window: &Window, ctx: &LineCtx, start: usize, len: usize) -> (f3
                     window,
                     disp,
                     &runs_for_pieces(t, pieces),
-                    TABLE_FONT_SIZE,
+                    TABLE_FONT_SIZE * fonts::current_metrics().k,
                     Some(inner),
                 )
             };
@@ -1609,7 +1646,7 @@ fn table_widget(window: &Window, ctx: &LineCtx, start: usize, len: usize) -> (f3
     let mut cells: Vec<CellHit> = Vec::new();
     let mut y = 0.0f32;
     for (r, (max_rows, wrapped)) in rows_out.into_iter().enumerate() {
-        let row_h = max_rows as f32 * TABLE_LINE_H + 2.0 * TABLE_PAD_Y;
+        let row_h = max_rows as f32 * TABLE_LINE_H * fonts::current_metrics().k + 2.0 * TABLE_PAD_Y;
         if r == 0 {
             fills.push(((0.0, 0.0, total_w, row_h), t.hover));
         } else {
@@ -1633,7 +1670,7 @@ fn table_widget(window: &Window, ctx: &LineCtx, start: usize, len: usize) -> (f3
                     x: tx,
                     y: ty,
                     line: wl,
-                    lh: TABLE_LINE_H,
+                    lh: TABLE_LINE_H * fonts::current_metrics().k,
                     align,
                     align_w,
                 });
@@ -1676,8 +1713,8 @@ fn callout_color(t: &ActiveTheme, tone: callout::Tone) -> Rgba {
 }
 
 /// Text runs of one label in a given weight and colour.
-fn styled_runs(text: &str, color: Rgba, family: &'static str, weight: FontWeight) -> Vec<TextRun> {
-    let mut f = font(family);
+fn styled_runs(text: &str, color: Rgba, family: &str, weight: FontWeight) -> Vec<TextRun> {
+    let mut f = font(family.to_string());
     f.weight = weight;
     vec![TextRun {
         len: text.len(),
@@ -1717,8 +1754,8 @@ fn callout_widget(
     if let Some(wl) = shape_one(
         window,
         &title,
-        &styled_runs(&title, tone, UI_FONT, FontWeight::SEMIBOLD),
-        CALLOUT_TEXT_SIZE,
+        &styled_runs(&title, tone, &fonts::ui_name(), FontWeight::SEMIBOLD),
+        CALLOUT_TEXT_SIZE * fonts::current_metrics().k,
         None,
     ) {
         texts.push(plain_text(
@@ -1750,17 +1787,28 @@ fn callout_widget(
             let pieces = callout::body_pieces(ctx.text, line.clone());
             let disp = map::display_text(&pieces, ctx.text);
             if disp.is_empty() {
-                y += CALLOUT_BODY_LH * 0.5;
+                y += CALLOUT_BODY_LH * fonts::current_metrics().k * 0.5;
                 continue;
             }
             let runs = runs_for_pieces(t, &pieces);
-            match shape_one(window, &disp, &runs, CALLOUT_BODY_SIZE, Some(inner)) {
+            match shape_one(
+                window,
+                &disp,
+                &runs,
+                CALLOUT_BODY_SIZE * fonts::current_metrics().k,
+                Some(inner),
+            ) {
                 Some(wl) => {
                     let rows = wl.wrap_boundaries.len() + 1;
-                    texts.push(plain_text(CALLOUT_TEXT_X, y, wl, CALLOUT_BODY_LH));
-                    y += rows as f32 * CALLOUT_BODY_LH;
+                    texts.push(plain_text(
+                        CALLOUT_TEXT_X,
+                        y,
+                        wl,
+                        CALLOUT_BODY_LH * fonts::current_metrics().k,
+                    ));
+                    y += rows as f32 * CALLOUT_BODY_LH * fonts::current_metrics().k;
                 }
-                None => y += CALLOUT_BODY_LH,
+                None => y += CALLOUT_BODY_LH * fonts::current_metrics().k,
             }
         }
         y += CALLOUT_PAD_Y;
@@ -1798,7 +1846,7 @@ fn card(
     if let Some(wl) = shape_one(
         window,
         title,
-        &label_runs(title, t.tx2, UI_FONT),
+        &label_runs(title, t.tx2, &fonts::ui_name()),
         13.5,
         None,
     ) {
@@ -1807,7 +1855,7 @@ fn card(
     if let Some(wl) = shape_one(
         window,
         detail,
-        &label_runs(detail, t.tx3, UI_FONT),
+        &label_runs(detail, t.tx3, &fonts::ui_name()),
         12.0,
         None,
     ) {
@@ -1897,7 +1945,7 @@ fn image_widget(window: &Window, ctx: &LineCtx, block: &str) -> (f32, Widget) {
         && let Some(wl) = shape_one(
             window,
             &text,
-            &label_runs(&text, t.tx3, UI_FONT),
+            &label_runs(&text, t.tx3, &fonts::ui_name()),
             12.5,
             Some(ctx.wrap_w),
         )
@@ -1919,8 +1967,13 @@ fn image_widget(window: &Window, ctx: &LineCtx, block: &str) -> (f32, Widget) {
             } else {
                 "等待图片"
             };
-            if let Some(wl) = shape_one(window, note, &label_runs(note, t.tx3, UI_FONT), 12.5, None)
-            {
+            if let Some(wl) = shape_one(
+                window,
+                note,
+                &label_runs(note, t.tx3, &fonts::ui_name()),
+                12.5,
+                None,
+            ) {
                 texts.push(plain_text(12.0, IMG_TOP + 10.0, wl, 18.0));
             }
         }
@@ -1965,7 +2018,7 @@ fn embed_widget(window: &Window, ctx: &LineCtx, block: &str) -> (f32, Widget) {
     if let Some(wl) = shape_one(
         window,
         &label,
-        &styled_runs(&label, t.tx2, UI_FONT, FontWeight::MEDIUM),
+        &styled_runs(&label, t.tx2, &fonts::ui_name(), FontWeight::MEDIUM),
         12.5,
         None,
     ) {
@@ -1974,7 +2027,7 @@ fn embed_widget(window: &Window, ctx: &LineCtx, block: &str) -> (f32, Widget) {
     if let Some(wl) = shape_one(
         window,
         "打开",
-        &label_runs("打开", t.ac, UI_FONT),
+        &label_runs("打开", t.ac, &fonts::ui_name()),
         12.0,
         None,
     ) {
@@ -1990,30 +2043,46 @@ fn embed_widget(window: &Window, ctx: &LineCtx, block: &str) -> (f32, Widget) {
     for pieces in embed::excerpt_pieces(&ex.text) {
         let disp = map::display_text(&pieces, &ex.text);
         if disp.is_empty() {
-            y += EMBED_BODY_LH * 0.5;
+            y += EMBED_BODY_LH * fonts::current_metrics().k * 0.5;
             continue;
         }
         let runs = runs_for_pieces(t, &pieces);
-        match shape_one(window, &disp, &runs, EMBED_BODY_SIZE, Some(inner)) {
+        match shape_one(
+            window,
+            &disp,
+            &runs,
+            EMBED_BODY_SIZE * fonts::current_metrics().k,
+            Some(inner),
+        ) {
             Some(wl) => {
                 let rows = wl.wrap_boundaries.len() + 1;
-                texts.push(plain_text(EMBED_PAD_X, y, wl, EMBED_BODY_LH));
-                y += rows as f32 * EMBED_BODY_LH;
+                texts.push(plain_text(
+                    EMBED_PAD_X,
+                    y,
+                    wl,
+                    EMBED_BODY_LH * fonts::current_metrics().k,
+                ));
+                y += rows as f32 * EMBED_BODY_LH * fonts::current_metrics().k;
             }
-            None => y += EMBED_BODY_LH,
+            None => y += EMBED_BODY_LH * fonts::current_metrics().k,
         }
     }
     if ex.more {
         if let Some(wl) = shape_one(
             window,
             "……",
-            &label_runs("……", t.tx3, UI_FONT),
-            EMBED_BODY_SIZE,
+            &label_runs("……", t.tx3, &fonts::ui_name()),
+            EMBED_BODY_SIZE * fonts::current_metrics().k,
             None,
         ) {
-            texts.push(plain_text(EMBED_PAD_X, y, wl, EMBED_BODY_LH));
+            texts.push(plain_text(
+                EMBED_PAD_X,
+                y,
+                wl,
+                EMBED_BODY_LH * fonts::current_metrics().k,
+            ));
         }
-        y += EMBED_BODY_LH;
+        y += EMBED_BODY_LH * fonts::current_metrics().k;
     }
     let panel_h = y + 10.0;
     (
@@ -2088,7 +2157,7 @@ fn math_widget(window: &Window, ctx: &LineCtx, block: &str) -> (f32, Widget) {
             if let Some(wl) = shape_one(
                 window,
                 "正在渲染公式",
-                &label_runs("正在渲染公式", t.tx3, UI_FONT),
+                &label_runs("正在渲染公式", t.tx3, &fonts::ui_name()),
                 12.5,
                 None,
             ) {
@@ -2188,6 +2257,39 @@ pub fn minimal_edit(old: &str, new: &str) -> (Range<usize>, String) {
     (prefix..end_old, new[prefix..end_new].to_string())
 }
 
+/// Whether the pointer shows the pointing-hand cursor. Read mode: any link or clickable widget.
+/// Live preview: widgets always (a plain click acts on them), text links only while Ctrl (Cmd on
+/// macOS) is held, because a plain click places the caret there. Source mode: never (I-beam).
+fn hand_cursor(
+    read_only: bool,
+    live: bool,
+    ctrl: bool,
+    over_widget: bool,
+    over_link: bool,
+) -> bool {
+    if read_only {
+        return over_widget || over_link;
+    }
+    if !live {
+        return false;
+    }
+    over_widget || (ctrl && over_link)
+}
+
+/// Whether byte `at` lies in a link span: a wikilink, or the text or the URL of a Markdown link.
+fn link_span_at(spans: &[md_style::StyleSpan], at: usize) -> bool {
+    spans.iter().any(|s| {
+        s.range.contains(&at)
+            && [
+                SpanStyle::LINK_TEXT,
+                SpanStyle::LINK_URL,
+                SpanStyle::WIKILINK,
+            ]
+            .iter()
+            .any(|&flag| s.style.has(flag))
+    })
+}
+
 /// Emitted when Ctrl+click lands on a `[[wikilink]]`. The payload is the link body as written
 /// between the brackets (`笔记`, `笔记#标题`, `笔记#^id`, `笔记|别名`). The app opens the note and
 /// moves the caret to the anchor (see `attach_ui::navigate_link`).
@@ -2262,6 +2364,8 @@ pub struct TextEditor {
     /// Read mode: the live view with no raw source (the caret is ignored), a centred wider column
     /// and no typing. Task boxes still toggle and wikilinks open on a plain click.
     read_only: bool,
+    /// Pointer is over a link or widget: the pointing-hand cursor (see `hand_cursor`).
+    hand: bool,
     /// Keeps the focus-out listener alive (set on the first render).
     focus_out: Option<Subscription>,
 }
@@ -2316,6 +2420,7 @@ impl TextEditor {
             vault: None,
             note_path: String::new(),
             read_only: false,
+            hand: false,
             focus_out: None,
         }
     }
@@ -2554,7 +2659,7 @@ impl TextEditor {
 
     /// Rows that fit in the viewport, for PageUp and PageDown.
     fn page_rows(&self) -> i32 {
-        ((self.layout.viewport_h - PAD_TOP - PAD_BOTTOM) / LINE_HEIGHT)
+        ((self.layout.viewport_h - PAD_TOP - PAD_BOTTOM) / fonts::current_metrics().line)
             .floor()
             .max(1.0) as i32
     }
@@ -2904,6 +3009,7 @@ impl TextEditor {
     }
 
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.update_hover(ev.position, primary_held(&ev.modifiers), cx);
         if !self.selecting {
             return;
         }
@@ -2921,13 +3027,31 @@ impl TextEditor {
         self.selecting = false;
     }
 
+    /// Sets the pointing-hand flag for the pointer at window `pos` (see `hand_cursor`) and repaints
+    /// when it changes. `ctrl` is the Ctrl (Cmd on macOS) state of the event.
+    fn update_hover(&mut self, pos: Point<Pixels>, ctrl: bool, cx: &mut Context<Self>) {
+        let bx = f32::from(pos.x) - self.layout.origin_x;
+        let by = f32::from(pos.y) - self.layout.origin_y;
+        let over_widget = self.layout.widget_at(bx, by);
+        let idx = self.index_at_window(pos);
+        let over_link = !over_widget
+            && self.style_cache.as_ref().is_some_and(|c| {
+                link_span_at(&c.spans, idx) || footnote::ref_at(&c.hides, idx).is_some()
+            });
+        let hand = hand_cursor(self.read_only, self.live, ctrl, over_widget, over_link);
+        if hand != self.hand {
+            self.hand = hand;
+            cx.notify();
+        }
+    }
+
     fn on_scroll_wheel(
         &mut self,
         ev: &ScrollWheelEvent,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let delta = ev.delta.pixel_delta(px(LINE_HEIGHT));
+        let delta = ev.delta.pixel_delta(px(fonts::current_metrics().line));
         self.scroll_y = (self.scroll_y - f32::from(delta.y)).max(0.0);
         cx.notify();
     }
@@ -3010,6 +3134,8 @@ impl Element for TextElement {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let frame_started = std::time::Instant::now();
+        // The installed fonts are listed once, so a missing configured font is noticed at start.
+        fonts::ensure_installed(|| cx.text_system().all_font_names());
         let gap_ms = take_frame_gap(frame_started);
         let mut phases: Vec<(&'static str, f64)> = Vec::new();
         #[allow(unused_assignments)]
@@ -3069,7 +3195,8 @@ impl Element for TextElement {
         // Shape every logical line at the wrap width, with its style runs. Headings and code
         // lines get their own font size and row height.
         let sel_range = sel.range();
-        let theme_key = theme_salt(&theme);
+        // The font generation is part of the key: a font change re-shapes every line.
+        let theme_key = fonts::shape_salt(theme_salt(&theme), fonts::generation());
         if line_cache.len() > LINE_CACHE_MAX {
             line_cache.clear();
         }
@@ -3566,14 +3693,14 @@ impl Element for TextElement {
                         if let Some(wl) = shape_one(
                             window,
                             &num,
-                            &label_runs(&num, color, UI_FONT),
-                            FOOTNOTE_SIZE,
+                            &label_runs(&num, color, &fonts::ui_name()),
+                            fonts::current_metrics().font * 0.72,
                             None,
                         ) {
                             label_texts.push((
                                 point(px(ox + x), px(oy + y + FOOTNOTE_TOP)),
                                 wl,
-                                FOOTNOTE_LINE_H,
+                                (fonts::current_metrics().font * 0.72 * 1.4),
                                 TextAlign::Left,
                                 None,
                             ));
@@ -3583,18 +3710,19 @@ impl Element for TextElement {
                         ordinal: Some(n), ..
                     } => {
                         let num = n.to_string();
-                        let arrow_x = x + footnote::digits(n) as f32 * FOOTNOTE_CELL;
+                        let arrow_x =
+                            x + footnote::digits(n) as f32 * (fonts::current_metrics().font * 0.5);
                         if let Some(wl) = shape_one(
                             window,
                             &num,
-                            &label_runs(&num, theme.ac, UI_FONT),
-                            FOOTNOTE_SIZE,
+                            &label_runs(&num, theme.ac, &fonts::ui_name()),
+                            fonts::current_metrics().font * 0.72,
                             None,
                         ) {
                             label_texts.push((
                                 point(px(ox + x), px(oy + y + FOOTNOTE_TOP)),
                                 wl,
-                                FOOTNOTE_LINE_H,
+                                (fonts::current_metrics().font * 0.72 * 1.4),
                                 TextAlign::Left,
                                 None,
                             ));
@@ -3603,19 +3731,25 @@ impl Element for TextElement {
                         if let Some(wl) = shape_one(
                             window,
                             arrow,
-                            &label_runs(arrow, theme.tx2, UI_FONT),
-                            FOOTNOTE_SIZE,
+                            &label_runs(arrow, theme.tx2, &fonts::ui_name()),
+                            fonts::current_metrics().font * 0.72,
                             None,
                         ) {
                             label_texts.push((
                                 point(px(ox + arrow_x), px(oy + y + FOOTNOTE_TOP)),
                                 wl,
-                                FOOTNOTE_LINE_H,
+                                (fonts::current_metrics().font * 0.72 * 1.4),
                                 TextAlign::Left,
                                 None,
                             ));
                         }
-                        footnote_backs.push((arrow_x, y, FOOTNOTE_CELL * 2.0, line.line_h, n));
+                        footnote_backs.push((
+                            arrow_x,
+                            y,
+                            (fonts::current_metrics().font * 0.5) * 2.0,
+                            line.line_h,
+                            n,
+                        ));
                     }
                     map::Deco::FootnoteDef { ordinal: None, .. } => {
                         // An unused definition shows its label, dimmed.
@@ -3624,15 +3758,15 @@ impl Element for TextElement {
                             && let Some(wl) = shape_one(
                                 window,
                                 label,
-                                &label_runs(label, theme.tx3, UI_FONT),
-                                FOOTNOTE_SIZE,
+                                &label_runs(label, theme.tx3, &fonts::ui_name()),
+                                fonts::current_metrics().font * 0.72,
                                 None,
                             )
                         {
                             label_texts.push((
                                 point(px(ox + x), px(oy + y + FOOTNOTE_TOP)),
                                 wl,
-                                FOOTNOTE_LINE_H,
+                                (fonts::current_metrics().font * 0.72 * 1.4),
                                 TextAlign::Left,
                                 None,
                             ));
@@ -3644,7 +3778,8 @@ impl Element for TextElement {
             // Inline formulas sit on the text baseline of their row.
             for s in &line.inline {
                 let (x, y) = layout.point_for_index(s.src);
-                let text_base = (line.line_h - FONT_SIZE * 1.2) / 2.0 + FONT_SIZE * 0.95;
+                let text_base = (line.line_h - fonts::current_metrics().font * 1.2) / 2.0
+                    + fonts::current_metrics().font * 0.95;
                 let top = y + text_base - s.baseline;
                 let bounds = Bounds::new(
                     point(px(ox + x), px(oy + top)),
@@ -4042,7 +4177,11 @@ impl Render for TextEditor {
             .bg(self.theme.sheet)
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
-            .cursor(CursorStyle::IBeam)
+            .cursor(if self.hand {
+                CursorStyle::PointingHand
+            } else {
+                CursorStyle::IBeam
+            })
             // Horizontal
             .on_action(
                 cx.listener(|this, _: &MoveLeft, _, cx| this.apply(cx, |s| s.move_left(false))),
@@ -4564,7 +4703,7 @@ ef";
         let t = ActiveTheme::from_kind(crate::theme::ThemeKind::Ink);
         let plain = look_for(S::default(), &t);
         assert_eq!(plain.color, t.tx);
-        assert_eq!(plain.family, UI_FONT);
+        assert_eq!(plain.family, Face::Editor);
         assert_eq!(look_for(S::of(S::MARKER), &t).color, t.tx3);
         assert_eq!(look_for(S::of(S::LINK_URL), &t).color, t.tx3);
         assert_eq!(look_for(S::of(S::LINK_TEXT), &t).color, t.ac);
@@ -4574,15 +4713,15 @@ ef";
         assert_eq!(look_for(S::of(S::LIST_MARKER), &t).color, t.ac);
         assert_eq!(look_for(S::of(S::QUOTE), &t).color, t.tx2);
         assert_eq!(look_for(S::of(S::CODE_FENCE), &t).color, t.tx2);
-        assert_eq!(look_for(S::of(S::CODE_BLOCK), &t).family, MONO_FONT);
+        assert_eq!(look_for(S::of(S::CODE_BLOCK), &t).family, Face::Code);
         let code = look_for(S::of(S::CODE), &t);
-        assert_eq!(code.family, MONO_FONT);
+        assert_eq!(code.family, Face::Code);
         assert_eq!(code.background, Some(t.raised));
         assert_eq!(look_for(S::of(S::BOLD), &t).weight, FontWeight::BOLD);
         assert!(look_for(S::of(S::ITALIC), &t).italic);
         assert!(look_for(S::of(S::STRIKE), &t).strike);
         let h1 = look_for(S::heading(1), &t);
-        assert_eq!(h1.family, display_family(&t));
+        assert_eq!(h1.family, Face::Heading);
         assert_eq!(h1.weight, FontWeight::BOLD);
         assert_eq!(look_for(S::heading(4), &t).weight, FontWeight::SEMIBOLD);
     }
@@ -4677,5 +4816,30 @@ ef";
         let (range, insert) = minimal_edit("同样", "同样");
         assert!(range.is_empty());
         assert!(insert.is_empty());
+    }
+
+    #[test]
+    fn hand_cursor_follows_the_mode() {
+        // Read mode: any link or clickable widget.
+        assert!(hand_cursor(true, true, false, false, true));
+        assert!(hand_cursor(true, true, false, true, false));
+        assert!(!hand_cursor(true, true, false, false, false));
+        // Live preview: text links need Ctrl, widgets do not.
+        assert!(!hand_cursor(false, true, false, false, true));
+        assert!(hand_cursor(false, true, true, false, true));
+        assert!(hand_cursor(false, true, false, true, false));
+        // Source mode: always the I-beam.
+        assert!(!hand_cursor(false, false, true, true, true));
+    }
+
+    #[test]
+    fn link_spans_cover_wikilinks_and_markdown_links() {
+        let t = "see [site](https://x.y) and [[Note]] end";
+        let spans = md_style::compute_spans(t);
+        assert!(link_span_at(&spans, t.find("site").unwrap()));
+        assert!(link_span_at(&spans, t.find("https").unwrap()));
+        assert!(link_span_at(&spans, t.find("Note").unwrap()));
+        assert!(!link_span_at(&spans, t.find("see").unwrap()));
+        assert!(!link_span_at(&spans, t.find("end").unwrap()));
     }
 }

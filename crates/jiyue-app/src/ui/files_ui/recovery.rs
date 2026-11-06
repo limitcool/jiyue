@@ -10,7 +10,6 @@ use jiyue_core::recovery::{self, Journal, Verdict};
 use super::modals::{self, Confirm, Modal};
 use super::pure;
 use crate::journal;
-use crate::ui::UI_FONT;
 use crate::ui::ext::ToastKind;
 use crate::ui::widgets::controls::{ButtonKind, button};
 use crate::{PendingRestore, RustdianApp};
@@ -292,7 +291,7 @@ pub fn view(
         .flex()
         .flex_col()
         .gap(px(10.0))
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(
             div()
                 .text_color(t.tx2)

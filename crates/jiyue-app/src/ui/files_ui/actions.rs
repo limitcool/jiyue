@@ -18,7 +18,6 @@ use jiyue_core::links::{self, NoteRef};
 use super::autoname;
 use super::pure::{self, MoveCheck};
 use crate::RustdianApp;
-use crate::ui::UI_FONT;
 use crate::ui::ext::ToastKind;
 use crate::ui::history_ui;
 use crate::ui::widgets::controls::{ButtonKind, button};
@@ -27,6 +26,8 @@ use crate::ui::widgets::controls::{ButtonKind, button};
 pub enum UndoOp {
     /// Put a trash entry back.
     Restore(TrashEntry),
+    /// Put back the entries of a batch delete.
+    RestoreMany(Vec<TrashEntry>),
     /// Rename `new` back to `old`, and put the texts of the link-updated notes back. `texts` holds
     /// `(path after the rename, text before it)`.
     Rename {
@@ -186,6 +187,7 @@ pub fn delete_item(
         .map(|n| n.path.clone())
         .collect();
     history_ui::before_delete(app, &gone, cx);
+    crate::ui::nav_history::forget(app, path);
     if is_dir {
         app.expanded_folders.retain(|k| !pure::is_under(k, path));
     }
@@ -206,6 +208,69 @@ pub fn delete_item(
     );
     cx.notify();
     Ok(())
+}
+
+/// Moves several rows (`(path, is_dir)`, effective roots) to the trash. A row that fails stays where
+/// it is and is counted; the others still go. One undo toast restores all of them.
+pub fn delete_items(
+    app: &mut RustdianApp,
+    items: &[(String, bool)],
+    cx: &mut Context<RustdianApp>,
+) {
+    let root = app.vault.root_dir.clone();
+    flush_dirty(app, cx);
+    let mut entries = Vec::new();
+    let mut done: Vec<String> = Vec::new();
+    let mut failed = 0usize;
+    for (path, _) in items {
+        match fsops::delete_to_trash(&root, path) {
+            Ok(entry) => {
+                entries.push(entry);
+                done.push(path.clone());
+            }
+            Err(_) => failed += 1,
+        }
+    }
+    if done.is_empty() {
+        app.toast(ToastKind::Error, format!("删除失败：{failed} 项"));
+        cx.notify();
+        return;
+    }
+    let gone: Vec<String> = app
+        .vault
+        .notes
+        .iter()
+        .filter(|n| done.iter().any(|d| pure::is_under(&n.path, d)))
+        .map(|n| n.path.clone())
+        .collect();
+    history_ui::before_delete(app, &gone, cx);
+    for path in &done {
+        app.expanded_folders.retain(|k| !pure::is_under(k, path));
+        crate::ui::nav_history::forget(app, path);
+    }
+    if app
+        .ext
+        .files
+        .selected
+        .as_deref()
+        .is_some_and(|s| done.iter().any(|d| pure::is_under(s, d)))
+    {
+        app.ext.files.selected = None;
+    }
+    reload(app, &[], cx);
+    let count = entries.len();
+    super::set_undo(
+        app,
+        format!("已移到回收站：{count} 项"),
+        UndoOp::RestoreMany(entries),
+    );
+    if failed > 0 {
+        app.toast(
+            ToastKind::Error,
+            format!("已移到回收站 {count} 项，{failed} 项失败"),
+        );
+    }
+    cx.notify();
 }
 
 /// Puts a trash entry back where it came from. Returns the new vault-relative path.
@@ -235,6 +300,56 @@ pub fn copy_path(app: &mut RustdianApp, rel: &str, cx: &mut Context<RustdianApp>
     cx.notify();
 }
 
+/// Copies the absolute paths of several rows, one per line.
+pub fn copy_paths(app: &mut RustdianApp, rels: &[String], cx: &mut Context<RustdianApp>) {
+    let text = super::batch::paths_text(&app.vault.root_dir, rels);
+    cx.write_to_clipboard(ClipboardItem::new_string(text));
+    app.toast(ToastKind::Success, format!("已复制 {} 个路径", rels.len()));
+    cx.notify();
+}
+
+/// Moves several rows (the effective roots of a selection) into `dest_dir`. Each move goes through
+/// `rename`, so links are updated as for a rename. A row that fails is counted and the rest still
+/// move; a summary toast reports the counts.
+pub fn move_items(
+    app: &mut RustdianApp,
+    window: &mut Window,
+    items: &[(String, bool)],
+    dest_dir: &str,
+    cx: &mut Context<RustdianApp>,
+) {
+    let plan = {
+        let vault = &app.vault;
+        let taken = |p: &str| {
+            vault.notes.iter().any(|n| n.path == p) || vault.folders.iter().any(|f| f.as_str() == p)
+        };
+        super::batch::plan_moves(items, dest_dir, &taken)
+    };
+    super::expand_folder(app, dest_dir);
+    let mut moved = 0usize;
+    let mut failed = plan.invalid.len();
+    for (src, dst, is_dir) in &plan.moves {
+        match rename(app, window, src, dst, *is_dir, cx) {
+            Ok(_) => moved += 1,
+            Err(_) => failed += 1,
+        }
+    }
+    if moved == 0 && failed == 0 {
+        cx.notify();
+        return;
+    }
+    let (kind, text) = if failed == 0 {
+        (ToastKind::Success, format!("已移动 {moved} 项"))
+    } else {
+        (
+            ToastKind::Error,
+            format!("已移动 {moved} 项，{failed} 项失败"),
+        )
+    };
+    app.toast(kind, text);
+    cx.notify();
+}
+
 /// Shows `rel` in the system file manager (Explorer, Finder or the Linux file manager).
 pub fn reveal(app: &mut RustdianApp, rel: &str) {
     let abs = abs_path(&app.vault.root_dir, rel);
@@ -251,6 +366,23 @@ pub fn run_undo(app: &mut RustdianApp, window: &mut Window, cx: &mut Context<Rus
             Ok(rel) => app.toast(ToastKind::Success, format!("已恢复：{rel}")),
             Err(message) => app.toast(ToastKind::Error, message),
         },
+        UndoOp::RestoreMany(entries) => {
+            let mut failed = 0usize;
+            for entry in &entries {
+                if restore_entry(app, entry, cx).is_err() {
+                    failed += 1;
+                }
+            }
+            let restored = entries.len() - failed;
+            if failed == 0 {
+                app.toast(ToastKind::Success, format!("已恢复 {restored} 项"));
+            } else {
+                app.toast(
+                    ToastKind::Error,
+                    format!("已恢复 {restored} 项，{failed} 项失败"),
+                );
+            }
+        }
         UndoOp::Rename {
             old,
             new,
@@ -317,7 +449,7 @@ pub fn undo_overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Option<
             .border_1()
             .border_color(t.line)
             .shadow_md()
-            .font_family(UI_FONT)
+            .font_family(crate::ui::fonts::ui_name())
             .text_size(px(13.0))
             .text_color(t.tx)
             .child(SharedString::from(toast.text.clone()))
@@ -394,6 +526,7 @@ pub fn remap_state(
     if let Some(active) = app.last_active_path.clone() {
         app.last_active_path = Some(map(&active));
     }
+    crate::ui::nav_history::remap(app, map);
     let written: Vec<(String, String)> = app.ext.files.last_written.drain().collect();
     for (path, text) in written {
         app.ext.files.last_written.insert(map(&path), text);

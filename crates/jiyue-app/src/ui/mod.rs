@@ -12,6 +12,8 @@ pub mod editor;
 pub mod export_ui;
 pub mod ext;
 pub mod files_ui;
+pub mod fonts;
+pub mod fonts_ui;
 pub mod graph;
 pub mod highlight;
 pub mod history_ui;
@@ -20,6 +22,7 @@ pub mod inline;
 pub mod keymap;
 pub mod keymap_ui;
 pub mod md_style;
+pub mod nav_history;
 pub mod palette;
 pub mod right_panel;
 pub mod search_ui;
@@ -39,7 +42,8 @@ use crate::theme::{ActiveTheme, ThemeKind};
 
 /// Width in px of the right panel (outline, backlinks); the title bar leaves room for it.
 pub const RIGHT_PANEL_W: f32 = 272.0;
-/// Primary UI font (installed system font, matched by family name).
+/// Built-in interface font (installed system font, matched by family name). The user's choice
+/// (`[appearance] ui_font`) replaces it; see `fonts::ui_name`.
 pub const UI_FONT: &str = "Noto Sans SC";
 /// Used by the design when the primary font is missing (listed for reference only).
 pub const UI_FONT_FALLBACK: &str = "Microsoft YaHei UI";

@@ -11,8 +11,7 @@ use gpui::{
 use super::logic::{self, Bookmark, Kind};
 use super::{Modal, MoveOpt};
 use crate::RustdianApp;
-use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
+use crate::theme::{ActiveTheme, ICON_GAP, ICON_GAP_TIGHT, ICON_SIZE};
 use crate::ui::icons::icon;
 use crate::ui::widgets::controls::PickIndex;
 use crate::ui::widgets::overlay::{MenuItem, context_menu};
@@ -236,7 +235,7 @@ pub fn section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(4.0))
+        .gap(px(ICON_GAP_TIGHT))
         .pt(px(14.0))
         .pb(px(5.0))
         .px(px(8.0))
@@ -348,9 +347,9 @@ fn item_row(
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(8.0))
+        .gap(px(ICON_GAP))
         .h(px(30.0))
-        .pl(px(8.0 + depth as f32 * 16.0))
+        .pl(px(8.0 + depth as f32 * 20.0))
         .pr(px(8.0))
         .rounded(px(6.0))
         .whitespace_nowrap()
@@ -368,7 +367,7 @@ fn item_row(
             t.tx3,
         ));
     }
-    row = row.child(icon(icon_name, 16.0, t.tx3)).child(
+    row = row.child(icon(icon_name, ICON_SIZE, t.tx3)).child(
         div()
             .flex_1()
             .min_w_0()
@@ -463,7 +462,7 @@ pub fn modal_overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<An
             let body = div()
                 .flex()
                 .flex_col()
-                .font_family(UI_FONT)
+                .font_family(crate::ui::fonts::ui_name())
                 .child(field(st.rename_input.clone()));
             let footer = vec![
                 button(
@@ -526,7 +525,7 @@ pub fn modal_overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<An
             let body = div()
                 .flex()
                 .flex_col()
-                .font_family(UI_FONT)
+                .font_family(crate::ui::fonts::ui_name())
                 .child(field(st.move_input.clone()))
                 .child(list);
             let footer = vec![
@@ -584,7 +583,7 @@ pub fn modal_overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<An
             let body = div()
                 .flex()
                 .flex_col()
-                .font_family(UI_FONT)
+                .font_family(crate::ui::fonts::ui_name())
                 .child(field(st.picker_input.clone()))
                 .child(list);
             let footer = vec![

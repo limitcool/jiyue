@@ -9,11 +9,13 @@
 
 mod actions;
 pub mod autoname;
+pub mod batch;
 pub mod dnd;
 mod menu;
 mod modals;
 mod pure;
 mod recovery;
+pub mod selection;
 mod watch;
 
 pub use modals::confirm_close_despite_failures;
@@ -66,6 +68,8 @@ pub struct State {
     pub drag_hover: Option<(String, Instant)>,
     /// The automatic file name of new notes (see `autoname`).
     pub autoname: autoname::Session,
+    /// The rows selected with Ctrl+click, Shift+click or Ctrl+A (see `selection`).
+    pub selection: selection::Selection,
 }
 
 /// Commands this module handles (sent as `ExtCommand::Files`).
@@ -324,6 +328,56 @@ pub fn open_trash_view(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     cx.notify();
 }
 
+/// A click on a tree row (see `selection`): the selection follows the modifiers of the click.
+pub fn select_row(app: &mut RustdianApp, path: &str, mode: selection::ClickMode) {
+    let visible = super::sidebar::visible_rows(app);
+    app.ext.files.selection.click(&visible, path, mode);
+    app.ext.files.selected = Some(path.to_string());
+}
+
+/// Ctrl+A in the tree: every visible row is selected.
+pub fn select_all_rows(app: &mut RustdianApp) {
+    let visible = super::sidebar::visible_rows(app);
+    app.ext.files.selection.select_all(&visible);
+}
+
+/// A right click on a tree row: a row outside the selection replaces it; a row inside keeps the
+/// selection, so the menu acts on all of it.
+pub fn context_select(app: &mut RustdianApp, path: &str) {
+    if app.ext.files.selection.contains(path) {
+        app.ext.files.selected = Some(path.to_string());
+    } else {
+        select_row(app, path, selection::ClickMode::Plain);
+    }
+}
+
+/// Whether a context menu on `path` acts on the whole selection (a multi-selection that holds it).
+pub fn acts_on_selection(app: &RustdianApp, path: &str) -> bool {
+    app.ext.files.selection.len() > 1 && app.ext.files.selection.contains(path)
+}
+
+/// The rows a drag of `path` carries: the whole selection when `path` is part of a multi-selection.
+pub fn drag_items(app: &RustdianApp, path: &str, is_dir: bool) -> Vec<(String, bool)> {
+    if acts_on_selection(app, path) {
+        selected_items(app)
+    } else {
+        vec![(path.to_string(), is_dir)]
+    }
+}
+
+/// The rows a batch action acts on, as `(path, is_dir)`: the selection without the rows inside a
+/// selected folder. Notes end in `.md`; every other row is a folder.
+pub fn selected_items(app: &RustdianApp) -> Vec<(String, bool)> {
+    let items = app.ext.files.selection.items().to_vec();
+    selection::effective_roots(&items, |p| !p.ends_with(".md"))
+        .into_iter()
+        .map(|p| {
+            let is_dir = !p.ends_with(".md");
+            (p, is_dir)
+        })
+        .collect()
+}
+
 /// Focuses the tree (so that Delete, F2 and Enter act on the selection).
 pub fn focus_tree(app: &RustdianApp, window: &mut Window) {
     if let Some(handle) = app.ext.files.tree_focus.as_ref() {
@@ -343,6 +397,18 @@ pub fn tree_key(
         return;
     }
     let key = ev.keystroke.key.as_str();
+    let modifiers = ev.keystroke.modifiers;
+    // Ctrl+A selects every visible row; Escape clears a multi-selection.
+    if key == "a" && modifiers.control && !modifiers.shift && !modifiers.alt {
+        select_all_rows(app);
+        cx.notify();
+        return;
+    }
+    if key == "escape" && !app.ext.files.selection.is_empty() {
+        app.ext.files.selection.clear();
+        cx.notify();
+        return;
+    }
     let Some(selected) = app.ext.files.selected.clone() else {
         return;
     };
@@ -362,7 +428,11 @@ pub fn tree_key(
         return;
     }
     if command == Some("file.delete") {
-        modals::confirm_delete(app, selected, is_dir);
+        if app.ext.files.selection.len() > 1 {
+            modals::confirm_delete_many(app, selected_items(app));
+        } else {
+            modals::confirm_delete(app, selected, is_dir);
+        }
         return;
     }
     match key {

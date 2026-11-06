@@ -1,10 +1,8 @@
 //! Status bar (28px) at the bottom of the sheet.
 
-use gpui::{Context, IntoElement, Rgba, SharedString, div, prelude::*, px, rgb};
-
-use super::UI_FONT;
 use crate::RustdianApp;
 use crate::session::{SaveStatus, ViewMode};
+use gpui::{Context, IntoElement, Rgba, SharedString, div, prelude::*, px, rgb};
 
 /// Warm amber for unsaved changes (saved uses the theme's `ok`).
 const UNSAVED_AMBER: u32 = 0xd9962b;
@@ -55,7 +53,7 @@ pub fn render_statusbar(
         .px(px(16.0))
         .border_t_1()
         .border_color(t.line_soft)
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(11.5))
         .text_color(t.tx3)
         .child(

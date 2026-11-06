@@ -11,7 +11,6 @@ use jiyue_core::watch::{VaultEvent, VaultWatcher};
 
 use super::{POLL_INTERVAL, RECONCILE_DELAY, actions, modals, pure};
 use crate::RustdianApp;
-use crate::ui::UI_FONT;
 use crate::ui::ext::{ExtEvent, ToastKind};
 use crate::ui::icons::icon;
 use crate::ui::widgets::controls::{ButtonKind, button};
@@ -289,7 +288,7 @@ pub fn conflict_bar(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Option<
             .bg(t.ac_soft)
             .border_b_1()
             .border_color(t.line_soft)
-            .font_family(UI_FONT)
+            .font_family(crate::ui::fonts::ui_name())
             .text_size(px(12.5))
             .text_color(t.tx)
             .child(icon("info-circle", 15.0, t.ac))

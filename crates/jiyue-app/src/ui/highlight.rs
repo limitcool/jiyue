@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use gpui::{FontWeight, Hsla, SharedString, StyledText, TextRun, font};
 
-use super::MONO_FONT;
 use crate::theme::ActiveTheme;
+use crate::ui::fonts::{self, Face};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tok {
@@ -135,7 +135,7 @@ fn run(len: usize, base: gpui::Rgba, tok: Tok, t: &ActiveTheme) -> TextRun {
         Tok::Comment => t.cm,
         Tok::Ty => t.ty,
     };
-    let mut f = font(MONO_FONT.to_string());
+    let mut f = font(fonts::face_name(Face::Code, t.kind));
     f.weight = FontWeight::NORMAL;
     if tok == Tok::Comment {
         f.style = gpui::FontStyle::Italic;

@@ -19,6 +19,7 @@ use std::path::PathBuf;
 
 use gpui::{AnyElement, App, ClipboardEntry, ClipboardItem, Context, Entity, KeyDownEvent};
 use jiyue_md::embeds::Anchor;
+use jiyue_md::frontmatter;
 
 use crate::AppCommand;
 use crate::RustdianApp;
@@ -36,6 +37,17 @@ pub struct PropEdit {
     pub kind: props::Kind,
     pub input: Entity<LineInput>,
     /// Hint under the field after a rejected value (for example an invalid date).
+    pub error: Option<&'static str>,
+    /// Keeps the event subscription alive.
+    pub _sub: gpui::Subscription,
+}
+
+/// An open inline editor of a property name (the key of the row).
+pub struct KeyEdit {
+    /// The property name being renamed.
+    pub key: String,
+    pub input: Entity<LineInput>,
+    /// Hint under the field after a rejected name (empty, duplicate, ...).
     pub error: Option<&'static str>,
     /// Keeps the event subscription alive.
     pub _sub: gpui::Subscription,
@@ -62,6 +74,8 @@ pub struct State {
     pub prop_edit: Option<PropEdit>,
     /// The 添加标签 field and its subscription, while it is open.
     pub tag_input: Option<(Entity<LineInput>, gpui::Subscription)>,
+    /// The property name being renamed inline, while its field is open.
+    pub key_edit: Option<KeyEdit>,
     /// Keeps the keystroke interceptor for Ctrl+V alive (see `init`).
     pub key_intercept: Option<gpui::Subscription>,
     /// Vault data of the live view's image and note widgets, shared with every editor (see
@@ -107,6 +121,22 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     // binding is skipped and the key listener (`handle_key`) does the import.
     let weak = cx.entity().downgrade();
     app.ext.attach.key_intercept = Some(cx.intercept_keystrokes(move |ev, _window, cx| {
+        // Backspace in an empty 添加标签 field removes the note's last tag. Handled here, before
+        // the text field sees the key, because an empty field reports no change of its own.
+        if ev.keystroke.key == "backspace" {
+            let m = ev.keystroke.modifiers;
+            if m.control || m.alt || m.platform {
+                return;
+            }
+            let Some(entity) = weak.upgrade() else {
+                return;
+            };
+            if tag_field_is_empty(entity.read(cx), cx) {
+                cx.stop_propagation();
+                entity.update(cx, remove_last_tag);
+            }
+            return;
+        }
         let m = ev.keystroke.modifiers;
         // Ctrl+V, or Cmd+V on macOS (`keymap::primary_held`).
         if ev.keystroke.key != "v" || !crate::ui::keymap::primary_held(&m) || m.alt || m.shift {
@@ -129,6 +159,27 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         cx.stop_propagation();
         entity.update(cx, import_clipboard_at_caret);
     }));
+}
+
+/// True when the 添加标签 field is open and empty.
+fn tag_field_is_empty(app: &RustdianApp, cx: &App) -> bool {
+    app.ext
+        .attach
+        .tag_input
+        .as_ref()
+        .is_some_and(|(input, _)| input.read(cx).text().is_empty())
+}
+
+/// Removes the last tag of the active note (Backspace in an empty 添加标签 field).
+fn remove_last_tag(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    let text = app
+        .vault
+        .active_note()
+        .map(|n| n.content().to_string())
+        .unwrap_or_default();
+    if let Some(tag) = props::last_tag(&text) {
+        edit_active_text(app, move |t| frontmatter::remove_tag(t, "tags", &tag), cx);
+    }
 }
 
 /// Imports the clipboard image at the caret of the open note (Ctrl+V in Source).

@@ -166,14 +166,78 @@ pub fn is_valid_date(s: &str) -> bool {
     day <= days
 }
 
-/// The tag a user typed into the 添加标签 field: a leading `#` is dropped, spaces are not allowed
-/// in a tag (they are replaced by `-`). `None` for an empty field.
-pub fn tag_from_input(raw: &str) -> Option<String> {
-    let tag = raw.trim().trim_start_matches('#').trim();
-    if tag.is_empty() {
-        return None;
+/// The tags typed into the 添加标签 field. Spaces, commas (`,` `，` `、` `;` `；`) separate tags, so
+/// one entry can add several. A leading `#` is dropped from each. Empty and repeated tags are
+/// dropped; the order is kept.
+pub fn tags_from_input(raw: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for part in
+        raw.split(|c: char| c.is_whitespace() || matches!(c, ',' | '，' | '、' | ';' | '；'))
+    {
+        let tag = part.trim().trim_start_matches('#').trim();
+        if !tag.is_empty() && !out.iter().any(|t| t == tag) {
+            out.push(tag.to_string());
+        }
     }
-    Some(tag.split_whitespace().collect::<Vec<_>>().join("-"))
+    out
+}
+
+/// The last tag of the note's `tags` property: the end of the list, or of a comma/space string.
+/// `None` when there are no tags.
+pub fn last_tag(text: &str) -> Option<String> {
+    let prop = frontmatter::properties(text)
+        .into_iter()
+        .find(|p| p.key == "tags")?;
+    match prop.value {
+        Value::List(items) => items.last().cloned(),
+        Value::Text(s) => frontmatter::split_tokens(&s).last().cloned(),
+        _ => None,
+    }
+}
+
+/// Tags shown as chips for a `tags` property written as one string (`tags: a, b`). Empty for any
+/// other value; lists are shown from their items.
+pub fn tag_chips(value: &Value) -> Option<Vec<String>> {
+    match value {
+        Value::Text(s) => Some(frontmatter::split_tokens(s)),
+        _ => None,
+    }
+}
+
+/// True for the properties that hold tags.
+pub fn is_tag_key(key: &str) -> bool {
+    key == "tags" || key == "tag"
+}
+
+/// Checks a new property name typed in the rename field. `old` is the current name (it may keep
+/// its own name), `others` are the other names of the note (compared case-sensitively). Returns the
+/// trimmed name, or a hint for the user.
+pub fn check_key(raw: &str, old: &str, others: &[String]) -> Result<String, &'static str> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err("名称不能为空");
+    }
+    if name == "---" || name == "..." {
+        return Err("名称不能是 ---");
+    }
+    if name.chars().count() > 80 {
+        return Err("名称最多 80 个字");
+    }
+    if name.chars().any(char::is_control) {
+        return Err("名称不能包含换行或控制字符");
+    }
+    if name != old && others.iter().any(|o| o == name) {
+        return Err("已有同名属性");
+    }
+    Ok(name.to_string())
+}
+
+/// The property names of a note, in document order.
+pub fn keys(text: &str) -> Vec<String> {
+    frontmatter::properties(text)
+        .into_iter()
+        .map(|p| p.key)
+        .collect()
 }
 
 /// The note text with a new empty text property named 属性, 属性 2, ... (not used yet).
@@ -348,21 +412,90 @@ mod tests {
 
     #[test]
     fn tags_from_the_add_field() {
-        assert_eq!(tag_from_input("  #读书  "), Some("读书".to_string()));
-        assert_eq!(tag_from_input("两 个 词"), Some("两-个-词".to_string()));
-        assert_eq!(tag_from_input("  #  "), None);
-        assert_eq!(tag_from_input(""), None);
+        assert_eq!(tags_from_input("  #读书  "), vec!["读书".to_string()]);
+        // Spaces and commas (ASCII and CJK) separate several tags at once.
+        assert_eq!(
+            tags_from_input("读书, 随笔，项目/霁月 #读书 、 ；学习"),
+            vec![
+                "读书".to_string(),
+                "随笔".to_string(),
+                "项目/霁月".to_string(),
+                "学习".to_string()
+            ]
+        );
+        assert!(tags_from_input("  #  ").is_empty());
+        assert!(tags_from_input("").is_empty());
     }
 
     #[test]
-    fn add_tag_creates_or_extends_the_tags_list() {
-        let next = frontmatter::add_to_list("# 无属性\n", "tags", "读书");
+    fn add_tags_creates_or_extends_the_tags_list() {
+        let next = frontmatter::add_tags("# 无属性\n", "tags", &["读书".into()]);
         assert!(matches!(
             block_state(&next),
             Block::Props(ref p) if p.iter().any(|x| x.key == "tags")
         ));
-        let more = frontmatter::add_to_list(NOTE, "tags", "新标签");
+        let more = frontmatter::add_tags(NOTE, "tags", &["新标签".into(), "第三".into()]);
         assert!(more.contains("新标签"));
+        assert!(more.contains("第三"));
         assert!(more.contains("读书"));
+        assert!(more.contains("# 个人备注\n"));
+    }
+
+    #[test]
+    fn last_tag_reads_the_end_of_either_form() {
+        assert_eq!(last_tag(NOTE), Some("随笔".to_string()));
+        assert_eq!(
+            last_tag(&fm_block("tags: 甲, 乙\n")),
+            Some("乙".to_string())
+        );
+        assert_eq!(last_tag(&fm_block("tags: []\n")), None);
+        assert_eq!(last_tag("# 无属性\n"), None);
+    }
+
+    fn fm_block(inner: &str) -> String {
+        format!("---\n{inner}---\n正文\n")
+    }
+
+    #[test]
+    fn chips_only_for_comma_strings() {
+        assert_eq!(
+            tag_chips(&Value::Text("甲, 乙 丙".into())),
+            Some(vec!["甲".to_string(), "乙".to_string(), "丙".to_string()])
+        );
+        assert_eq!(tag_chips(&Value::List(vec!["甲".into()])), None);
+        assert!(is_tag_key("tags") && is_tag_key("tag") && !is_tag_key("title"));
+    }
+
+    #[test]
+    fn key_names_are_checked() {
+        let others = vec!["title".to_string(), "状态".to_string()];
+        assert_eq!(
+            check_key("  日期  ", "title", &others),
+            Ok("日期".to_string())
+        );
+        // Keeping its own name is fine.
+        assert_eq!(
+            check_key("title", "title", &others),
+            Ok("title".to_string())
+        );
+        assert_eq!(check_key("  ", "title", &others), Err("名称不能为空"));
+        assert_eq!(check_key("---", "title", &others), Err("名称不能是 ---"));
+        assert_eq!(check_key("状态", "title", &others), Err("已有同名属性"));
+        // Case-sensitive: a different case is another name.
+        assert_eq!(
+            check_key("Title", "title", &others),
+            Ok("Title".to_string())
+        );
+        assert!(check_key("a\nb", "title", &others).is_err());
+        let long: String = "长".repeat(81);
+        assert!(check_key(&long, "title", &others).is_err());
+    }
+
+    #[test]
+    fn renamed_keys_keep_their_values_in_the_note() {
+        let text = "---\ntitle: 标题\n# 注释\nstatus: 草稿\n---\n正文\n";
+        let next = frontmatter::rename_property(text, "status", "状态 2");
+        assert_eq!(keys(&next), vec!["title".to_string(), "状态 2".to_string()]);
+        assert!(next.contains("# 注释\n"));
     }
 }

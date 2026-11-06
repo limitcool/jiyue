@@ -28,7 +28,6 @@ use jiyue_export::{
 
 use crate::AppCommand;
 use crate::RustdianApp;
-use crate::ui::UI_FONT;
 use crate::ui::ext::{ExtCommand, ExtEvent, PaletteCommand, ToastKind};
 use crate::ui::files_ui;
 use crate::ui::widgets::{ButtonKind, LineInput, LineInputEvent, button, modal, overlay};
@@ -440,7 +439,7 @@ pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElem
     let body = div()
         .flex()
         .flex_col()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(field)
         .child(list);
 

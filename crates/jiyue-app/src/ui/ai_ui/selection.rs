@@ -17,7 +17,6 @@ use super::diff::{self, SegKind};
 use super::{Modal, active_editor};
 use super::{context, editing, effective_config, errors, input_clear, input_text, runner, worker};
 use crate::RustdianApp;
-use crate::ui::UI_FONT;
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
 use crate::ui::widgets::controls::PickIndex;
@@ -638,7 +637,7 @@ pub fn render_card(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEleme
         .rounded(px(12.0))
         .shadow_lg()
         .overflow_hidden()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(13.0))
         .text_color(t.tx)
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

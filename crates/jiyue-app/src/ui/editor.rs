@@ -13,15 +13,16 @@ use gpui::{
     linear_color_stop, linear_gradient, prelude::*, px, relative,
 };
 
+use super::display_family;
 use super::highlight;
 use super::icons::icon;
 use super::inline::{rich_text, rich_text_geo};
-use super::{MONO_FONT, UI_FONT, display_family};
 use crate::RustdianApp;
 use crate::buffer::Note;
 use crate::daily::Date;
 use crate::session::ViewMode;
 use crate::theme::ActiveTheme;
+use crate::ui::fonts;
 
 /// Renders the whole editor area for `note`. `show_pill` adds the mode switcher.
 pub fn render_editor(
@@ -239,7 +240,7 @@ fn preview(
             .max_w(px(620.0))
             .pt(px(30.0))
             .pb(px(80.0))
-            .font_family(UI_FONT)
+            .font_family(fonts::face_name(fonts::Face::Editor, t.kind))
             .child(
                 div()
                     .font_family(family)
@@ -730,7 +731,7 @@ fn split_inline_id(trimmed: &str) -> (&str, Option<&str>) {
 fn block_id_label(t: &ActiveTheme, id: &str) -> AnyElement {
     div()
         .mb(px(8.0))
-        .font_family(MONO_FONT)
+        .font_family(fonts::code_name())
         .text_size(px(11.5))
         .text_color(t.tx3)
         .child(SharedString::from(format!("^{id}")))
@@ -889,7 +890,7 @@ fn callout(
                             body,
                             t,
                             t.tx,
-                            UI_FONT,
+                            &fonts::ui_name(),
                             None,
                             false,
                             lineno as u64,
@@ -988,7 +989,7 @@ fn code_block(
         .flex_col()
         .px(px(14.0))
         .py(px(12.0))
-        .font_family(MONO_FONT)
+        .font_family(fonts::code_name())
         .text_size(px(12.5))
         .line_height(px(22.0))
         .text_color(t.tx);
@@ -1018,7 +1019,7 @@ fn code_block(
                 .border_color(t.line_soft)
                 .child(
                     div()
-                        .font_family(MONO_FONT)
+                        .font_family(fonts::code_name())
                         .text_size(px(11.5))
                         .text_color(t.tx3)
                         .child(SharedString::from(lang.to_string())),

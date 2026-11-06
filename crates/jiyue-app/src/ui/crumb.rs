@@ -20,7 +20,7 @@ use super::widgets::controls::{ListAction, PickIndex};
 use super::widgets::overlay::{MenuItem, context_menu, menu_action};
 use super::{export_ui, folder_key, path_parts, template_ui};
 use crate::daily::{Date, weekday_name_zh};
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, ICON_GAP_TIGHT, RADIUS_S};
 use crate::{AppCommand, RustdianApp};
 
 /// Commands of this module (sent as `ExtCommand::Crumb`, palette rows).
@@ -45,6 +45,8 @@ pub enum Act {
     CloseSplit,
     Reveal,
     CopyPath,
+    NavBack,
+    NavForward,
     Rename,
     Delete,
 }
@@ -84,6 +86,9 @@ pub fn row_specs() -> Vec<Option<(&'static str, &'static str, Act)>> {
         None,
         Some(("在资源管理器中显示", "folder-open", Act::Reveal)),
         Some(("复制文件路径", "copy", Act::CopyPath)),
+        None,
+        Some(("后退", "chevron-left", Act::NavBack)),
+        Some(("前进", "chevron-right", Act::NavForward)),
         None,
         Some(("重命名", "pencil", Act::Rename)),
         Some(("删除", "trash", Act::Delete)),
@@ -256,6 +261,8 @@ fn run_act(app: &mut RustdianApp, act: Act, cx: &mut Context<RustdianApp>) {
         Act::CloseSplit => app.run_command(AppCommand::CloseSplit),
         Act::Reveal => run(app, Command::Reveal, cx),
         Act::CopyPath => run(app, Command::CopyPath, cx),
+        Act::NavBack => app.run_command(AppCommand::NavBack),
+        Act::NavForward => app.run_command(AppCommand::NavForward),
         Act::Rename => files_ui::run(app, files_ui::Command::RenameActive, cx),
         Act::Delete => files_ui::run(app, files_ui::Command::DeleteActive, cx),
     }
@@ -303,13 +310,13 @@ pub fn render_crumb(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl In
         .min_w_0();
     for (i, (label, key)) in segments.into_iter().enumerate() {
         if i > 0 {
-            folder_row = folder_row.child(icon("chevron-right", 11.0, t.tx3));
+            folder_row = folder_row.child(icon("chevron-right", 12.0, t.tx3));
         }
         let mut seg = div()
             .flex_none()
             .px(px(4.0))
             .py(px(1.0))
-            .rounded(px(5.0))
+            .rounded(px(RADIUS_S))
             .child(SharedString::from(label));
         if !key.is_empty() {
             seg = seg
@@ -345,7 +352,7 @@ pub fn render_crumb(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl In
             .items_center()
             .justify_center()
             .size(px(28.0))
-            .rounded(px(7.0))
+            .rounded(px(RADIUS_S))
             .text_color(color)
             .cursor_pointer()
             .hover(|s| s.bg(t.hover));
@@ -386,7 +393,7 @@ pub fn render_crumb(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl In
     let bar = div()
         .flex()
         .items_center()
-        .gap(px(6.0))
+        .gap(px(ICON_GAP_TIGHT))
         .h(px(40.0))
         .flex_none()
         .pl(px(18.0))
@@ -430,7 +437,7 @@ fn star_button(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .items_center()
         .justify_center()
         .size(px(28.0))
-        .rounded(px(7.0))
+        .rounded(px(RADIUS_S))
         .text_color(color)
         .cursor_pointer()
         .hover(|s| s.bg(t.hover));
@@ -463,7 +470,7 @@ fn dots_button(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .items_center()
         .justify_center()
         .size(px(28.0))
-        .rounded(px(7.0))
+        .rounded(px(RADIUS_S))
         .text_color(color)
         .cursor_pointer()
         .hover(|s| s.bg(t.hover));
@@ -508,7 +515,7 @@ fn daily_nav(app: &RustdianApp, cx: &mut Context<RustdianApp>, date: Date) -> Di
         .items_center()
         .px(px(7.0))
         .h(px(24.0))
-        .rounded(px(6.0))
+        .rounded(px(RADIUS_S))
         .text_size(px(12.0))
         .text_color(t.tx2)
         .cursor_pointer()
@@ -557,7 +564,7 @@ fn nav_button(t: &ActiveTheme, name: &'static str, enabled: bool) -> Div {
         .items_center()
         .justify_center()
         .size(px(26.0))
-        .rounded(px(7.0))
+        .rounded(px(RADIUS_S))
         .child(icon(name, 16.0, color));
     if enabled {
         el.cursor_pointer().hover(|s| s.bg(t.hover))
@@ -587,7 +594,7 @@ mod tests {
     }
 
     #[test]
-    fn menu_lists_the_twelve_rows_in_order() {
+    fn menu_lists_the_fourteen_rows_in_order() {
         let labels: Vec<&str> = row_specs()
             .into_iter()
             .flatten()
@@ -606,6 +613,8 @@ mod tests {
                 "关闭分屏",
                 "在资源管理器中显示",
                 "复制文件路径",
+                "后退",
+                "前进",
                 "重命名",
                 "删除",
             ]
@@ -618,8 +627,8 @@ mod tests {
         let mut acts: Vec<Act> = rows.iter().map(|(_, _, a)| *a).collect();
         acts.sort_by_key(|a| format!("{a:?}"));
         acts.dedup();
-        assert_eq!(acts.len(), 12, "each of the twelve acts is in the menu");
-        assert_eq!(rows.len(), 12, "no act is listed twice");
+        assert_eq!(acts.len(), 14, "each of the fourteen acts is in the menu");
+        assert_eq!(rows.len(), 14, "no act is listed twice");
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons");
         for (_, icon_name, _) in &rows {
             assert!(

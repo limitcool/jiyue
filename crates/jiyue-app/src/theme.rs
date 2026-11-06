@@ -8,9 +8,22 @@ pub const FONT_UI_MEDIUM: f32 = 15.0;
 pub const LINE_HEIGHT_NORMAL: f32 = 1.5;
 pub const HEADER_HEIGHT: f32 = 40.0;
 pub const SIDEBAR_WIDTH: f32 = 240.0;
-pub const RADIUS_S: f32 = 4.0;
+/// Corner radii, one set for the whole app. Small: rows, chips, key caps, menu items, tooltips.
+/// Medium: buttons, inputs, selects, segmented controls. Large: cards, dialogs, menus, popups.
+/// Pill: fully rounded chips and switches. Every rounded element uses one of these four values;
+/// a container that paints a background and a child that paints a background must use the same
+/// radius on the corners the child reaches (gpui clips children to the rectangle only).
+pub const RADIUS_S: f32 = 6.0;
 pub const RADIUS_M: f32 = 8.0;
 pub const RADIUS_L: f32 = 12.0;
+pub const RADIUS_PILL: f32 = 999.0;
+
+/// Icon size used in rows, buttons and menus.
+pub const ICON_SIZE: f32 = 16.0;
+/// Gap between an icon and its label in rows, menus and buttons.
+pub const ICON_GAP: f32 = 8.0;
+/// Gap between an icon and its label in compact chips, breadcrumbs and tab-like controls.
+pub const ICON_GAP_TIGHT: f32 = 6.0;
 
 pub const TAB_SIZE: usize = 4;
 pub const READABLE_LINE_LENGTH: bool = true;
@@ -447,6 +460,14 @@ mod tests {
         let b = luminance(sheet);
         let (hi, lo) = if a > b { (a, b) } else { (b, a) };
         (hi + 0.05) / (lo + 0.05)
+    }
+
+    #[test]
+    fn radius_tokens_are_ordered_and_icon_gaps_are_shared() {
+        const { assert!(RADIUS_S < RADIUS_M && RADIUS_M < RADIUS_L && RADIUS_L < RADIUS_PILL) };
+        assert_eq!((RADIUS_S, RADIUS_M, RADIUS_L), (6.0, 8.0, 12.0));
+        const { assert!(ICON_GAP_TIGHT < ICON_GAP) };
+        assert_eq!(ICON_SIZE, 16.0);
     }
 
     #[test]

@@ -16,17 +16,15 @@ mod settings;
 
 use std::time::Duration;
 
-use gpui::{
-    AnyElement, Context, FontWeight, IntoElement, KeyDownEvent, MouseButton, SharedString, Task,
-    div, prelude::*, px,
-};
-
-use crate::ui::UI_FONT;
 use crate::ui::ext::{ExtCommand, ExtEvent, PaletteCommand, ToastKind};
 use crate::ui::history_ui;
 use crate::ui::icons::icon;
 use crate::ui::widgets::overlay;
 use crate::{AppCommand, RustdianApp};
+use gpui::{
+    AnyElement, Context, FontWeight, IntoElement, KeyDownEvent, MouseButton, SharedString, Task,
+    div, prelude::*, px,
+};
 
 use config::SyncConfig;
 use service::{Job, Progress, RunKind, SyncService};
@@ -557,7 +555,7 @@ pub fn statusbar_items(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<
         .cursor_pointer()
         .hover(|s| s.bg(t.hover))
         .text_color(color)
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(div().size(px(6.0)).rounded_full().bg(dot))
         .child(SharedString::from(text))
         .on_mouse_down(
@@ -627,7 +625,7 @@ fn render_banner(app: &RustdianApp, banner: &Banner, cx: &mut Context<RustdianAp
         .border_1()
         .border_color(t.line)
         .shadow_md()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(13.0))
         .text_color(t.tx)
         .child(icon("x", 16.0, t.st))

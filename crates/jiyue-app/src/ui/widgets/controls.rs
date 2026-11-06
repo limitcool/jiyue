@@ -14,8 +14,9 @@ use gpui::{
     relative, svg,
 };
 
-use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
+use crate::theme::{
+    ActiveTheme, ICON_GAP_TIGHT, ICON_SIZE, RADIUS_L, RADIUS_M, RADIUS_PILL, RADIUS_S,
+};
 use crate::ui::icons::icon;
 
 /// Red used for every danger control and destructive menu row.
@@ -75,21 +76,21 @@ pub fn button(
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(6.0))
+        .gap(px(ICON_GAP_TIGHT))
         .h(px(30.0))
         .px(px(12.0))
-        .rounded(px(8.0))
+        .rounded(px(RADIUS_M))
         .border_1()
         .border_color(border)
         .bg(bg)
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(13.0))
         .font_weight(FontWeight::MEDIUM)
         .text_color(fg)
         .cursor_pointer()
         .whitespace_nowrap();
     if let Some(name) = icon_name {
-        el = el.child(icon(name, 15.0, fg));
+        el = el.child(icon(name, ICON_SIZE, fg));
     }
     el = el.child(SharedString::from(label.to_string()));
     el = match kind {
@@ -111,10 +112,10 @@ pub fn icon_button(
         .items_center()
         .justify_center()
         .size(px(28.0))
-        .rounded(px(6.0))
+        .rounded(px(RADIUS_S))
         .cursor_pointer()
         .hover(|s| s.bg(t.hover))
-        .child(icon(icon_name, 16.0, t.tx2))
+        .child(icon(icon_name, ICON_SIZE, t.tx2))
         .on_mouse_down(MouseButton::Left, on_click)
 }
 
@@ -130,7 +131,7 @@ pub fn toggle(
         .flex_none()
         .w(px(36.0))
         .h(px(20.0))
-        .rounded(px(10.0))
+        .rounded(px(RADIUS_PILL))
         .cursor_pointer()
         .bg(if on { t.ac } else { t.active })
         .border_1()
@@ -159,7 +160,7 @@ pub fn segmented(t: &ActiveTheme, options: &[&str], selected: usize, on_select: 
         .border_color(t.line)
         .bg(t.sheet)
         .overflow_hidden()
-        .font_family(UI_FONT);
+        .font_family(crate::ui::fonts::ui_name());
     for (i, name) in options.iter().enumerate() {
         let on = i == selected;
         let mut seg = div()
@@ -176,6 +177,15 @@ pub fn segmented(t: &ActiveTheme, options: &[&str], selected: usize, on_select: 
                 FontWeight::NORMAL
             })
             .child(SharedString::from(name.to_string()));
+        // The container clips only its rectangle, so the end segments round their own outer corners
+        // (inside the 1px border: radius minus the border width).
+        let inner = RADIUS_M - 1.0;
+        if i == 0 {
+            seg = seg.rounded_l(px(inner));
+        }
+        if i + 1 == options.len() {
+            seg = seg.rounded_r(px(inner));
+        }
         if on {
             seg = seg.bg(t.active);
         } else {
@@ -219,11 +229,11 @@ pub fn select(
         .w(px(width))
         .h(px(30.0))
         .px(px(10.0))
-        .rounded(px(8.0))
+        .rounded(px(RADIUS_M))
         .border_1()
         .border_color(if open { t.ac } else { t.line })
         .bg(t.raised)
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(13.0))
         .text_color(t.tx)
         .cursor_pointer()
@@ -241,12 +251,12 @@ pub fn select(
             .left_0()
             .w_full()
             .py(px(4.0))
-            .rounded(px(10.0))
+            .rounded(px(RADIUS_L))
             .border_1()
             .border_color(t.line)
             .bg(t.raised)
             .shadow_md()
-            .font_family(UI_FONT)
+            .font_family(crate::ui::fonts::ui_name())
             .text_size(px(13.0))
             .text_color(t.tx)
             .on_mouse_down_out(on_close);
@@ -260,7 +270,7 @@ pub fn select(
                 .h(px(30.0))
                 .mx(px(4.0))
                 .px(px(10.0))
-                .rounded(px(6.0))
+                .rounded(px(RADIUS_S))
                 .cursor_pointer()
                 .child(SharedString::from(name.to_string()));
             if on {
@@ -291,7 +301,7 @@ pub fn checkbox(
         .items_center()
         .justify_center()
         .size(px(16.0))
-        .rounded(px(4.0))
+        .rounded(px(RADIUS_S))
         .border_1()
         .border_color(if checked { t.ac } else { t.line })
         .bg(if checked { t.ac } else { t.raised })
@@ -311,7 +321,7 @@ pub fn kbd(t: &ActiveTheme, text: &str) -> Div {
         .justify_center()
         .px(px(6.0))
         .h(px(18.0))
-        .rounded(px(5.0))
+        .rounded(px(RADIUS_S))
         .border_1()
         .border_color(t.line)
         .bg(t.hover)
@@ -335,7 +345,7 @@ pub fn badge(t: &ActiveTheme, text: &str, kind: BadgeKind) -> Div {
         .flex_none()
         .px(px(7.0))
         .py(px(1.0))
-        .rounded(px(999.0))
+        .rounded(px(RADIUS_PILL))
         .bg(bg)
         .text_size(px(11.5))
         .font_weight(FontWeight::MEDIUM)
@@ -349,7 +359,7 @@ pub fn section_title(t: &ActiveTheme, text: &str) -> Div {
     div()
         .pt(px(12.0))
         .pb(px(6.0))
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(11.5))
         .font_weight(FontWeight::MEDIUM)
         .text_color(t.tx3)
@@ -389,7 +399,7 @@ pub fn form_row(
         .justify_between()
         .gap(px(20.0))
         .py(px(8.0))
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(left)
         .child(control);
     if !last {
@@ -404,10 +414,16 @@ pub fn progress_bar(t: &ActiveTheme, fraction: f32) -> Div {
     div()
         .w_full()
         .h(px(6.0))
-        .rounded(px(3.0))
+        .rounded(px(RADIUS_PILL))
         .bg(t.active)
         .overflow_hidden()
-        .child(div().h_full().w(relative(f)).rounded(px(3.0)).bg(t.ac))
+        .child(
+            div()
+                .h_full()
+                .w(relative(f))
+                .rounded(px(RADIUS_PILL))
+                .bg(t.ac),
+        )
 }
 
 /// Clamps a progress value to 0..=1 (NaN counts as 0).
@@ -440,7 +456,7 @@ pub fn empty_state(t: &ActiveTheme, icon_name: &str, title: &str, text: &str) ->
         .gap(px(8.0))
         .py(px(32.0))
         .px(px(16.0))
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(icon(icon_name, 28.0, t.tx3))
         .child(
             div()

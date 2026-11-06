@@ -26,7 +26,6 @@ use gpui::{
 };
 
 use crate::RustdianApp;
-use crate::ui::UI_FONT;
 use crate::ui::attach_ui::import::{self, Outcome, Source};
 use crate::ui::attach_ui::{self, resolve};
 use crate::ui::ext::ExtEvent;
@@ -886,7 +885,7 @@ fn menu_overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Option<AnyE
         .bg(t.raised)
         .shadow_lg()
         .overflow_hidden()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(13.0))
         .text_color(t.tx)
         .child(list)
@@ -980,7 +979,7 @@ fn picker_overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Option<An
     let body = div()
         .flex()
         .flex_col()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(div().mb(px(10.0)).child(p.filter.clone()))
         .child(list);
     let footer = vec![

@@ -7,7 +7,6 @@ use std::rc::Rc;
 use gpui::{AnyElement, Context, Entity, IntoElement, MouseDownEvent, div, prelude::*, px};
 
 use crate::RustdianApp;
-use crate::ui::UI_FONT;
 use crate::ui::widgets::{ButtonKind, LineInput, button, form_row, modal, segmented};
 use jiyue_md::attach::{AttachFolder, AttachSettings, LinkStyle};
 
@@ -129,7 +128,7 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<Any
     let body = div()
         .flex()
         .flex_col()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .child(form_row(
             &t,
             "保存位置",

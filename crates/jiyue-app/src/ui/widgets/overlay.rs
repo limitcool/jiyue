@@ -15,8 +15,7 @@ use gpui::{
 };
 
 use super::controls::{ButtonKind, ListAction, PickIndex, button, icon_button};
-use crate::theme::ActiveTheme;
-use crate::ui::UI_FONT;
+use crate::theme::{ActiveTheme, ICON_GAP, ICON_SIZE, RADIUS_L, RADIUS_S};
 use crate::ui::icons::icon;
 
 /// Width of a context menu, in px.
@@ -221,7 +220,7 @@ pub fn modal(
         .px(px(20.0))
         .child(
             div()
-                .font_family(UI_FONT)
+                .font_family(crate::ui::fonts::ui_name())
                 .text_size(px(15.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(t.tx)
@@ -238,7 +237,9 @@ pub fn modal(
         .px(px(16.0))
         .border_t_1()
         .border_color(t.line_soft)
-        .bg(t.hover);
+        .bg(t.hover)
+        // gpui clips children to the rectangle, so the footer rounds its own bottom corners.
+        .rounded_b(px(RADIUS_L));
     for button_el in footer {
         footer_row = footer_row.child(button_el);
     }
@@ -251,10 +252,10 @@ pub fn modal(
         .bg(t.raised)
         .border_1()
         .border_color(t.line)
-        .rounded(px(14.0))
+        .rounded(px(RADIUS_L))
         .shadow_lg()
         .overflow_hidden()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(13.0))
         .text_color(t.tx)
         .child(header)
@@ -370,15 +371,15 @@ pub fn context_menu(
         let mut row = div()
             .flex()
             .items_center()
-            .gap(px(10.0))
+            .gap(px(ICON_GAP))
             .h(px(MENU_ROW_H))
             .mx(px(4.0))
             .px(px(10.0))
-            .rounded(px(6.0))
+            .rounded(px(RADIUS_S))
             .text_color(fg)
             .child(match item.icon {
-                Some(name) => icon(name, 15.0, fg).into_any_element(),
-                None => div().w(px(15.0)).into_any_element(),
+                Some(name) => icon(name, ICON_SIZE, fg).into_any_element(),
+                None => div().w(px(ICON_SIZE)).into_any_element(),
             })
             .child(
                 div()
@@ -415,13 +416,13 @@ pub fn context_menu(
         .left(px(x))
         .top(px(y))
         .w(px(MENU_WIDTH))
-        .rounded(px(10.0))
+        .rounded(px(RADIUS_L))
         .border_1()
         .border_color(t.line)
         .bg(t.raised)
         .shadow_lg()
         .overflow_hidden()
-        .font_family(UI_FONT)
+        .font_family(crate::ui::fonts::ui_name())
         .text_size(px(13.0))
         .text_color(t.tx)
         .child(list)
@@ -462,12 +463,12 @@ impl gpui::Render for TooltipView {
         div()
             .px(px(8.0))
             .py(px(4.0))
-            .rounded(px(6.0))
+            .rounded(px(RADIUS_S))
             .bg(t.raised)
             .border_1()
             .border_color(t.line)
             .shadow_md()
-            .font_family(UI_FONT)
+            .font_family(crate::ui::fonts::ui_name())
             .text_size(px(12.0))
             .text_color(t.tx)
             .child(self.text.clone())

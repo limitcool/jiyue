@@ -48,8 +48,6 @@ pub fn focus_on_open(app: &mut RustdianApp, window: &mut Window, cx: &mut Contex
         draft.read(cx).focus(window);
     }
 }
-
-use crate::ui::UI_FONT;
 use crate::ui::ext::{ExtCommand, ExtEvent, PaletteCommand};
 use crate::ui::icons::icon;
 use crate::ui::text_input::TextEditor;
@@ -514,7 +512,7 @@ pub fn statusbar_items(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<
     if app.ext.ai.index.running.is_some() {
         out.push(
             div()
-                .font_family(UI_FONT)
+                .font_family(crate::ui::fonts::ui_name())
                 .text_color(t.tx2)
                 .child(indexer::progress_label(
                     app.ext.ai.index.done,
