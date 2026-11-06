@@ -3266,7 +3266,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "gpui",
  "image",
@@ -3290,7 +3290,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-ai"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -3301,7 +3301,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-core"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "gpui_sum_tree",
  "notify",
@@ -3315,7 +3315,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-diagram"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "fontdb 0.23.0",
@@ -3330,7 +3330,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-export"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "jiyue-core",
  "jiyue-md",
@@ -3341,7 +3341,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-history"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "lz4_flex",
@@ -3352,7 +3352,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-math"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "image",
@@ -3363,7 +3363,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-mcp"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "jiyue-core",
@@ -3375,7 +3375,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-md"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "imagesize 0.15.0",
@@ -3386,7 +3386,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-query"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "jiyue-md",
  "serde",
@@ -3395,7 +3395,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-search"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "serde",
  "tantivy",
@@ -3403,7 +3403,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-sync"
-version = "0.1.2"
+version = "0.1.1"
 dependencies = [
  "blake3",
  "opendal",
