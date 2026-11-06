@@ -11,6 +11,35 @@ pub const USER_CONFIG: &str = r#"version = 1
 # 快捷键覆盖：命令编号 = ["快捷键", ...]。留空数组可以关闭该命令的快捷键。
 # 例如：save = ["ctrl-shift-y"]
 # 快捷键的完整列表见 docs/shortcuts.md。
+
+# 界面偏好：切换主题、侧栏或实时预览时自动保存，下次启动时恢复。
+# 启动时的 --theme 参数优先于这里的 theme。
+[ui]
+# 主题：ink（墨）、fog（雾）、paper（纸）、moss（苔）、graphite（石墨）。
+theme = "ink"
+# 默认以渲染后的预览显示笔记（实时预览）。
+live_preview = true
+# 左侧栏（文件、搜索、标签）是否显示。
+left_sidebar = true
+# 右侧面板（大纲、反向链接）是否显示。
+right_sidebar = true
+
+# 字体与字号：对所有笔记库生效，修改后立即生效。字体名留空 = 内置字体。
+# 字体名必须是系统中已安装的字体名（设置页的字体列表中可以选择）；找不到时使用内置字体并提示。
+[appearance]
+# 界面字体（菜单、侧栏、标签等）。留空 = Noto Sans SC。
+ui_font = ""
+# 正文字体（编辑区与阅读模式）。留空 = 与界面字体相同。
+editor_font = ""
+# 代码字体（代码块与行内代码）。留空 = JetBrainsMono Nerd Font。
+code_font = ""
+# 正文字号，单位 px，范围 10 到 36。
+editor_font_size = 15.0
+# 代码字号，单位 px，范围 9 到 32。填 0 表示跟随正文字号（正文的 90%）。
+code_font_size = 0.0
+# 行高（相对字号的倍数），范围 1.0 到 2.5。
+line_height = 1.73
+
 [keys]
 "#;
 
@@ -45,6 +74,10 @@ pub const VAULT_CONFIG: &str = r#"version = 1
 # 本笔记库的设置。修改后会自动重新载入。
 # 注意：本文件位于笔记库内。不要在这里写入密钥；密钥只放在用户目录的 credentials.toml 中。
 # 如果你用 git 管理笔记库，请把 .jiyue/ 加入 .gitignore，或至少忽略本文件。
+
+[vault]
+# 笔记库的显示名称（侧栏、窗口标题和最近列表中显示）。留空 = 使用文件夹名。
+name = ""
 
 [editor]
 # 新建笔记时，用第一个一级标题作为文件名（停止输入约 2 秒后自动改名）。
@@ -144,6 +177,24 @@ pub const BOOKMARKS: &str = r#"version = 1
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_templates_load_to_the_defaults_of_their_structs() {
+        use crate::config::{UserConfig, UserState};
+        let config: crate::config::Loaded<UserConfig> = crate::config::doc::load_text_with(
+            std::path::Path::new("config.toml"),
+            USER_CONFIG,
+            &["keys"],
+        );
+        assert!(config.error.is_none(), "{:?}", config.error);
+        assert!(config.warnings.is_empty(), "{:?}", config.warnings);
+        assert_eq!(config.value, UserConfig::default());
+        let state: crate::config::Loaded<UserState> =
+            crate::config::doc::load_text(std::path::Path::new("state.toml"), USER_STATE);
+        assert!(state.error.is_none(), "{:?}", state.error);
+        assert!(state.warnings.is_empty(), "{:?}", state.warnings);
+        assert_eq!(state.value, UserState::default());
+    }
 
     #[test]
     fn every_template_is_valid_toml_with_version_one() {

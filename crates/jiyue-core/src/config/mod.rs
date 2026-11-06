@@ -14,10 +14,13 @@
 //! Every file has a top-level `version = 1`. The typed structs use `#[serde(default)]`, so a key
 //! that is missing takes its default. The generic loader and saver live in [`doc`].
 
+pub mod appearance;
 pub mod credentials;
 pub mod doc;
+pub mod prefs;
 pub mod secret;
 pub mod templates;
+pub mod vault_meta;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -211,26 +214,32 @@ pub fn save_section<T: Serialize>(
     }
     let mut wrapper = BTreeMap::new();
     wrapper.insert(section.to_string(), value);
-    save_file(path, &wrapper, template, prune)
+    doc::save_file_partial(path, &wrapper, template, prune)
 }
 
 /// User-level settings in `config.toml`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct UserConfig {
     /// Keyboard shortcut overrides: command id to its chords, e.g. `save = ["ctrl-shift-y"]`.
     /// An empty list turns the command's shortcut off.
     pub keys: BTreeMap<String, Vec<String>>,
+    /// Interface preferences (`[ui]`): theme, sidebars, live preview. Saved when they change.
+    pub ui: prefs::UiPrefs,
+    /// Fonts and sizes (`[appearance]`). Applies to every vault.
+    pub appearance: appearance::Appearance,
 }
 
 /// Machine state in `state.toml` (user level).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct UserState {
     /// Vault folders, most recently used first.
     pub recent_vaults: Vec<String>,
     /// The vault that was open when the app last closed (empty = none).
     pub last_vault: String,
+    /// Window position and size (`[window]`), written when the window closes.
+    pub window: prefs::WindowState,
 }
 
 #[cfg(test)]
@@ -273,6 +282,45 @@ mod tests {
         std::fs::create_dir_all(&outside).expect("mkdir");
         assert!(check_user_dir_outside_vaults(&outside, std::slice::from_ref(&vault)).is_ok());
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn saving_one_section_keeps_root_keys_named_like_optional_ones() {
+        // `last_vault` is an optional key of the whole file; saving `[window]` must not drop it.
+        let dir = std::env::temp_dir().join(format!("jiyue-optional-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("state.toml");
+        std::fs::write(
+            &path,
+            "version = 1\nrecent_vaults = [\"a\"]\nlast_vault = \"a\"\n# 保留\n",
+        )
+        .expect("write");
+        let window = prefs::WindowState {
+            width: 1000.0,
+            height: 700.0,
+            ..prefs::WindowState::default()
+        };
+        save_section(&path, "window", &window, templates::USER_STATE, &[]).expect("save");
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(text.contains("last_vault = \"a\""), "{text}");
+        assert!(text.contains("# 保留"), "{text}");
+        assert!(text.contains("[window]"), "{text}");
+        // Saving the whole file (the recent list) still clears an unset optional key.
+        #[derive(Debug, Default, Serialize, Deserialize)]
+        #[serde(default)]
+        struct Whole {
+            recent_vaults: Vec<String>,
+            last_vault: Option<String>,
+        }
+        let whole = Whole {
+            recent_vaults: vec!["a".into()],
+            last_vault: None,
+        };
+        save_file(&path, &whole, templates::USER_STATE, &[]).expect("save whole");
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(!text.contains("last_vault"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

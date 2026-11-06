@@ -254,6 +254,16 @@ pub fn merge_text<T: Serialize>(
     value: &T,
     prune: &[&str],
 ) -> Result<String, String> {
+    merge_text_inner(base, template, value, prune, true)
+}
+
+fn merge_text_inner<T: Serialize>(
+    base: Option<&str>,
+    template: &str,
+    value: &T,
+    prune: &[&str],
+    owns_root: bool,
+) -> Result<String, String> {
     let fresh_text = toml::to_string(value).map_err(|e| e.to_string())?;
     let fresh: DocumentMut = fresh_text
         .parse()
@@ -265,7 +275,7 @@ pub fn merge_text<T: Serialize>(
     if !doc.contains_key("version") {
         doc.insert("version", toml_edit::value(CONFIG_VERSION));
     }
-    merge_table(doc.as_table_mut(), fresh.as_table(), "", prune);
+    merge_table(doc.as_table_mut(), fresh.as_table(), "", prune, owns_root);
     Ok(doc.to_string())
 }
 
@@ -290,12 +300,18 @@ pub const OPTIONAL_KEYS: &[&str] = &[
     "split",
 ];
 
-fn merge_table(old: &mut Table, new: &Table, prefix: &str, prune: &[&str]) {
+fn merge_table(old: &mut Table, new: &Table, prefix: &str, prune: &[&str], owns_root: bool) {
     let prune_here = prune.contains(&prefix);
+    // Optional keys are removed when they are absent from `new`, except at the root of a partial
+    // save: there the root keys are other sections that the value does not hold.
+    let optional_here = !prefix.is_empty() || owns_root;
     let stale: Vec<String> = old
         .iter()
         .map(|(k, _)| k.to_string())
-        .filter(|k| !new.contains_key(k) && (prune_here || OPTIONAL_KEYS.contains(&k.as_str())))
+        .filter(|k| {
+            !new.contains_key(k)
+                && (prune_here || (optional_here && OPTIONAL_KEYS.contains(&k.as_str())))
+        })
         .collect();
     for key in stale {
         old.remove(&key);
@@ -305,14 +321,14 @@ fn merge_table(old: &mut Table, new: &Table, prefix: &str, prune: &[&str]) {
         match old.get_mut(key) {
             Some(Item::Table(old_t)) if new_item.is_table() => {
                 if let Some(new_t) = new_item.as_table() {
-                    merge_table(old_t, new_t, &path, prune);
+                    merge_table(old_t, new_t, &path, prune, owns_root);
                 }
             }
             Some(Item::ArrayOfTables(old_a)) if new_item.is_array_of_tables() => {
                 if let Some(new_a) = new_item.as_array_of_tables() {
                     for (i, new_t) in new_a.iter().enumerate() {
                         if let Some(old_t) = old_a.get_mut(i) {
-                            merge_table(old_t, new_t, &format!("{path}[{i}]"), prune);
+                            merge_table(old_t, new_t, &format!("{path}[{i}]"), prune, owns_root);
                         } else {
                             old_a.push(new_t.clone());
                         }
@@ -359,12 +375,33 @@ pub fn save_file<T: Serialize>(
     template: &str,
     prune: &[&str],
 ) -> Result<(), String> {
+    save_with(path, value, template, prune, true)
+}
+
+/// Writes a value that holds one section of the file (see `merge_text_partial`): the other sections
+/// and their root keys are kept as they are.
+pub fn save_file_partial<T: Serialize>(
+    path: &Path,
+    value: &T,
+    template: &str,
+    prune: &[&str],
+) -> Result<(), String> {
+    save_with(path, value, template, prune, false)
+}
+
+fn save_with<T: Serialize>(
+    path: &Path,
+    value: &T,
+    template: &str,
+    prune: &[&str],
+    owns_root: bool,
+) -> Result<(), String> {
     let base = match std::fs::read_to_string(path) {
         Ok(t) => Some(t),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(format!("无法读取 {}：{}", path.display(), e.kind())),
     };
-    let text = merge_text(base.as_deref(), template, value, prune)?;
+    let text = merge_text_inner(base.as_deref(), template, value, prune, owns_root)?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
