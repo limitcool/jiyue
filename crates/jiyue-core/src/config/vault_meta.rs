@@ -225,7 +225,7 @@ mod tests {
         assert!(folder_rename_target(&root, "已有").is_err(), "exists");
         assert!(folder_rename_target(&root, "a:b").is_err(), "invalid");
         assert!(
-            folder_rename_target(Path::new("C:\\"), "x").is_err(),
+            folder_rename_target(Path::new(if cfg!(windows) { "C:\\" } else { "/" }), "x").is_err(),
             "root"
         );
         // A change of case alone is a rename of the same folder.

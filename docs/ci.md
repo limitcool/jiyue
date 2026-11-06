@@ -39,11 +39,10 @@ Rules of the flow:
   period of the repository, 90 days by default), so a fixed run can publish them.
 - **A failed package does not block the others.** As before, `publish` still runs when some packages
   succeeded; the release is then marked as a pre-release and its notes list the missing platforms.
-- **Tests run for every tag.** A tag push always runs `checks`. The only way to skip the tests is the
-  `skip_checks` input of a manual run (below).
-- **Pushes to `main` run nothing.** `ci.yml` has no push trigger, so a tag push is the only thing that starts
-  the full test matrix, once, inside the Release run. Commits on `main` are not tested until they are tagged,
-  pull requests are, and a manual run of `ci.yml` (Actions tab) checks any branch on demand. If a tag run fails
+- **Tag runs skip the tests.** A tag push runs `checks` with format, clippy and the plan only; the test
+  matrix runs on pull requests and on manual runs of `ci.yml`. Run the tests locally before tagging.
+- **Pushes to `main` run nothing.** `ci.yml` has no push trigger, so the test matrix starts only on pull
+  requests and manual runs. Commits on `main` are not tested on GitHub, and a manual run of `ci.yml` (Actions tab) checks any branch on demand. If a tag run fails
   before publishing, nothing is released: fix the cause with a new commit, then delete the unpublished tag and
   tag the new commit again, or release the next version number.
 - **Duration.** The tag run takes as long as the longer of the tests and the packages, and `publish` starts

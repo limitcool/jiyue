@@ -3,7 +3,10 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
-## [0.1.1] - 2026-11-06
+## [0.1.2] - 2026-11-06
+
+0.1.1 的标签因 Linux 和 macOS 上的一个测试失败没有发布，本版包含 0.1.1 的全部内容。
+The 0.1.1 tag was not released because a test failed on Linux and macOS; this version contains everything planned for 0.1.1.
 
 感谢 ZoftTy 在 [#1](https://github.com/limitcool/jiyue/issues/1) 中提交的详细反馈，这个版本修复了其中的全部问题。
 Thanks to ZoftTy for the detailed report in [#1](https://github.com/limitcool/jiyue/issues/1); this release fixes everything in it.

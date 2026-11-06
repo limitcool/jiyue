@@ -99,6 +99,9 @@ jobs:
   test:
     name: build and test (${{ matrix.name }})
     needs: plan
+    # Skipped on tag pushes (release.yml calls this workflow, so event_name is push): a tag run only checks format and clippy, then packages.
+    # Tests run on pull requests and on manual runs.
+    if: github.event_name != 'push'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
