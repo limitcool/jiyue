@@ -1,0 +1,49 @@
+# build output
+**/target/
+/target-dist/
+/target-dist-arm/
+/dist/
+*.exe
+*.pdb
+*.rlib
+
+# local scratch and run data
+/demo-vault-play/
+/runs/
+**/.jiyue/
+**/.trash/
+*.bak
+.claude/
+
+# local safety copies (git history replaces them)
+/backup/
+
+# leftovers of the earlier prototype tooling. Some of them are notes derived from analysing
+# Obsidian's binaries, so they are deliberately kept out of the history.
+/build-activity.log
+/craft.json
+/feed.json
+/usage.json
+/capture/
+/checks/
+/pinned/
+/investigation.cany/
+/reference/
+/vault/
+/shots/
+/examples/
+/MECHANICS.md
+/mechanics.json
+
+# Developer-only local material, kept on disk but not published:
+# the GUI test drivers and their output, and the early design mock-ups and logo explorations.
+/dev/
+/design/*
+!/design/logo/
+/design/logo/*
+!/design/logo/final/
+
+# Installer and portable build outputs; the WiX local tool cache
+installer/out/
+installer/obj/
+installer/.wix/

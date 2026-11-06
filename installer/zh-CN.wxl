@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Simplified Chinese strings of the Jiyue installer (default culture). The WiX dialog texts
+  (buttons, pages) come from the WixToolset.UI extension for zh-CN; this file holds the product's own.
+-->
+<WixLocalization Culture="zh-CN"
+                 Codepage="936"
+                 xmlns="http://wixtoolset.org/schemas/v4/wxl">
+
+  <String Id="ProductName" Value="霁月 Jiyue" />
+  <String Id="ProductComment" Value="霁月：本地优先的 Markdown 笔记" />
+  <String Id="DowngradeError" Value="已安装更新版本的霁月。请先卸载它，再安装这个版本。" />
+  <String Id="CloseAppDescription" Value="正在关闭霁月，以便更新程序文件。未保存的内容会先保存。" />
+
+  <String Id="ShortcutName" Value="霁月 Jiyue" />
+  <String Id="ShortcutDescription" Value="本地优先的 Markdown 笔记" />
+  <String Id="StartMenuFolderName" Value="霁月" />
+
+  <String Id="FeatureCoreTitle" Value="霁月程序（必需）" />
+  <String Id="FeatureCoreDesc" Value="霁月主程序、命令行工具 jiyue-mcp.exe 和开始菜单快捷方式。" />
+  <String Id="FeatureMcpPathTitle" Value="把 jiyue-mcp 加入 PATH" />
+  <String Id="FeatureMcpPathDesc" Value="把安装目录加入当前用户的 PATH，之后可以在任意终端里直接运行 jiyue-mcp。" />
+  <String Id="FeatureDesktopTitle" Value="桌面快捷方式" />
+  <String Id="FeatureDesktopDesc" Value="在桌面创建霁月的快捷方式。" />
+  <String Id="FeatureMarkdownTitle" Value="Markdown 文件的「用霁月打开」" />
+  <String Id="FeatureMarkdownDesc" Value="在 .md 文件的右键菜单和「打开方式」中加入霁月。不会改变 .md 的默认打开程序。" />
+
+  <String Id="MarkdownProgIdName" Value="Markdown 笔记（霁月）" />
+  <String Id="MarkdownVerbLabel" Value="用霁月打开" />
+</WixLocalization>

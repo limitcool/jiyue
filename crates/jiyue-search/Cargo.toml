@@ -1,0 +1,12 @@
+[package]
+name = "jiyue-search"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+tantivy = "0.27.0"

@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Jiyue (霁月) Windows installer, WiX Toolset v6 (`wix build`, schema v4 namespace).
+
+  Per-user install: files go to %LOCALAPPDATA%\Programs\Jiyue, no administrator rights needed.
+  The platform (x64 or arm64) is set by the wix -arch option of build.ps1 (-Arch). The install folder
+  is LocalAppData in both cases, so no ProgramFiles64Folder is used. Components are Bitness="always64".
+  Built by installer\build.ps1, which passes the variables below with -d:
+    ProductVersion  version from crates\jiyue-app\Cargo.toml
+    JiyueExeSource  path of the release jiyue.exe
+    JiyueMcpExeSource  path of the release jiyue-mcp.exe
+    IconFile        path of crates\jiyue-app\assets\logo\jiyue.ico
+    LicenseMitSource / LicenseApacheSource / NoticesSource  LICENSE-MIT, LICENSE-APACHE and
+                    THIRD_PARTY_NOTICES.md at the repository root
+
+  UpgradeCode (generated once, never change it: it identifies the product for upgrades):
+    {F48B69CA-0C87-4698-A62A-0D80DE358AAF}
+
+  User vaults are never installed, changed or removed by this package. The app keeps its own
+  data in the vault folder (for example %USERPROFILE%\Documents\Jiyue) and in %LOCALAPPDATA%\Jiyue\cache.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="!(loc.ProductName)"
+           Manufacturer="limitcool"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="{F48B69CA-0C87-4698-A62A-0D80DE358AAF}"
+           Scope="perUser"
+          
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeError)" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Ask a running Jiyue to close (it saves its unsaved text) before files are replaced. -->
+    <util:CloseApplication Id="CloseJiyue"
+                           Target="jiyue.exe"
+                           CloseMessage="yes"
+                           RebootPrompt="no"
+                           Description="!(loc.CloseAppDescription)" />
+
+    <!-- Icon of the installer dialogs and of the entry in Apps and Features (Settings > Apps). -->
+    <Icon Id="JiyueIcon.ico" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="JiyueIcon.ico" />
+    <Property Id="ARPCOMMENTS" Value="!(loc.ProductComment)" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <!-- Install folder of the previous install (written by CmpJiyueExe), so that a later uninstall or
+         repair without INSTALLFOLDER on the command line finds the files. -->
+    <Property Id="INSTALLFOLDER">
+      <RegistrySearch Id="PreviousInstallFolder" Root="HKCU" Key="Software\Jiyue\Install"
+                      Name="InstallFolder" Type="directory" />
+    </Property>
+
+    <!-- WixUI_Minimal: welcome, install, finish. It has no licence page and no feature tree, so the optional features below are chosen with ADDLOCAL on the msiexec command line (see installer\README.md). -->
+    <ui:WixUI Id="WixUI_Minimal" />
+
+    <Feature Id="Core"
+             Title="!(loc.FeatureCoreTitle)"
+             Description="!(loc.FeatureCoreDesc)"
+             Level="1"
+             AllowAbsent="no">
+      <ComponentRef Id="CmpJiyueExe" />
+      <ComponentRef Id="CmpMcpExe" />
+      <ComponentRef Id="CmpStartMenu" />
+      <ComponentRef Id="CmpLicenseMit" />
+      <ComponentRef Id="CmpLicenseApache" />
+      <ComponentRef Id="CmpNotices" />
+    </Feature>
+
+    <Feature Id="McpPath"
+             Title="!(loc.FeatureMcpPathTitle)"
+             Description="!(loc.FeatureMcpPathDesc)"
+             Level="2">
+      <ComponentRef Id="CmpPath" />
+    </Feature>
+
+    <Feature Id="DesktopShortcut"
+             Title="!(loc.FeatureDesktopTitle)"
+             Description="!(loc.FeatureDesktopDesc)"
+             Level="2">
+      <ComponentRef Id="CmpDesktop" />
+    </Feature>
+
+    <Feature Id="MarkdownVerb"
+             Title="!(loc.FeatureMarkdownTitle)"
+             Description="!(loc.FeatureMarkdownDesc)"
+             Level="2">
+      <ComponentRef Id="CmpMarkdownVerb" />
+    </Feature>
+
+    <!-- Folders -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolderPerUser" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Jiyue" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="StartMenuFolderJiyue" Name="!(loc.StartMenuFolderName)" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- Program files. -->
+    <!-- Per-user components use a HKCU registry key as key path (ICE38). Windows Installer removes
+         that registry value before the files, so the files are also listed in RemoveFile: otherwise
+         the component looks already gone and the .exe files stay behind. The Programs folder is
+         removed only when empty (RemoveFolder, ICE64). -->
+    <Component Id="CmpJiyueExe" Guid="{405BCFA7-4EEB-47F0-B332-19ADB47D5D0F}" Directory="INSTALLFOLDER" Bitness="always64">
+      <File Id="JiyueExe" Name="jiyue.exe" Source="$(var.JiyueExeSource)" KeyPath="no" />
+      <RemoveFile Id="RemoveJiyueExe" Directory="INSTALLFOLDER" Name="jiyue.exe" On="uninstall" />
+      <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+      <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolderPerUser" On="uninstall" />
+      <!-- Remembers the install folder: with a registry key path, Windows Installer cannot find the
+           files from their location, so a later uninstall reads this value (see RegistrySearch). -->
+      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="InstallFolder"
+                     Type="string" Value="[INSTALLFOLDER]" />
+      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="ProgramFiles"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="CmpMcpExe" Guid="{585EB96A-8366-4428-AEB6-20FEA646EE76}" Directory="INSTALLFOLDER" Bitness="always64">
+      <File Id="JiyueMcpExe" Name="jiyue-mcp.exe" Source="$(var.JiyueMcpExeSource)" KeyPath="no" />
+      <RemoveFile Id="RemoveJiyueMcpExe" Directory="INSTALLFOLDER" Name="jiyue-mcp.exe" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="McpProgram"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Licence and third-party notices, installed next to the program (feature Core). Files are
+         key paths of their own components, so Windows Installer removes them on uninstall. -->
+    <Component Id="CmpLicenseMit" Guid="{26A6FEE9-C728-43A4-B22C-82FF631BE625}" Directory="INSTALLFOLDER" Bitness="always64">
+      <File Id="LicenseMit" Name="LICENSE-MIT" Source="$(var.LicenseMitSource)" KeyPath="no" />
+      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="LicenseMit"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+    <Component Id="CmpLicenseApache" Guid="{0140F1E6-2AA6-4D0D-8517-83DA05DB3724}" Directory="INSTALLFOLDER" Bitness="always64">
+      <File Id="LicenseApache" Name="LICENSE-APACHE" Source="$(var.LicenseApacheSource)" KeyPath="no" />
+      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="LicenseApache"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+    <Component Id="CmpNotices" Guid="{E93E7E44-BD40-4899-98C2-C98473BF838B}" Directory="INSTALLFOLDER" Bitness="always64">
+      <File Id="ThirdPartyNotices" Name="THIRD_PARTY_NOTICES.md" Source="$(var.NoticesSource)" KeyPath="no" />
+      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="Notices"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Start Menu entry. The vault is the Documents\Jiyue folder; the app creates it on first run. -->
+    <Component Id="CmpStartMenu" Directory="StartMenuFolderJiyue" Bitness="always64">
+      <Shortcut Id="ShortcutStartMenu"
+                Name="!(loc.ShortcutName)"
+                Description="!(loc.ShortcutDescription)"
+                Target="[INSTALLFOLDER]jiyue.exe"
+                Arguments="--vault &quot;[PersonalFolder]Jiyue&quot;"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="JiyueIcon.ico" />
+      <RemoveFolder Id="RemoveStartMenuFolderJiyue" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="StartMenuShortcut"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Optional: desktop shortcut (feature DesktopShortcut, off by default). -->
+    <Component Id="CmpDesktop" Directory="DesktopFolder" Bitness="always64">
+      <Shortcut Id="ShortcutDesktop"
+                Name="!(loc.ShortcutName)"
+                Description="!(loc.ShortcutDescription)"
+                Target="[INSTALLFOLDER]jiyue.exe"
+                Arguments="--vault &quot;[PersonalFolder]Jiyue&quot;"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="JiyueIcon.ico" />
+      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="DesktopShortcut"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- Optional: the install folder (with jiyue-mcp.exe) is added to the user PATH (feature McpPath). -->
+    <Component Id="CmpPath" Directory="INSTALLFOLDER" Bitness="always64">
+      <Environment Id="EnvPathJiyue"
+                   Name="PATH"
+                   Value="[INSTALLFOLDER]"
+                   Action="set"
+                   Part="last"
+                   Permanent="no"
+                   System="no" />
+      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="PathEntry"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!--
+      Optional (feature MarkdownVerb, off by default): an "Open with" entry for .md files.
+      The default handler of .md is NOT changed: Jiyue is only added to the "Open with" list
+      (OpenWithProgids) and to the right-click menu (SystemFileAssociations verb).
+      jiyue.exe opens the clicked note: the file path passed as "%1" is resolved to its vault
+      (nearest ancestor with .jiyue or .obsidian, otherwise the file folder).
+    -->
+    <Component Id="CmpMarkdownVerb" Directory="INSTALLFOLDER" Bitness="always64">
+      <RegistryKey Root="HKCU" Key="Software\Classes\Jiyue.Markdown">
+        <RegistryValue Type="string" Value="!(loc.MarkdownProgIdName)" />
+        <RegistryKey Key="DefaultIcon">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]jiyue.exe,0" />
+        </RegistryKey>
+        <RegistryKey Key="shell\open\command">
+          <RegistryValue Type="string"
+                         Value="&quot;[INSTALLFOLDER]jiyue.exe&quot; --vault &quot;[PersonalFolder]Jiyue&quot; &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryKey Root="HKCU" Key="Software\Classes\.md\OpenWithProgids">
+        <RegistryValue Name="Jiyue.Markdown" Type="string" Value="" />
+      </RegistryKey>
+      <RegistryKey Root="HKCU" Key="Software\Classes\SystemFileAssociations\.md\shell\JiyueOpen">
+        <RegistryValue Type="string" Value="!(loc.MarkdownVerbLabel)" />
+        <RegistryValue Name="Icon" Type="string" Value="[INSTALLFOLDER]jiyue.exe" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string"
+                         Value="&quot;[INSTALLFOLDER]jiyue.exe&quot; --vault &quot;[PersonalFolder]Jiyue&quot; &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="MarkdownVerb"
+                     Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+  </Package>
+</Wix>

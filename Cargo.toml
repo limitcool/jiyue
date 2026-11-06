@@ -1,0 +1,20 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+license = "MIT OR Apache-2.0"
+authors = ["limitcool"]
+repository = "https://github.com/limitcool/jiyue"
+homepage = "https://github.com/limitcool/jiyue"
+
+[workspace.dependencies]
+gpui = "0.2.2"
+gpui_sum_tree = "0.2.2"
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+toml_edit = "0.22"
+serde_path_to_error = "0.1"
+zeroize = "1"

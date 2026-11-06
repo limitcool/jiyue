@@ -1,0 +1,18 @@
+[package]
+name = "jiyue-core"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+gpui_sum_tree = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+notify = "8"
+toml = { workspace = true }
+toml_edit = { workspace = true }
+serde_path_to_error = { workspace = true }
+zeroize = { workspace = true }

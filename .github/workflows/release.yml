@@ -1,0 +1,371 @@
+# Release builds of Jiyue, attached to a GitHub Release. One workflow run per tag:
+#   checks    the workflow ci.yml, called as a reusable workflow (fmt, clippy, tests on every OS)
+#   packages  Windows, macOS (arm64 and x64), Linux: they run in parallel with checks
+#   publish   runs only when checks succeeded; a failed or cancelled check blocks the release
+# Cut a release with: git tag v0.1.0 && git push origin v0.1.0   (the tag must equal v + the version in
+# crates/jiyue-app/Cargo.toml). Or run the workflow by hand with a tag name (creates a draft release).
+# Windows: installer/ (WiX 6, MSI per user, zh-CN), built by installer/build.ps1. Artifacts: .msi, .dmg, .deb, .AppImage.
+# macOS and Linux: cargo-packager 0.11.8 (metadata in crates/jiyue-app/Cargo.toml).
+# Details, secrets and the unverified parts: docs/ci.md.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag of the release, for example v0.1.0 (a draft release is created)"
+        required: true
+        type: string
+      include_arm:
+        description: "Also build the ARM64 packages on a private repository (the ARM64 runners need a public repository or larger runners)"
+        type: boolean
+        default: false
+      skip_checks:
+        description: "Skip the tests (job checks) and publish anyway. Manual runs only: a tag push always runs the tests"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_VERSION: "1.99.1"  # keep in step with rust-toolchain.toml and ci.yml
+  CARGO_PACKAGER_VERSION: "0.11.8"  # cargo-packager, pinned; no prebuilt binaries are published upstream
+  LINUX_APT: >-
+    pkg-config cmake clang libclang-dev libfontconfig-dev libfreetype-dev
+    libasound2-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev
+    libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libzstd-dev
+    libvulkan-dev mesa-vulkan-drivers
+
+jobs:
+  checks:
+    # The whole of ci.yml: its jobs show up in this run as "checks / <job name>". A failed job here
+    # fails this job, and publish then does not run. No secrets are needed, so none are passed.
+    # A tag push always tests; only a manual run can skip the tests (skip_checks).
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_checks) }}
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+    with:
+      # False for a tag push (inputs is empty there), so the ARM64 entries follow the repository rule only.
+      include_arm: ${{ inputs.include_arm || false }}
+
+  prepare:
+    name: Read the version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      windows_matrix: ${{ steps.matrix.outputs.windows_matrix }}
+      macos_matrix: ${{ steps.matrix.outputs.macos_matrix }}
+      linux_matrix: ${{ steps.matrix.outputs.linux_matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        name: Version from jiyue-app/Cargo.toml, checked against the tag
+        run: |
+          version=$(awk -F'"' '/^version = /{print $2; exit}' crates/jiyue-app/Cargo.toml)
+          if [ -z "$version" ]; then
+            echo "no version found in crates/jiyue-app/Cargo.toml" >&2
+            exit 1
+          fi
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match Cargo version v${version}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Version ${version}"
+      - id: matrix
+        name: Build matrix (ARM64 entries only for a public repository or when enabled)
+        shell: bash
+        env:
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+          FORCE_ARM: ${{ inputs.include_arm }}
+          ENABLE_ARM_VAR: ${{ vars.ENABLE_ARM_RUNNERS }}
+        run: |
+          set -euo pipefail
+          # The ARM64 runners (windows-11-arm, ubuntu-24.04-arm) are free only for public repositories.
+          # On a private repository a job with such a label would wait forever, so they are left out
+          # unless the repository is public, include_arm is set, or the variable ENABLE_ARM_RUNNERS is true.
+          want_arm=false
+          reason="private repository, ARM64 runners off"
+          if [ "$REPO_PRIVATE" = "false" ]; then
+            want_arm=true
+            reason="public repository"
+          fi
+          if [ "$FORCE_ARM" = "true" ] || [ "$ENABLE_ARM_VAR" = "true" ]; then
+            want_arm=true
+            reason="enabled by the include_arm input or ENABLE_ARM_RUNNERS"
+          fi
+          windows='[{"os":"windows-latest","arch":"x64"},{"os":"windows-11-arm","arch":"arm64"}]'
+          linux='[{"os":"ubuntu-24.04","arch":"x86_64"},{"os":"ubuntu-24.04-arm","arch":"aarch64"}]'
+          if [ "$want_arm" != true ]; then
+            windows='[{"os":"windows-latest","arch":"x64"}]'
+            linux='[{"os":"ubuntu-24.04","arch":"x86_64"}]'
+          fi
+          # macOS: Apple silicon and Intel. The Intel label is macos-15-intel (macos-13 no longer exists).
+          macos='[{"os":"macos-latest","arch":"arm64"},{"os":"macos-15-intel","arch":"x64"}]'
+          echo "repository.private=${REPO_PRIVATE:-<unset>}, ARM64 entries: $want_arm ($reason)"
+          echo "windows_matrix={\"include\":$windows}" >> "$GITHUB_OUTPUT"
+          echo "macos_matrix={\"include\":$macos}" >> "$GITHUB_OUTPUT"
+          echo "linux_matrix={\"include\":$linux}" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Windows MSI (${{ matrix.arch }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.windows_matrix) }}
+    timeout-minutes: 60
+    env:
+      # Optional code signing. The job is unsigned when these secrets are missing.
+      JIYUE_SIGN_PFX_BASE64: ${{ secrets.JIYUE_SIGN_PFX_BASE64 }}
+      JIYUE_SIGN_PFX_PASSWORD: ${{ secrets.JIYUE_SIGN_PFX_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        id: python
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      - name: Restore the local WiX tool (installer/.config/dotnet-tools.json)
+        working-directory: installer
+        run: dotnet tool restore
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target-dist"
+          key: windows-release-${{ matrix.arch }}
+
+      - name: Decode the signing certificate (only when the secret is set)
+        if: env.JIYUE_SIGN_PFX_BASE64 != ''
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'jiyue-sign.pfx'
+          [IO.File]::WriteAllBytes($path, [Convert]::FromBase64String($env:JIYUE_SIGN_PFX_BASE64))
+          "JIYUE_SIGN_PFX=$path" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build the MSI
+        shell: pwsh
+        env:
+          # Python 3 for scripts/gen-notices.py (standard library only), from setup-python above.
+          JIYUE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: ./installer/build.ps1 -Arch ${{ matrix.arch }} -NoZip
+
+      - name: Remove the decoded certificate
+        if: always()
+        shell: pwsh
+        run: |
+          $path = Join-Path $env:RUNNER_TEMP 'jiyue-sign.pfx'
+          Remove-Item -LiteralPath $path -ErrorAction SilentlyContinue
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-windows-${{ matrix.arch }}
+          path: |
+            installer/out/Jiyue-*-${{ matrix.arch }}.msi
+          if-no-files-found: error
+
+  macos:
+    # Two entries: arm64 (macos-latest) and x64 (macos-15-intel). Each builds natively, no --target.
+    # cargo-packager names the dmg from the product name and the host architecture:
+    # Jiyue_<version>_aarch64.dmg (arm64) and Jiyue_<version>_x64.dmg (x86_64).
+    name: macOS app and dmg (${{ matrix.arch }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.macos_matrix) }}
+    timeout-minutes: 60
+    env:
+      # Optional Developer ID signing and notarization. Unsigned when the secrets are missing.
+      # cargo-packager reads APPLE_CERTIFICATE (base64 .p12), APPLE_CERTIFICATE_PASSWORD, APPLE_ID,
+      # APPLE_PASSWORD, APPLE_TEAM_ID from the environment. Its signing identity comes from
+      # crates/jiyue-app/Cargo.toml, so the identity is written there by the step below.
+      JIYUE_MACOS_SIGN_IDENTITY: ${{ secrets.JIYUE_MACOS_SIGN_IDENTITY }}
+      MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: macos-release-${{ matrix.arch }}
+
+      - name: Install cargo-packager (pinned)
+        run: cargo install --locked --version "$CARGO_PACKAGER_VERSION" cargo-packager
+
+      - name: Release build
+        run: cargo build --release -p jiyue -p jiyue-mcp --locked
+
+      - name: Third-party notices
+        run: python3 scripts/gen-notices.py
+
+      - name: Use the signing identity (only when the secret is set)
+        if: env.JIYUE_MACOS_SIGN_IDENTITY != ''
+        env:
+          IDENTITY: ${{ secrets.JIYUE_MACOS_SIGN_IDENTITY }}
+        run: |
+          sed -i.bak "s|^# signing-identity = .*|signing-identity = \"${IDENTITY}\"|" crates/jiyue-app/Cargo.toml
+          grep -n '^signing-identity' crates/jiyue-app/Cargo.toml | sed 's/"[^"]*"$/"<set>"/'
+
+      # Two steps, not one with empty variables: cargo-packager treats an empty APPLE_CERTIFICATE as set.
+      - name: Package Jiyue.app and Jiyue.dmg (signed and notarized)
+        if: env.MACOS_CERT_P12_BASE64 != '' && env.APPLE_APP_PASSWORD != ''
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: cargo packager -p jiyue --release -f app,dmg
+
+      - name: Package Jiyue.app and Jiyue.dmg (unsigned)
+        if: env.MACOS_CERT_P12_BASE64 == '' || env.APPLE_APP_PASSWORD == ''
+        run: cargo packager -p jiyue --release -f app,dmg
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-macos-${{ matrix.arch }}
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  linux:
+    name: Linux deb and AppImage (${{ matrix.arch }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.linux_matrix) }}
+    timeout-minutes: 60
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: "1"  # no FUSE on the runner: linuxdeploy extracts itself
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Linux system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $LINUX_APT
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: linux-release-${{ matrix.arch }}
+
+      - name: Install cargo-packager (pinned)
+        run: cargo install --locked --version "$CARGO_PACKAGER_VERSION" cargo-packager
+
+      - name: Release build
+        run: cargo build --release -p jiyue -p jiyue-mcp --locked
+
+      - name: Third-party notices
+        run: python3 scripts/gen-notices.py
+
+      - name: Package the .deb
+        run: cargo packager -p jiyue --release -f deb
+
+      # Optional: AppImage. cargo-packager downloads linuxdeploy itself (its "continuous" release is unpinned).
+      - name: Package the AppImage (optional)
+        id: appimage
+        continue-on-error: true
+        run: cargo packager -p jiyue --release -f appimage
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: |
+            dist/*.deb
+            dist/*.AppImage
+          if-no-files-found: error
+
+  publish:
+    name: Publish the GitHub Release
+    needs: [prepare, checks, windows, macos, linux]
+    # The tests gate the release: checks must succeed, or be skipped by a manual run with skip_checks.
+    # If checks failed or was cancelled, nothing is published (the packages stay as workflow artifacts).
+    # Otherwise publish whatever was built, even when one platform failed, so a release is never empty
+    # because of one broken job. A release with a failed platform is marked as a pre-release.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.checks.result == 'success' || (needs.checks.result == 'skipped' && inputs.skip_checks)) && (needs.windows.result == 'success' || needs.macos.result == 'success' || needs.linux.result == 'success') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: SHA-256 checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Release notes
+        id: notes
+        env:
+          CHECKS: ${{ needs.checks.result }}
+          WINDOWS: ${{ needs.windows.result }}
+          MACOS: ${{ needs.macos.result }}
+          LINUX: ${{ needs.linux.result }}
+        run: |
+          failed=""
+          [ "$WINDOWS" = "success" ] || failed="$failed Windows"
+          [ "$MACOS" = "success" ] || failed="$failed macOS"
+          [ "$LINUX" = "success" ] || failed="$failed Linux"
+          {
+            echo "Unsigned builds. Verify the files against SHA256SUMS."
+            if [ "$CHECKS" = "skipped" ]; then
+              echo ""
+              echo "**Tests were skipped** for this manual run (skip_checks)."
+            fi
+            if [ -n "$failed" ]; then
+              echo ""
+              echo "**Incomplete release:** the build failed for:$failed. Their files are missing."
+            fi
+          } > notes.md
+          echo "incomplete=$([ -n "$failed" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
+          name: Jiyue ${{ needs.prepare.outputs.version }}
+          body_path: notes.md
+          draft: ${{ github.ref_type != 'tag' }}
+          prerelease: ${{ steps.notes.outputs.incomplete == 'true' }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/*

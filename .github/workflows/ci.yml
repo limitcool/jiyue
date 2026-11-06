@@ -1,0 +1,153 @@
+# Continuous integration for Jiyue: formatting, build and tests on Windows, macOS and Linux.
+# Valid for GitHub Actions and Gitea Actions (see docs/ci.md). The Cargo workspace is at the repository root.
+# Also called by release.yml (job "checks"), so one tag run tests the commit and then publishes it.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      include_arm:
+        description: "Also run the ARM64 test jobs (windows-11-arm, ubuntu-24.04-arm) on a private repository"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      include_arm:
+        description: "Also run the ARM64 test jobs (windows-11-arm, ubuntu-24.04-arm), as in the manual run"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# Not ${{ github.workflow }}: inside a called workflow that is the CALLER's name ("Release"), so the
+# group would collide with the caller's. Runs for tags are never cancelled, and neither are pushes to
+# main (each commit on main gets a complete test run); other runs (pull requests, branches) cancel older runs.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' && github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # No debug info in dev and test builds: PDB writing and linking dominate on MSVC, and the cache is smaller.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_NET_RETRY: "5"
+  # Keep in step with rust-toolchain.toml. Edition 2024 needs Rust 1.85 or newer.
+  RUST_VERSION: "1.99.1"
+  # Native packages for GPUI on Linux (see docs/ci.md).
+  LINUX_APT: >-
+    pkg-config cmake clang libclang-dev libfontconfig-dev libfreetype-dev
+    libasound2-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev
+    libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libzstd-dev
+    libvulkan-dev mesa-vulkan-drivers
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  plan:
+    # Builds the matrix of the test job. The ARM64 runners (windows-11-arm, ubuntu-24.04-arm) are free only
+    # for public repositories, so they are added only when the repository is public or they are enabled
+    # by hand (input include_arm, or the variable ENABLE_ARM_RUNNERS). See docs/ci.md.
+    name: Plan the test matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - id: matrix
+        shell: bash
+        env:
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+          FORCE_ARM: ${{ inputs.include_arm }}
+          ENABLE_ARM_VAR: ${{ vars.ENABLE_ARM_RUNNERS }}
+        run: |
+          set -euo pipefail
+          include='[{"os":"windows-latest","name":"windows-x64"},{"os":"macos-latest","name":"macos-arm64"},{"os":"macos-15-intel","name":"macos-x64"},{"os":"ubuntu-24.04","name":"linux-x64"}]'
+          arm='[{"os":"windows-11-arm","name":"windows-arm64"},{"os":"ubuntu-24.04-arm","name":"linux-arm64"}]'
+          want_arm=false
+          reason="private repository, ARM64 runners off"
+          if [ "$REPO_PRIVATE" = "false" ]; then
+            want_arm=true
+            reason="public repository"
+          fi
+          if [ "$FORCE_ARM" = "true" ] || [ "$ENABLE_ARM_VAR" = "true" ]; then
+            want_arm=true
+            reason="enabled by the include_arm input or ENABLE_ARM_RUNNERS"
+          fi
+          if [ "$want_arm" = true ]; then
+            include="${include%]},${arm#[}"
+          fi
+          echo "repository.private=${REPO_PRIVATE:-<unset>}, ARM64 entries: $want_arm ($reason)"
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: build and test (${{ matrix.name }})
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Linux system packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $LINUX_APT
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          shared-key: test-${{ matrix.name }}
+          # Only main writes the cache; pull requests restore it (saving took about 150 s on Windows).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Test the workspace (also compiles every target)
+        run: cargo test --workspace --locked --no-fail-fast
+
+      - name: Release build smoke test (Linux x64, manual runs only; release.yml builds the release at tag time)
+        if: matrix.name == 'linux-x64' && github.event_name == 'workflow_dispatch'
+        run: cargo build --release -p jiyue -p jiyue-mcp --locked
+
+  clippy:
+    # A gate: any warning fails the job (see docs/ci.md).
+    name: clippy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Linux system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $LINUX_APT
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: clippy
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings

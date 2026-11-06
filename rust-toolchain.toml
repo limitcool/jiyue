@@ -1,0 +1,5 @@
+# The toolchain used for every build and by CI (.github/workflows/ci.yml, RUST_VERSION).
+# Edition 2024 needs Rust 1.85 or newer. Change both places together.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]

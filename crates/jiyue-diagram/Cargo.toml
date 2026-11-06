@@ -1,0 +1,27 @@
+[package]
+name = "jiyue-diagram"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Pure-Rust Mermaid -> SVG layout/renderer. Default features disabled: no clap (CLI), no png
+# path (we use resvg directly so the same resvg/usvg/fontdb versions are shared).
+mermaid-rs-renderer = { version = "0.3.1", default-features = false }
+resvg = "0.47"
+tiny-skia = "0.12"
+fontdb = "0.23"
+roxmltree = "0.21"
+blake3 = "1"
+serde = { workspace = true }
+
+[dev-dependencies]
+image = { workspace = true }
+serde_json = { workspace = true }

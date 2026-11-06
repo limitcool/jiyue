@@ -1,0 +1,17 @@
+[package]
+name = "jiyue-ai"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+
+[dev-dependencies]
+toml = { workspace = true }

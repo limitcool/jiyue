@@ -1,0 +1,15 @@
+[package]
+name = "jiyue-export"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+pulldown-cmark = { version = "0.11.3", default-features = false, features = ["html"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+jiyue-core = { path = "../jiyue-core" }
+jiyue-md = { path = "../jiyue-md" }

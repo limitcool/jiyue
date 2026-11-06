@@ -1,0 +1,28 @@
+[package]
+name = "jiyue-math"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = ["raster"]
+# Rasterise the SVG to RGBA pixels via resvg (tiny-skia). Off = SVG only.
+raster = ["dep:resvg"]
+
+[dependencies]
+# Pure-Rust TeX math layout (STIX Two Math embedded, OpenType MATH metrics).
+# Pinned: output must stay deterministic across builds.
+latex-rust = "=3.0.1"
+blake3 = "1.8.7"
+serde = { workspace = true }
+resvg = { version = "0.47.0", optional = true }
+
+[dev-dependencies]
+image = { workspace = true }

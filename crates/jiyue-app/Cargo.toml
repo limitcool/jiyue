@@ -1,0 +1,93 @@
+[package]
+name = "jiyue"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Jiyue: a local-first Markdown note-taking app (desktop interface)."
+
+[[bin]]
+name = "jiyue"
+path = "src/main.rs"
+
+[dependencies]
+jiyue-core = { path = "../jiyue-core" }
+# Pre-wired for wave 2 (search, sync, AI and Markdown crates); the UI stubs in ui/*_ui.rs use them later.
+jiyue-search = { path = "../jiyue-search" }
+jiyue-sync = { path = "../jiyue-sync" }
+jiyue-ai = { path = "../jiyue-ai" }
+jiyue-md = { path = "../jiyue-md" }
+# Version history (local snapshots under .jiyue/history) and HTML/template export.
+jiyue-history = { path = "../jiyue-history" }
+jiyue-export = { path = "../jiyue-export" }
+# Formulas and Mermaid diagrams drawn into exported pages (SVG, no network).
+jiyue-math = { path = "../jiyue-math" }
+jiyue-diagram = { path = "../jiyue-diagram" }
+# Local wall-clock time of version rows and template variables (local UTC offset on Windows).
+time = { version = "0.3", features = ["local-offset"] }
+gpui = { workspace = true }
+image = { workspace = true, features = ["jpeg", "gif", "webp", "bmp"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+# Markdown block and inline structure for the source view's syntax styling (md_style.rs).
+pulldown-cmark = { version = "0.11", default-features = false }
+# Line diff for version history.
+similar = "2"
+
+# Windows only: embeds assets/logo/jiyue.ico and the version info into jiyue.exe (build.rs).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1.34"
+
+# Packaging of the GUI bundles (cargo-packager 0.11.8). Read by `cargo packager -p jiyue`.
+# The Windows MSI is built by installer/ (WiX 6, per-user, zh-CN); this block
+# drives the macOS (app, dmg) and Linux (deb, appimage) bundles. Used by .github/workflows/release.yml.
+[package.metadata.packager]
+product-name = "Jiyue"
+identifier = "com.limitcool.jiyue"
+description = "Jiyue: a local-first Markdown note-taking app."
+long-description = "Jiyue (霁月) is a local-first Markdown notes app. Your notes stay in plain folders on your disk."
+homepage = "https://github.com/limitcool/jiyue"
+authors = ["limitcool"]
+publisher = "limitcool"
+copyright = "Copyright (c) limitcool. Licensed under MIT OR Apache-2.0."
+category = "Productivity"
+license-file = "../../LICENSE-MIT"
+# Built into target/release by `cargo build --release -p jiyue -p jiyue-mcp`. Override with --binaries-dir.
+binaries-dir = "../../target/release"
+out-dir = "../../dist"
+binaries = [
+  { path = "jiyue", main = true },
+  { path = "jiyue-mcp" },
+]
+icons = [
+  "../../design/logo/final/jiyue-icon-16.png",
+  "../../design/logo/final/jiyue-icon-32.png",
+  "../../design/logo/final/jiyue-icon-128.png",
+  "../../design/logo/final/jiyue-icon-256.png",
+  "../../design/logo/final/jiyue-icon-512.png",
+]
+resources = [
+  { src = "../../LICENSE-APACHE", target = "LICENSE-APACHE" },
+  { src = "../../THIRD_PARTY_NOTICES.md", target = "THIRD_PARTY_NOTICES.md" },
+]
+# Markdown document type: Linux desktop entry (MimeType) and macOS CFBundleDocumentTypes. cargo-packager
+# sets no LSHandlerRank on macOS (so the Default rank applies); the Windows MSI adds "Open with" only
+# as an optional feature and never changes the default program.
+file-associations = [
+  { extensions = ["md"], name = "Markdown", mime-type = "text/markdown", description = "Markdown document", role = "editor" },
+]
+[package.metadata.packager.macos]
+minimum-system-version = "11.0"
+# Set by CI when the signing secret is present (see docs/ci.md). Empty = unsigned app.
+# signing-identity = "Developer ID Application: <name> (<TEAMID>)"
+
+[package.metadata.packager.deb]
+section = "editors"
+
+
+
+
+

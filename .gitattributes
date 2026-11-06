@@ -1,0 +1,18 @@
+# Existing files keep their bytes; only the shell scripts are forced to LF so that they run on
+# macOS and Linux after a Windows checkout.
+*.sh text eol=lf
+
+# Binary files: never diffed or line-ending converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.webp binary
+*.ttf binary
+*.otf binary
+*.msi binary
+*.zip binary
+*.exe binary
+*.pdf binary

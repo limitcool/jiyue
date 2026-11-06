@@ -1,0 +1,89 @@
+//! Status bar (28px) at the bottom of the sheet.
+
+use gpui::{Context, IntoElement, Rgba, SharedString, div, prelude::*, px, rgb};
+
+use super::UI_FONT;
+use crate::RustdianApp;
+use crate::session::{SaveStatus, ViewMode};
+
+/// Warm amber for unsaved changes (saved uses the theme's `ok`).
+const UNSAVED_AMBER: u32 = 0xd9962b;
+/// Red for a failed save.
+const SAVE_FAILED_RED: u32 = 0xe5484d;
+
+/// Renders the status bar: cursor position and encoding on the left, save state on the right.
+/// The cursor follows the active note's editor (the app caches it at each render).
+pub fn render_statusbar(
+    app: &RustdianApp,
+    cx: &mut Context<RustdianApp>,
+) -> impl IntoElement + use<> {
+    let t = app.theme;
+    let mode = match app.view_mode {
+        ViewMode::Source => "Markdown 源码",
+        ViewMode::Live => "Markdown",
+        ViewMode::Read => "阅读",
+    };
+    let status = app.active_save_status(cx);
+    let (label, dot) = match status {
+        SaveStatus::Saved => ("已保存", div().size(px(6.0)).rounded_full().bg(t.ok)),
+        SaveStatus::Unsaved => (
+            "未保存",
+            div().size(px(6.0)).rounded_full().bg(rgb(UNSAVED_AMBER)),
+        ),
+        SaveStatus::Saving => (
+            "保存中…",
+            div().size(px(6.0)).rounded_full().bg(rgb(UNSAVED_AMBER)),
+        ),
+        SaveStatus::Failed => (
+            "保存失败",
+            div().size(px(6.0)).rounded_full().bg(rgb(SAVE_FAILED_RED)),
+        ),
+    };
+    let label_color: Rgba = match status {
+        SaveStatus::Failed => rgb(SAVE_FAILED_RED),
+        _ => t.tx3,
+    };
+    // Feature modules' items sit before the save indicator, 12px apart (empty until wave 2).
+    let items = crate::ui::ext::statusbar_items(app, cx);
+
+    div()
+        .flex()
+        .items_center()
+        .gap(px(16.0))
+        .h(px(28.0))
+        .flex_none()
+        .px(px(16.0))
+        .border_t_1()
+        .border_color(t.line_soft)
+        .font_family(UI_FONT)
+        .text_size(px(11.5))
+        .text_color(t.tx3)
+        .child(
+            div()
+                .flex_none()
+                .mr(px(16.0))
+                .child(SharedString::from(format!(
+                    "第 {} 行，第 {} 列",
+                    app.cursor_row, app.cursor_col
+                ))),
+        )
+        .child(div().flex_none().mr(px(16.0)).child("UTF-8"))
+        .child(div().flex_none().mr(px(16.0)).child(mode))
+        .child(
+            div()
+                .ml_auto()
+                .flex()
+                .items_center()
+                .gap(px(12.0))
+                .children(items)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .text_color(label_color)
+                        .child(dot)
+                        .child(label),
+                ),
+        )
+}
