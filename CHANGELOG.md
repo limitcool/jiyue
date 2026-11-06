@@ -20,6 +20,7 @@ Thanks to ZoftTy for the detailed report in [#1](https://github.com/limitcool/ji
 - 一篇笔记可以添加多个标签：回车连续添加，逗号或空格一次添加多个，空输入框按退格删除最后一个。
 - 知识图谱支持鼠标滚轮缩放，双击空白处恢复适应窗口。
 - 窗口大小和位置、侧栏显示状态会被记住。
+- 笔记里的 `[文字](网址)` 链接和直接写出的 http、https、mailto 地址可以打开，用系统浏览器打开：阅读模式下直接点击；实时预览和源码模式下按住 `Ctrl`（macOS 为 `Cmd`）点击。
 
 **修复**
 - 主题每次退出后都会恢复成默认值，现在会被保存；侧栏显示、实时预览开关也一并修复。保存某一部分配置时不再丢掉其他设置。
@@ -29,10 +30,7 @@ Thanks to ZoftTy for the detailed report in [#1](https://github.com/limitcool/ji
 - 点击知识图谱中的节点，现在在新标签页打开（`Ctrl` 点击或中键在后台标签页打开）。
 - 知识图谱右下角的节点数和连接数现在按当前筛选后实际显示的内容计算，不再重复计数。
 - 阅读模式下鼠标移到链接上会变成手形指针。
-
-**已知问题**
-- 批量移动文件不能作为一个整体撤销，撤销只会还原最后一项。
-- 笔记里 `[文字](网址)` 形式的链接暂时不能点击打开。
+- 批量移动文件现在作为一次操作撤销，撤销会还原全部项目。
 
 ### English
 
@@ -46,6 +44,7 @@ Thanks to ZoftTy for the detailed report in [#1](https://github.com/limitcool/ji
 - A note can have several tags: Enter adds one after another, commas or spaces add several at once, and Backspace in an empty field removes the last one.
 - The knowledge graph zooms with the mouse wheel; double-click on empty space fits it to the window.
 - The window size and position and the sidebar visibility are remembered.
+- Links in notes can be opened: `[text](url)` links and bare http, https or mailto addresses open in the system browser. In reading mode a click opens them; in live preview and source mode, hold `Ctrl` (`Cmd` on macOS) and click.
 
 **Fixed**
 - The theme went back to the default every time the app quit. It is now saved, together with the sidebar and live preview switches. Saving one part of the configuration no longer drops other settings.
@@ -55,10 +54,7 @@ Thanks to ZoftTy for the detailed report in [#1](https://github.com/limitcool/ji
 - A node clicked in the knowledge graph now opens in a new tab (`Ctrl`+click or middle click opens it in a background tab).
 - The node and link counts at the bottom right of the graph now match what is shown after filters, without double counting.
 - In reading mode the pointer becomes a hand over links.
-
-**Known issues**
-- A batch move cannot be undone as a whole; undo restores only the last item.
-- Links written as `[text](url)` in a note cannot be opened by clicking yet.
+- A batch move is one undo step: undo puts back every moved item.
 
 ## [0.1.0] - 2026-11-06
 

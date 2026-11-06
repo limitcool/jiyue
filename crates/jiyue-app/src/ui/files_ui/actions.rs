@@ -28,14 +28,19 @@ pub enum UndoOp {
     Restore(TrashEntry),
     /// Put back the entries of a batch delete.
     RestoreMany(Vec<TrashEntry>),
-    /// Rename `new` back to `old`, and put the texts of the link-updated notes back. `texts` holds
-    /// `(path after the rename, text before it)`.
-    Rename {
-        old: String,
-        new: String,
-        is_dir: bool,
-        texts: Vec<(String, String)>,
-    },
+    /// Rename `new` back to `old`, and put the texts of the link-updated notes back.
+    Rename(RenameStep),
+    /// Undo a batch move as one step: every move is undone, the last one first.
+    RenameMany(Vec<RenameStep>),
+}
+
+/// One rename of an undo. `texts` holds `(path after the rename, text before it)` for the notes
+/// whose links changed.
+pub struct RenameStep {
+    pub old: String,
+    pub new: String,
+    pub is_dir: bool,
+    pub texts: Vec<(String, String)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -83,17 +88,18 @@ pub fn create_folder(
 // ---------------------------------------------------------------------------
 
 /// Renames a note or folder and updates the `[[links]]` and relative Markdown links that pointed
-/// at it. Returns how many notes changed. The toast offers an undo.
-pub fn rename(
+/// at it, without an undo toast. Returns the undo step and how many notes changed, or `None` when
+/// the name does not change.
+fn rename_step(
     app: &mut RustdianApp,
     window: &mut Window,
     old: &str,
     new: &str,
     is_dir: bool,
     cx: &mut Context<RustdianApp>,
-) -> Result<usize, String> {
+) -> Result<Option<(RenameStep, usize)>, String> {
     if old == new {
-        return Ok(0);
+        return Ok(None);
     }
     fsops::safe_rel_path(new).map_err(|err| pure::fs_error_zh(&err))?;
     let root = app.vault.root_dir.clone();
@@ -128,18 +134,30 @@ pub fn rename(
     let linked: Vec<String> = apply.iter().map(|(p, _)| p.clone()).collect();
     history_ui::before_change(app, &linked, cx);
     let before = apply_texts(app, window, &apply, cx);
-    let count = edits.len();
+    let step = RenameStep {
+        old: old.to_string(),
+        new: new.to_string(),
+        is_dir,
+        texts: before,
+    };
+    Ok(Some((step, edits.len())))
+}
+
+/// Renames a note or folder and updates the links that pointed at it (see `rename_step`). The
+/// toast offers an undo. Returns how many notes changed.
+pub fn rename(
+    app: &mut RustdianApp,
+    window: &mut Window,
+    old: &str,
+    new: &str,
+    is_dir: bool,
+    cx: &mut Context<RustdianApp>,
+) -> Result<usize, String> {
+    let Some((step, count)) = rename_step(app, window, old, new, is_dir, cx)? else {
+        return Ok(0);
+    };
     let text = rename_toast_text(old, new, count);
-    super::set_undo(
-        app,
-        text,
-        UndoOp::Rename {
-            old: old.to_string(),
-            new: new.to_string(),
-            is_dir,
-            texts: before,
-        },
-    );
+    super::set_undo(app, text, UndoOp::Rename(step));
     app.ext.files.selected = Some(new.to_string());
     cx.notify();
     Ok(count)
@@ -328,11 +346,23 @@ pub fn move_items(
     super::expand_folder(app, dest_dir);
     let mut moved = 0usize;
     let mut failed = plan.invalid.len();
+    let mut steps = Vec::new();
     for (src, dst, is_dir) in &plan.moves {
-        match rename(app, window, src, dst, *is_dir, cx) {
-            Ok(_) => moved += 1,
+        match rename_step(app, window, src, dst, *is_dir, cx) {
+            Ok(step) => {
+                moved += 1;
+                if let Some((step, _)) = step {
+                    steps.push(step);
+                }
+                app.ext.files.selected = Some(dst.clone());
+            }
             Err(_) => failed += 1,
         }
+    }
+    // The whole batch is one undo step, so undo puts back every item.
+    if !steps.is_empty() {
+        let text = format!("已移动 {} 项", steps.len());
+        super::set_undo(app, text, UndoOp::RenameMany(steps));
     }
     if moved == 0 && failed == 0 {
         cx.notify();
@@ -383,15 +413,29 @@ pub fn run_undo(app: &mut RustdianApp, window: &mut Window, cx: &mut Context<Rus
                 );
             }
         }
-        UndoOp::Rename {
-            old,
-            new,
-            is_dir,
-            texts,
-        } => match undo_rename(app, window, &old, &new, is_dir, texts, cx) {
+        UndoOp::Rename(step) => match undo_rename(app, window, step, cx) {
             Ok(()) => app.toast(ToastKind::Success, "已撤销重命名"),
             Err(message) => app.toast(ToastKind::Error, message),
         },
+        UndoOp::RenameMany(steps) => {
+            let total = steps.len();
+            let mut failed = 0usize;
+            // Last move first: each step expects the state its own move left behind.
+            for step in steps.into_iter().rev() {
+                if undo_rename(app, window, step, cx).is_err() {
+                    failed += 1;
+                }
+            }
+            let restored = total - failed;
+            if failed == 0 {
+                app.toast(ToastKind::Success, format!("已撤销移动 {restored} 项"));
+            } else {
+                app.toast(
+                    ToastKind::Error,
+                    format!("已撤销移动 {restored} 项，{failed} 项失败"),
+                );
+            }
+        }
     }
     cx.notify();
 }
@@ -399,12 +443,16 @@ pub fn run_undo(app: &mut RustdianApp, window: &mut Window, cx: &mut Context<Rus
 fn undo_rename(
     app: &mut RustdianApp,
     window: &mut Window,
-    old: &str,
-    new: &str,
-    is_dir: bool,
-    texts: Vec<(String, String)>,
+    step: RenameStep,
     cx: &mut Context<RustdianApp>,
 ) -> Result<(), String> {
+    let RenameStep {
+        old,
+        new,
+        is_dir,
+        texts,
+    } = step;
+    let (old, new) = (old.as_str(), new.as_str());
     let root = app.vault.root_dir.clone();
     fsops::rename(&root, new, old).map_err(|err| pure::fs_error_zh(&err))?;
     let paths: Vec<String> = app.vault.notes.iter().map(|n| n.path.clone()).collect();

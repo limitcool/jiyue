@@ -25,7 +25,7 @@ use gpui::{
 use gpui::{FontStyle, FontWeight};
 
 use super::highlight;
-use super::inline::wikilink_inner_at;
+use super::inline::{url_at, wikilink_inner_at};
 use super::keymap::{primary, primary_held};
 use super::md_style::{self, Segment, SpanStyle};
 /// Block widgets of the live view: code panels and frontmatter (see `ui/live/blocks.rs`).
@@ -2990,6 +2990,11 @@ impl TextEditor {
                 cx.emit(OpenWikilink(inner));
                 return;
             }
+            // A Markdown or bare web/mail link opens in the system browser.
+            if let Some(url) = self.url_under(idx) {
+                cx.open_url(&url);
+                return;
+            }
         }
         self.goal_x = None;
         match ev.click_count {
@@ -3027,6 +3032,20 @@ impl TextEditor {
         self.selecting = false;
     }
 
+    /// The web or mail link under source offset `at` (see `inline::url_at`). Code spans and code
+    /// blocks are not links.
+    fn url_under(&self, at: usize) -> Option<String> {
+        let cache = self.style_cache.as_ref()?;
+        let in_code = cache.spans.iter().any(|s| {
+            s.range.contains(&at)
+                && (s.style.has(SpanStyle::CODE) || s.style.has(SpanStyle::CODE_BLOCK))
+        });
+        if in_code {
+            return None;
+        }
+        url_at(self.state.text(), at)
+    }
+
     /// Sets the pointing-hand flag for the pointer at window `pos` (see `hand_cursor`) and repaints
     /// when it changes. `ctrl` is the Ctrl (Cmd on macOS) state of the event.
     fn update_hover(&mut self, pos: Point<Pixels>, ctrl: bool, cx: &mut Context<Self>) {
@@ -3035,9 +3054,9 @@ impl TextEditor {
         let over_widget = self.layout.widget_at(bx, by);
         let idx = self.index_at_window(pos);
         let over_link = !over_widget
-            && self.style_cache.as_ref().is_some_and(|c| {
+            && (self.style_cache.as_ref().is_some_and(|c| {
                 link_span_at(&c.spans, idx) || footnote::ref_at(&c.hides, idx).is_some()
-            });
+            }) || self.url_under(idx).is_some());
         let hand = hand_cursor(self.read_only, self.live, ctrl, over_widget, over_link);
         if hand != self.hand {
             self.hand = hand;

@@ -86,6 +86,97 @@ pub fn wikilink_inner_at(text: &str, offset: usize) -> Option<String> {
     None
 }
 
+/// Whether `url` is a link the app may open: `http`, `https` or `mailto`, without spaces.
+pub fn is_openable_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let scheme_ok = ["http://", "https://", "mailto:"]
+        .iter()
+        .any(|p| lower.starts_with(p) && lower.len() > p.len());
+    scheme_ok && !url.chars().any(char::is_whitespace)
+}
+
+/// The link under byte `offset` that a click opens: a Markdown link `[text](url)` (on its text or
+/// its URL), or a bare `http://`, `https://` or `mailto:` address. Looks only at the line that
+/// holds the offset. `None` when the offset is outside such a link, on a `[[wikilink]]` (those
+/// keep their own behaviour), or when the link is not one `is_openable_url` accepts.
+pub fn url_at(text: &str, offset: usize) -> Option<String> {
+    if offset > text.len() || !text.is_char_boundary(offset) {
+        return None;
+    }
+    if wikilink_inner_at(text, offset).is_some() {
+        return None;
+    }
+    let line_start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = text[offset..].find('\n').map_or(text.len(), |i| offset + i);
+    let line = &text[line_start..line_end];
+    let rel = offset - line_start;
+    let url = markdown_link_at(line, rel).or_else(|| bare_url_at(line, rel))?;
+    is_openable_url(&url).then_some(url)
+}
+
+/// The URL of the Markdown link `[text](url)` whose span covers byte `rel` of `line`. Images
+/// (`![..](..)`) are not links here.
+fn markdown_link_at(line: &str, rel: usize) -> Option<String> {
+    let mut search = 0;
+    while let Some(p) = line[search..].find("](") {
+        let mid = search + p;
+        let url_start = mid + 2;
+        let Some(q) = line[url_start..].find(')') else {
+            break;
+        };
+        let end = url_start + q + 1;
+        search = end;
+        let Some(open) = line[..mid].rfind('[') else {
+            continue;
+        };
+        if line[open + 1..mid].contains(']') || line[..open].ends_with('!') {
+            continue;
+        }
+        if (open..end).contains(&rel) {
+            let inner = line[url_start..url_start + q]
+                .trim()
+                .trim_start_matches('<')
+                .trim_end_matches('>');
+            // A link title (`url "title"`) follows the URL.
+            return Some(inner.split_whitespace().next().unwrap_or("").to_string());
+        }
+    }
+    None
+}
+
+/// The bare `http://`, `https://` or `mailto:` address covering byte `rel` of `line`. The address
+/// ends at a space or a bracket, and trailing punctuation or an unpaired `)` is not part of it.
+fn bare_url_at(line: &str, rel: usize) -> Option<String> {
+    let lower = line.to_ascii_lowercase();
+    for scheme in ["https://", "http://", "mailto:"] {
+        let mut search = 0;
+        while let Some(p) = lower[search..].find(scheme) {
+            let start = search + p;
+            let body = &line[start..];
+            let stop = body
+                .find(|c: char| c.is_whitespace() || "<>\"'`[]".contains(c))
+                .unwrap_or(body.len());
+            let mut token = &body[..stop];
+            loop {
+                let mut t = token.trim_end_matches(|c: char| ".,;:!?".contains(c));
+                if t.ends_with(')') && t.matches(')').count() > t.matches('(').count() {
+                    t = &t[..t.len() - 1];
+                }
+                if t.len() == token.len() {
+                    break;
+                }
+                token = t;
+            }
+            let end = start + token.len();
+            if (start..end).contains(&rel) {
+                return Some(token.to_string());
+            }
+            search = start + scheme.len();
+        }
+    }
+    None
+}
+
 /// Splits source text into styled segments.
 fn parse(src: &str) -> Vec<Seg> {
     let mut segs: Vec<Seg> = Vec::new();
@@ -485,6 +576,46 @@ mod tests {
         // The title-only view still drops the anchor.
         assert_eq!(wikilink_at(text, heading), Some("笔记".to_string()));
         assert_eq!(wikilink_inner_at(text, 0), None);
+    }
+
+    #[test]
+    fn url_at_finds_markdown_links_on_text_and_url() {
+        let text = "见 [文档](https://example.com/a) 后";
+        let on_text = text.find("文档").unwrap();
+        let on_url = text.find("example").unwrap();
+        assert_eq!(
+            url_at(text, on_text),
+            Some("https://example.com/a".to_string())
+        );
+        assert_eq!(
+            url_at(text, on_url),
+            Some("https://example.com/a".to_string())
+        );
+        assert_eq!(url_at(text, 0), None);
+        assert_eq!(url_at(text, text.find("后").unwrap()), None);
+    }
+
+    #[test]
+    fn url_at_finds_bare_addresses_and_trims_punctuation() {
+        let text = "go https://a.b/c?x=1). then mailto:me@x.org, end";
+        let bare = text.find("a.b").unwrap();
+        assert_eq!(url_at(text, bare), Some("https://a.b/c?x=1".to_string()));
+        let mail = text.find("me@").unwrap();
+        assert_eq!(url_at(text, mail), Some("mailto:me@x.org".to_string()));
+        // The comma after the address is not part of it.
+        assert_eq!(url_at(text, text.find(", end").unwrap()), None);
+    }
+
+    #[test]
+    fn url_at_rejects_other_schemes_images_and_wikilinks() {
+        assert_eq!(url_at("[x](javascript:alert(1))", 1), None);
+        assert_eq!(url_at("[x](note.md)", 1), None);
+        assert_eq!(url_at("![img](https://a.b/p.png)", 3), None);
+        assert_eq!(url_at("[[https://a.b]]", 4), None);
+        assert_eq!(url_at("https://", 2), None);
+        assert!(is_openable_url("HTTPS://a.b"));
+        assert!(!is_openable_url("https://"));
+        assert!(!is_openable_url("file:///etc/passwd"));
     }
 
     #[test]
