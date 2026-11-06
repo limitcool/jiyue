@@ -6,7 +6,7 @@
 In the vault folder you chose (`--vault <dir>`). Each note is a plain `.md` file in that folder or its sub-folders. Jiyue keeps its own data in a hidden `.jiyue` folder inside the vault.
 
 **Which platforms are supported?**
-Windows 10 and 11, 64-bit, is the primary platform and is tested by hand. macOS (Apple silicon) and Linux (x86_64) are built and tested by CI but have not been tried by hand yet. There is no mobile version. See [ci.md](ci.md).
+Jiyue runs on Windows 10 and 11 (x64 and ARM64), macOS (Apple silicon and Intel) and Linux (x86_64 and ARM64). There is no mobile version. See [ci.md](ci.md).
 
 **Does Jiyue need the internet?**
 No. Everything works offline. The network is used only for sync (S3 or WebDAV) and AI (your own provider), and only when you turn them on.

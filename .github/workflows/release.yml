@@ -322,6 +322,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+
       - uses: actions/download-artifact@v8
         with:
           pattern: release-*
@@ -337,6 +342,7 @@ jobs:
       - name: Release notes
         id: notes
         env:
+          VERSION: ${{ needs.prepare.outputs.version }}
           CHECKS: ${{ needs.checks.result }}
           WINDOWS: ${{ needs.windows.result }}
           MACOS: ${{ needs.macos.result }}
@@ -346,8 +352,18 @@ jobs:
           [ "$WINDOWS" = "success" ] || failed="$failed Windows"
           [ "$MACOS" = "success" ] || failed="$failed macOS"
           [ "$LINUX" = "success" ] || failed="$failed Linux"
+          # The notes of this version come from CHANGELOG.md (the section "## [<version>]").
+          awk -v v="$VERSION" '/^## \[/ { p = (index($0, "## [" v "]") == 1) } p' CHANGELOG.md > changelog-section.md
           {
-            echo "Unsigned builds. Verify the files against SHA256SUMS."
+            if [ -s changelog-section.md ]; then
+              tail -n +2 changelog-section.md
+            else
+              echo "Jiyue $VERSION."
+            fi
+            echo ""
+            echo "---"
+            echo ""
+            echo "未签名构建，请用 SHA256SUMS 校验文件。 / Unsigned builds: verify the files against SHA256SUMS."
             if [ "$CHECKS" = "skipped" ]; then
               echo ""
               echo "**Tests were skipped** for this manual run (skip_checks)."

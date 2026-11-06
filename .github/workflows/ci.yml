@@ -5,8 +5,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  # No push trigger: pushes to main run nothing. The tests run once per release, inside release.yml
+  # (job `checks`, which calls this workflow), and on pull requests and manual runs.
   pull_request:
   workflow_dispatch:
     inputs:

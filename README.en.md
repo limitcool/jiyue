@@ -11,8 +11,7 @@ Your notes stay plain `.md` files in a folder you choose.
 
 [![CI](https://github.com/limitcool/jiyue/actions/workflows/ci.yml/badge.svg)](https://github.com/limitcool/jiyue/actions/workflows/ci.yml)
 [![Licence: MIT OR Apache-2.0](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue.svg)](#licence)
-![Windows: tested](https://img.shields.io/badge/Windows%2010%20%2F%2011-tested%20by%20hand-0078D6.svg)
-![macOS and Linux: built in CI](https://img.shields.io/badge/macOS%20%26%20Linux-built%20in%20CI-lightgrey.svg)
+[![Platforms: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/limitcool/jiyue/releases/latest)
 ![Rust 1.99.1](https://img.shields.io/badge/Rust-1.99.1-orange.svg)
 
 <img src="docs/images/hero-ink.png" alt="Jiyue showing a note in live preview, with a table, callouts, a sidebar and the right panel" width="860">
@@ -50,6 +49,7 @@ We chose it because we want a notes app that feels like that sky: calm, clear an
 
 - **Wikilinks and backlinks.** `[[Note]]` links open with Ctrl+click. The right panel lists backlinks, unlinked mentions and an outline of headings.
 - **Knowledge graph.** Notes and their links as a graph, with tag filters and an option to hide orphan notes (Ctrl+G).
+- **Graph zoom.** Scroll the mouse wheel over the graph to zoom about the pointer; the buttons in the bottom-left corner zoom in, zoom out or fit the view.
 - **Tags.** Tags in the body or in properties are listed in the sidebar with their counts.
 - **Daily notes and calendar.** Today's note with Ctrl+Shift+D, a calendar in the sidebar, and previous and next day commands.
 - **Templates.** Insert a template into a note, or create a new note from one.
@@ -61,6 +61,9 @@ We chose it because we want a notes app that feels like that sky: calm, clear an
 - **Find and replace** inside the open note (Ctrl+F, Ctrl+H).
 - **Quick switcher** (Ctrl+K) and **command palette** (Ctrl+P), which lists every command, including the ones without a shortcut.
 - **Tabs and split view.** Several notes in tabs, and a note split beside another (Ctrl+\).
+- **Tab strip auto-scroll.** With many tabs open, dragging a tab to the edge of the strip scrolls it, and switching tabs scrolls the active one into view.
+- **Multi-select in the file tree.** Ctrl+click adds or removes a row, Shift+click selects a range, and the selection can then be moved or deleted together (deleting asks for confirmation).
+- **Back and forward.** Alt+Left and Alt+Right, or the mouse back and forward buttons, move through the notes you have visited.
 
 ### Safety and history
 
@@ -79,6 +82,7 @@ We chose it because we want a notes app that feels like that sky: calm, clear an
 ### Look and feel
 
 - **Five themes:** Paper, Ink, Moss, Graphite and Fog.
+- **Fonts and sizes.** Choose a font for the interface, the note text and code separately, and adjust the text size, code size and line height. Changes apply at once.
 - **Customisable shortcuts.** Change any command's keys in Settings. See [docs/shortcuts.md](docs/shortcuts.md).
 
 ## Screenshots
@@ -110,9 +114,9 @@ We chose it because we want a notes app that feels like that sky: calm, clear an
 
 ## Install
 
-- **Windows 10 and 11, x64 and ARM64.** The release workflow builds an MSI installer per architecture (per user, no administrator rights; `Jiyue-<version>-x64.msi` and `Jiyue-<version>-arm64.msi`). The x64 build is the one the developer runs by hand. The ARM64 build is produced by CI and has not been run by hand on an ARM64 PC; the ARM64 MSI installs only on ARM64 Windows. No GitHub release has been published yet; until one is, build from source (below) or run `installer\build.ps1` (see [installer/README.md](installer/README.md)). The installers are not code-signed yet, so SmartScreen may warn.
-- **macOS, Apple silicon and Intel.** CI builds the app on both and runs its tests, and the release workflow produces a `.dmg` containing `Jiyue.app` for each (`Jiyue_<version>_aarch64.dmg` and `Jiyue_<version>_x64.dmg`). The developer has not yet run the app by hand on either.
-- **Linux, x86_64 and ARM64.** CI builds the app and runs its tests on both. The release workflow produces a `.deb` and (when its optional step succeeds) an AppImage for each. The ARM64 packages are built by CI only and have not been run by hand. The developer has not yet run the app by hand on macOS or Linux, so treat them as early. The ARM64 builds run only when the repository is public or the owner enables them; see [docs/ci.md](docs/ci.md).
+- **Windows 10 and 11, x64 and ARM64.** Download the MSI installer from [Releases](https://github.com/limitcool/jiyue/releases/latest) (`Jiyue-<version>-x64.msi` or `Jiyue-<version>-arm64.msi`). It installs per user and needs no administrator rights. You can also build from source (below). The installers are not code-signed yet, so SmartScreen may warn.
+- **macOS, Apple silicon and Intel.** Download the `.dmg` from [Releases](https://github.com/limitcool/jiyue/releases/latest) (`Jiyue_<version>_aarch64.dmg` or `Jiyue_<version>_x64.dmg`) and drag `Jiyue.app` to Applications. The app is not signed yet: on first launch, right-click it in Finder and choose Open.
+- **Linux, x86_64 and ARM64.** Download the `.deb`, or the AppImage (`chmod +x` it and run it) from [Releases](https://github.com/limitcool/jiyue/releases/latest). Each architecture has its own files. For how the builds are made and tested, see [docs/ci.md](docs/ci.md).
 
 ## Quick start
 

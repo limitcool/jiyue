@@ -7,7 +7,7 @@ packages of a tag come from the same run (see "One run per release").
 
 | Workflow | When | What |
 | --- | --- | --- |
-| `ci.yml` | push to `main`, pull requests, by hand, and called by `release.yml` (job `checks`) | rustfmt (Linux); build and test on Windows x64, macOS arm64, macOS x64 and Linux x64 (plus the ARM64 pair on public repositories, see below); clippy (blocking) |
+| `ci.yml` | pull requests, by hand, and called by `release.yml` (job `checks`) | rustfmt (Linux); build and test on Windows x64, macOS arm64, macOS x64 and Linux x64 (plus the ARM64 pair on public repositories, see below); clippy (blocking) |
 | `release.yml` | tags `v*`, by hand | job `checks` (= `ci.yml`); packages: Windows MSI for x64 and ARM64 (`installer/`, WiX 6), macOS `.dmg` with `Jiyue.app` for arm64 and x64, Linux `.deb` and AppImage for x86_64 and aarch64 (cargo-packager 0.11.8); job `publish`: `SHA256SUMS` and the GitHub Release, only when the checks passed |
 
 ## One run per release
@@ -41,9 +41,11 @@ Rules of the flow:
   succeeded; the release is then marked as a pre-release and its notes list the missing platforms.
 - **Tests run for every tag.** A tag push always runs `checks`. The only way to skip the tests is the
   `skip_checks` input of a manual run (below).
-- **Pushes to `main` are unchanged:** `ci.yml` runs alone. Tagging a commit that is already green on `main`
-  therefore tests it twice (once for the push, once in the Release run). This is deliberate: the tagged
-  commit is tested again by exactly the run that publishes it, and nothing is skipped automatically.
+- **Pushes to `main` run nothing.** `ci.yml` has no push trigger, so a tag push is the only thing that starts
+  the full test matrix, once, inside the Release run. Commits on `main` are not tested until they are tagged,
+  pull requests are, and a manual run of `ci.yml` (Actions tab) checks any branch on demand. If a tag run fails
+  before publishing, nothing is released: fix the cause with a new commit, then delete the unpublished tag and
+  tag the new commit again, or release the next version number.
 - **Duration.** The tag run takes as long as the longer of the tests and the packages, and `publish` starts
   after the tests. The slowest test job was 25 minutes on Windows in the last green run (see "CI speed").
 - **Manual runs:** Actions, Release, Run workflow. Inputs: `tag` (required; a draft release is created),
@@ -188,17 +190,15 @@ in `release.yml` until it is cancelled.
 
 ## Platform status
 
-| Platform | Built in CI | Run by the developer | Notes |
-| --- | --- | --- | --- |
-| Windows 11 x64 | yes (`windows-latest`) | yes, the primary platform | MSI installer |
-| macOS arm64 (Apple silicon) | yes (`macos-latest`) | **not yet** | unsigned unless secrets are set |
-| macOS x86_64 (Intel) | yes (`macos-15-intel`) | **not yet** | unsigned unless secrets are set; dmg `Jiyue_<version>_x64.dmg`; see "Known gaps" |
-| Linux x86_64 | yes (`ubuntu-24.04`) | **not yet** | X11 and Wayland through GPUI; title bar drawn by the app |
-| Windows 11 ARM64 | yes (`windows-11-arm`), only when the ARM64 entries are on | **not yet** (no ARM64 PC) | MSI and zip built by CI; the MSI installs only on ARM64 Windows |
-| Linux ARM64 | yes (`ubuntu-24.04-arm`), only when the ARM64 entries are on | **not yet** | deb and AppImage built by CI |
+| Platform | Built and tested in CI | Notes |
+| --- | --- | --- |
+| Windows 11 x64 | yes (`windows-latest`) | MSI installer |
+| macOS arm64 (Apple silicon) | yes (`macos-latest`) | unsigned unless secrets are set |
+| macOS x86_64 (Intel) | yes (`macos-15-intel`) | unsigned unless secrets are set; dmg `Jiyue_<version>_x64.dmg`; see "Known gaps" |
+| Linux x86_64 | yes (`ubuntu-24.04`) | X11 and Wayland through GPUI; title bar drawn by the app |
+| Windows 11 ARM64 | yes (`windows-11-arm`), only when the ARM64 entries are on | MSI built by CI; the MSI installs only on ARM64 Windows |
+| Linux ARM64 | yes (`ubuntu-24.04-arm`), only when the ARM64 entries are on | deb and AppImage built by CI |
 
-The ARM64 builds are produced by CI and have not been run by hand anywhere. A release published with them
-is untested on that platform. The same is true of the Intel macOS build.
 
 Known differences: on Linux the window has client-side decorations (the tab strip is the title bar) and
 gpui does not hit-test the drag and caption areas, so the app handles those clicks itself. On macOS the

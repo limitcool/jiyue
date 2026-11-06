@@ -23,6 +23,7 @@ The defaults are listed below. Every command with a shortcut can be given other 
 | Settings | Ctrl+, | |
 | Open or close the AI assistant panel | Ctrl+Shift+A | |
 | AI actions on the selection | Ctrl+J | Opens the menu for rewrite, shorten, expand, translate, fix and summarise. |
+| Back / forward in note history | Alt+Left / Alt+Right, or the mouse back / forward buttons | Moves through the notes you have visited, like a browser. |
 | Close a dialog, menu or palette | Escape | In Source view, Escape returns to the rendered view. |
 
 ## Editor
@@ -56,6 +57,7 @@ Select a row first (click it).
 | --- | --- |
 | Rename the selected note or folder | F2 |
 | Delete the selected note or folder (after confirmation; it goes to `.trash`) | Delete |
+| Select several rows | Ctrl+click (add or remove one row) / Shift+click (range from the last row clicked) |
 | Open or close a selected folder | Enter |
 | Move a note or folder | Drag it onto a folder |
 
@@ -72,4 +74,4 @@ Commands without a default shortcut (set one in Settings if you want): split dow
 
 ## Changing shortcuts
 
-Open Settings (Ctrl+,) and choose 快捷键. Pick a command, press the new keys, and the change is saved at once. Your changes are written to the `[keys]` section of `config.toml` in the user configuration folder (`%LOCALAPPDATA%\Jiyue` on Windows; see [configuration.md](configuration.md)); commands you do not change keep their defaults. When you choose keys that another command already uses, or a text-editing key (arrows, Ctrl+C/V/X/Z/A/Y, Backspace, Enter and so on), the settings page reports the conflict. A broken `keymap.json` is ignored as a whole and reported.
+Open Settings (Ctrl+,) and choose 快捷键. Pick a command, press the new keys, and the change is saved at once. Your changes are written to the `[keys]` section of `config.toml` in the user configuration folder (`%LOCALAPPDATA%\Jiyue` on Windows; see [configuration.md](configuration.md)); commands you do not change keep their defaults. When you choose keys that another command already uses, or a text-editing key (arrows, Ctrl+C/V/X/Z/A/Y, Backspace, Enter and so on), the settings page reports the conflict. A broken `config.toml` is ignored as a whole and reported.

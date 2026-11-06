@@ -20,10 +20,10 @@ folder instead (used by tests and developer scripts).
 
 | File | Level | Purpose / 用途 |
 |---|---|---|
-| `config.toml` | user | Global settings and keyboard shortcuts (`[keys]`). 全局设置与快捷键 |
-| `state.toml` | user | Recent vaults and the last opened vault. 最近笔记库 |
+| `config.toml` | user | Global settings: `[ui]`, `[appearance]`, and keyboard shortcuts (`[keys]`). 全局设置、字体与快捷键 |
+| `state.toml` | user | Recent vaults, the last opened vault and the window position (`[window]`). 最近笔记库与窗口位置 |
 | `credentials.toml` | user | API keys and sync secrets, plain text. 凭据（明文） |
-| `.jiyue/config.toml` | vault | Vault settings: `[editor]`, `[daily]`, `[templates]`, `[attachments]`, `[sync]`, `[ai]`. 笔记库设置 |
+| `.jiyue/config.toml` | vault | Vault settings: `[vault]`, `[editor]`, `[daily]`, `[templates]`, `[attachments]`, `[sync]`, `[ai]`. 笔记库设置 |
 | `.jiyue/state.toml` | vault | Window layout (tabs, split) and search history. 界面状态 |
 | `.jiyue/bookmarks.toml` | vault | Bookmarks. 书签 |
 
@@ -36,6 +36,24 @@ are internal machine data and are not configuration.
 ```toml
 version = 1
 
+# Interface preferences: saved when you change the theme, a sidebar or live preview.
+# 界面偏好：切换主题、侧栏或实时预览时自动保存，下次启动时恢复。
+[ui]
+theme = "ink"                 # ink, fog, paper, moss, graphite / 主题
+live_preview = true           # show notes rendered by default / 默认以渲染后的预览显示笔记
+left_sidebar = true           # files, search, tags / 左侧栏
+right_sidebar = true          # outline, backlinks / 右侧面板
+
+# Fonts and sizes, for every vault. An empty font name = the built-in font.
+# 字体与字号，对所有笔记库生效。字体名留空 = 内置字体。
+[appearance]
+ui_font = ""                  # menus, sidebars, labels / 界面字体
+editor_font = ""              # note text and read mode; empty = ui_font / 正文字体
+code_font = ""                # code blocks and inline code / 代码字体
+editor_font_size = 15.0       # px, 10 to 36 / 正文字号
+code_font_size = 0.0          # px, 9 to 32; 0 = 90 % of the text size / 代码字号
+line_height = 1.73            # multiple of the font size, 1.0 to 2.5 / 行高
+
 # Shortcut overrides: command id = ["chord", ...]. An empty list turns the shortcut off.
 # 快捷键覆盖：命令编号 = ["快捷键"]，留空数组表示关闭该快捷键。
 [keys]
@@ -45,10 +63,58 @@ version = 1
 
 The command ids are listed in [shortcuts.md](shortcuts.md).
 
+## Interface and fonts / 界面与字体
+
+Most of these values can also be changed in the settings page (外观 page for fonts and sizes); the app
+writes them to `config.toml`. Changes apply at once.
+这些设置大多也可以在设置页修改（字体与字号在「外观」页），程序会把修改写入 `config.toml`，并立即生效。
+
+**`[ui]`**
+
+| Key | Default | Meaning / 含义 |
+|---|---|---|
+| `theme` | `"ink"` | `ink`, `fog`, `paper`, `moss` or `graphite`. An unknown name falls back to `ink`. / 未知名称使用 `ink` |
+| `live_preview` | `true` | Notes open rendered, not as source. / 以渲染后的预览打开笔记 |
+| `left_sidebar` | `true` | Left sidebar shown. / 显示左侧栏 |
+| `right_sidebar` | `true` | Right panel (outline, backlinks) shown. / 显示右侧面板 |
+
+Theme at startup, first match wins: the `--theme` command-line flag (when it names a known theme), then
+the saved `theme`, then the default `ink`.
+启动时主题的优先级：命令行 `--theme` 参数（须为已知主题）> 已保存的 `theme` > 默认 `ink`。
+
+**`[appearance]`**
+
+| Key | Default | Range | Meaning / 含义 |
+|---|---|---|---|
+| `ui_font` | `""` (Noto Sans SC) | installed font name | Menus, sidebars and labels. / 菜单、侧栏和标签 |
+| `editor_font` | `""` (same as `ui_font`) | installed font name | Note text and read mode. / 正文和阅读模式 |
+| `code_font` | `""` (JetBrainsMono Nerd Font) | installed font name | Code blocks and inline code. / 代码块和行内代码 |
+| `editor_font_size` | `15.0` | 10 to 36 px | Note text size; headings scale with it. / 正文字号，标题按比例放大 |
+| `code_font_size` | `0.0` | `0`, or 9 to 32 px | `0` follows the note text (90 %). / `0` 表示跟随正文（90%） |
+| `line_height` | `1.73` | 1.0 to 2.5 | Line spacing as a multiple of the font size. / 行高，相对字号的倍数 |
+
+Font names are matched without regard to case. A number outside its range is set to the nearest limit,
+and the settings page says so. A font that is not installed is replaced by the built-in font for that
+setting, and a warning is shown in the settings page (for example `未找到字体 X，已使用默认字体`).
+字体名不区分大小写。超出范围的数字会调整到边界值，并在设置页提示。未安装的字体会换成该项的内置字体，并在设置页显示警告。
+
+The sizes change the note text and code only. Menus, sidebars and other controls keep their size.
+字号只作用于笔记正文和代码，菜单、侧栏和其他控件的大小不变。
+
+An older file may still contain `ui_scale`, from a version that had an interface scale setting. It is no
+longer used: it stays in the file and is reported as an unknown key, like any other unknown key.
+旧版本文件中可能还有 `ui_scale`。该键已不再起作用，会保留在文件中，并和其他未知键一样给出警告。
+
 ## Example: `.jiyue/config.toml` (vault) / 示例：笔记库级 config.toml
 
 ```toml
 version = 1
+
+[vault]
+# Display name in the sidebar, window title and recent list (up to 60 characters).
+# Empty = the folder name. Renaming the folder keeps the display name.
+# 显示名称（侧栏、窗口标题和最近列表）。留空 = 文件夹名。重命名文件夹后显示名称保持不变。
+name = ""
 
 [editor]
 # Name a new note after its first heading. 新建笔记时用首个标题作为文件名。
@@ -89,6 +155,30 @@ base_url = "https://api.openai.com/v1"
 chat_model = "gpt-4o-mini"
 # embedding_model = "text-embedding-3-small"
 ```
+
+## Example: `state.toml` (user) / 示例：用户级 state.toml
+
+```toml
+version = 1
+
+# Written by the app; you rarely need to edit it. 由程序自动写入。
+# Recent vaults, newest first, and the vault that was open when the app closed.
+recent_vaults = ["D:\\Notes\\Work", "D:\\Notes\\Journal"]
+last_vault = "D:\\Notes\\Work"
+
+# Window position and size, written when the window closes. 关闭窗口时写入的位置和大小。
+[window]
+mode = "maximized"            # windowed, maximized or fullscreen / 窗口模式
+x = 120.0                     # pixels / 像素
+y = 80.0
+width = 1280.0
+height = 820.0
+```
+
+A saved window is restored at the next start only when it is at least 480 × 320 pixels and at least
+100 pixels of it lie on a screen. Otherwise the app opens at its default size and position. `width = 0`
+means that no position has been saved yet.
+保存的窗口只有在尺寸不小于 480 × 320、且至少 100 像素位于屏幕内时才会在下次启动时恢复，否则使用默认尺寸和位置。`width = 0` 表示尚未保存过位置。
 
 ## Example: `credentials.toml` / 示例：credentials.toml
 

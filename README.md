@@ -11,8 +11,7 @@
 
 [![CI](https://github.com/limitcool/jiyue/actions/workflows/ci.yml/badge.svg)](https://github.com/limitcool/jiyue/actions/workflows/ci.yml)
 [![许可证: MIT OR Apache-2.0](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue.svg)](#许可证)
-![Windows: 手动测试](https://img.shields.io/badge/Windows%2010%20%2F%2011-tested%20by%20hand-0078D6.svg)
-![macOS 与 Linux: CI 构建](https://img.shields.io/badge/macOS%20%26%20Linux-built%20in%20CI-lightgrey.svg)
+[![平台: Windows | macOS | Linux](https://img.shields.io/badge/平台-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/limitcool/jiyue/releases/latest)
 ![Rust 1.99.1](https://img.shields.io/badge/Rust-1.99.1-orange.svg)
 
 <img src="docs/images/hero-ink.png" alt="霁月的实时预览：表格、提示块、侧栏和右栏" width="860">
@@ -50,6 +49,7 @@
 
 - **双链与反链。** `[[笔记名]]` 按住 Ctrl 点击即可打开。右栏列出反向链接、未链接的提及和标题大纲。
 - **知识图谱。** 笔记和它们之间的链接画成一张图，可以按标签筛选，也可以隐藏孤立笔记（Ctrl+G）。
+- **图谱缩放。** 在图谱上滚动鼠标滚轮，会以指针所在处为中心缩放；左下角的按钮可以放大、缩小或恢复适应视图。
 - **标签。** 正文或属性中的标签会在侧栏中列出，并显示数量。
 - **日记与日历。** Ctrl+Shift+D 打开今天的日记，侧栏有日历，并且可以切换前一天和后一天的日记。
 - **模板。** 可以向笔记中插入模板，也可以用模板新建笔记。
@@ -61,6 +61,9 @@
 - **查找与替换**（Ctrl+F、Ctrl+H）作用于当前笔记。
 - **快速切换**（Ctrl+K）和**命令面板**（Ctrl+P）。命令面板列出所有命令，包括没有快捷键的命令。
 - **标签页与分屏。** 多篇笔记以标签页打开，也可以把一篇笔记拆分到另一篇旁边（Ctrl+\）。
+- **标签栏自动滚动。** 标签很多时，把标签拖到标签栏边缘会自动滚动；切换标签后，当前标签会滚动到可见位置。
+- **文件树多选。** 在文件树中按住 Ctrl 点击可以逐个选中，按住 Shift 点击可以选中一段范围，然后一起移动或删除（删除前会确认）。
+- **后退与前进。** Alt+Left 和 Alt+Right，或鼠标的后退、前进侧键，可以在浏览过的笔记之间前后切换。
 
 ### 安全与历史
 
@@ -79,6 +82,7 @@
 ### 外观与快捷键
 
 - **五种主题：** 纸、墨、苔、石墨、雾。
+- **字体与字号。** 界面、正文和代码可以分别选择字体，并可以调整正文字号、代码字号和行高。修改后立即生效。
 - **可自定义快捷键。** 在设置中可以修改任何命令的快捷键。详见 [docs/shortcuts.md](docs/shortcuts.md)。
 
 ## 截图
@@ -110,9 +114,9 @@
 
 ## 安装
 
-- **Windows 10 和 11，x64 和 ARM64。** 发布流程为每种架构生成 MSI 安装包（按用户安装，不需要管理员权限，即 `Jiyue-<version>-x64.msi` 和 `Jiyue-<version>-arm64.msi`）。x64 版本是开发者手动运行过的。ARM64 版本由 CI 生成，尚未在 ARM64 电脑上手动运行过；ARM64 安装包只能在 ARM64 Windows 上安装。目前还没有发布 GitHub Release，在此之前可以从源码构建（见下文），或运行 `installer\build.ps1`（见 [installer/README.md](installer/README.md)）。安装包尚未签名，SmartScreen 可能会提示警告。
-- **macOS（Apple 芯片和 Intel）。** CI 会在两种架构上构建并运行测试；发布流程为每种架构生成内含 `Jiyue.app` 的 `.dmg`，即 `Jiyue_<version>_aarch64.dmg` 和 `Jiyue_<version>_x64.dmg`。开发者尚未在任何一种 Mac 上手动运行过。
-- **Linux，x86_64 和 ARM64。** CI 会在这两种架构上构建并运行测试。发布流程为每种架构生成 `.deb`，以及在可选步骤成功时生成的 AppImage。ARM64 软件包只由 CI 生成，尚未手动运行过。开发者尚未在 macOS 和 Linux 上手动运行过应用，请把它们当作早期版本看待。ARM64 构建只在仓库公开或所有者手动启用时运行；详见 [docs/ci.md](docs/ci.md)。
+- **Windows 10 和 11，x64 和 ARM64。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 MSI 安装包（`Jiyue-<version>-x64.msi` 或 `Jiyue-<version>-arm64.msi`），按用户安装，不需要管理员权限。也可以从源码构建（见下文）。安装包尚未签名，SmartScreen 可能会提示警告。
+- **macOS（Apple 芯片和 Intel）。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 `.dmg`（`Jiyue_<version>_aarch64.dmg` 或 `Jiyue_<version>_x64.dmg`），把 `Jiyue.app` 拖进“应用程序”。应用尚未签名，首次打开请在访达里右键选择“打开”。
+- **Linux，x86_64 和 ARM64。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 `.deb`，或 AppImage（`chmod +x` 后直接运行）。每种架构各有一份。构建和测试流程见 [docs/ci.md](docs/ci.md)。
 
 ## 快速开始
 

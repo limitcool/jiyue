@@ -20,6 +20,7 @@ Jiyue is a **beta** for Windows. This page lists what is planned and what is not
 
 - **PDF export** without going through a browser. Today a note is exported as HTML and printed to PDF from a browser.
 - **Bundled fonts**, so the interface looks the same on every system.
+- **Whole-interface scaling (all sizes).** Scale menus, sidebars and widgets together with the text. Today the font sizes in the settings change the note text and code only.
 - **Mobile.** GPUI has no mobile target, so a phone or tablet app would use another UI technology on top of the shared core, sync, search and AI libraries. This is a separate project and has not started.
 
 ### Done
@@ -52,6 +53,7 @@ Live preview with rendered tables, callouts, code, images, note embeds, math, Me
 
 - **不经过浏览器的 PDF 导出。** 现在是导出 HTML，再用浏览器打印成 PDF。
 - **随应用附带字体，**让界面在各个系统上看起来一致。
+- **整个界面的缩放（所有尺寸统一缩放）。** 菜单、侧栏和控件与文字一起缩放。现在设置里的字号只改变笔记正文和代码。
 - **移动端。** GPUI 没有移动端目标，所以手机或平板应用要用另一种界面技术，建立在共用的核心、同步、搜索和 AI 库之上。这是一个独立的项目，还没有开始。
 
 ### 已完成
