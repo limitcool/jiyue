@@ -43,7 +43,7 @@ pub struct State {
 
 /// Creates the filter field and subscribes to it. Called once from `RustdianApp::new`.
 pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
-    let input = cx.new(|cx| LineInput::new(cx, "搜索快捷键…"));
+    let input = cx.new(|cx| LineInput::new(cx, &crate::t!("keymap-search-placeholder")));
     let sub = cx.subscribe(
         &input,
         |this: &mut RustdianApp, _, ev: &LineInputEvent, cx| {
@@ -199,9 +199,9 @@ pub fn render_confirm(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEl
     let t = app.theme;
     confirm_dialog(
         &t,
-        "全部恢复默认",
-        "所有快捷键将恢复为默认值，自定义的设置会被删除。",
-        "恢复默认",
+        &crate::t!("keymap-reset-all-confirm-title"),
+        &crate::t!("keymap-reset-all-confirm-desc"),
+        &crate::t!("keymap-reset-all-confirm-btn"),
         true,
         cx.listener(|this, _: &MouseDownEvent, _, cx| {
             reset_all(this, cx);
@@ -235,7 +235,7 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEl
         .child(div().flex_1().min_w_0().child(field))
         .child(button(
             &t,
-            "全部恢复默认",
+            &crate::t!("keymap-reset-all"),
             ButtonKind::Secondary,
             None,
             cx.listener(|this, _: &MouseDownEvent, _, cx| {
@@ -276,18 +276,18 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEl
                 .py(px(18.0))
                 .text_size(px(13.0))
                 .text_color(t.tx3)
-                .child("没有匹配的命令"),
+                .child(SharedString::from(crate::t!("keymap-no-matches"))),
         );
     }
 
     body = body
-        .child(section_title(&t, "文字编辑键（不可修改）"))
+        .child(section_title(&t, &crate::t!("keymap-reserved-title")))
         .child(
             div()
                 .pb(px(6.0))
                 .text_size(px(12.0))
                 .text_color(t.tx3)
-                .child("这些键用于编辑文字，不能分配给命令；设置新快捷键时会提示冲突。"),
+                .child(SharedString::from(crate::t!("keymap-reserved-desc"))),
         );
     for (i, (keys, meaning)) in RESERVED.iter().enumerate() {
         let shown_keys = Chord::parse(keys).map(|c| c.format()).unwrap_or_default();
@@ -304,7 +304,7 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEl
                     div()
                         .text_size(px(13.0))
                         .text_color(t.tx2)
-                        .child(SharedString::from(meaning.to_string())),
+                        .child(SharedString::from(keymap::reserved_meaning(keys, meaning))),
                 )
                 .child(kbd(&t, &shown_keys)),
         );
@@ -330,20 +330,30 @@ fn row(
             div()
                 .text_size(px(12.5))
                 .text_color(t.ac)
-                .child("按下新的快捷键…"),
+                .child(SharedString::from(crate::t!("keymap-capturing"))),
         );
     } else {
         let chords = km.chords(s.id);
         if chords.is_empty() {
-            right = right.child(div().text_size(px(12.5)).text_color(t.tx3).child("未设置"));
+            right = right.child(
+                div()
+                    .text_size(px(12.5))
+                    .text_color(t.tx3)
+                    .child(SharedString::from(crate::t!("keymap-unbound"))),
+            );
         }
         for c in &chords {
             right = right.child(kbd(&t, &c.format()));
         }
     }
+    let btn_label = if capturing {
+        crate::t!("keymap-cancel")
+    } else {
+        crate::t!("keymap-edit")
+    };
     right = right.child(button(
         &t,
-        if capturing { "取消" } else { "修改" },
+        &btn_label,
         ButtonKind::Secondary,
         Some("pencil"),
         cx.listener(move |this, _: &MouseDownEvent, _, cx| {
@@ -358,7 +368,7 @@ fn row(
     if !km.is_default(s.id) {
         right = right.child(button(
             &t,
-            "恢复默认",
+            &crate::t!("keymap-reset"),
             ButtonKind::Secondary,
             None,
             cx.listener(move |this, _: &MouseDownEvent, _, cx| {
@@ -384,7 +394,7 @@ fn row(
             .child(right),
     );
     if capturing {
-        block = block.child(hint_text(&t, "Esc 取消 · Backspace 清除为未设置", t.tx3));
+        block = block.child(hint_text(&t, &crate::t!("keymap-capture-hint"), t.tx3));
     }
     if let Some((id, text)) = &st.notice
         && *id == s.id

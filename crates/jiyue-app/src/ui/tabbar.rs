@@ -17,8 +17,8 @@ use crate::session;
 use crate::theme::ActiveTheme;
 use gpui::{
     AnyElement, App, Bounds, Context, DragMoveEvent, ElementId, Entity, FontWeight, IntoElement,
-    MouseButton, MouseDownEvent, Pixels, Point, Rgba, ScrollHandle, SharedString, Svg, Window,
-    WindowControlArea, div, point, prelude::*, px, relative, rgb, svg,
+    MouseButton, MouseDownEvent, Pixels, Point, Rgba, ScrollHandle, ScrollWheelEvent, SharedString,
+    Svg, Window, WindowControlArea, div, point, prelude::*, px, relative, rgb, svg,
 };
 
 const CAPTION_W: f32 = 46.0;
@@ -221,6 +221,16 @@ pub fn render_tabbar(
     let right_open = app.right_sidebar_open;
     let mut strips = div().flex().flex_row().flex_1().min_w_0().h_full();
     for pane in 0..count {
+        if pane > 0 {
+            strips = strips.child(
+                div()
+                    .flex_none()
+                    .w(px(1.0))
+                    .h(px(18.0))
+                    .my_auto()
+                    .bg(gpui::Rgba { a: 0.18, ..t.tx }),
+            );
+        }
         // The caption buttons sit over the right panel's column when it is open (see below).
         let reserve_captions = pane + 1 == count && !right_open;
         strips = strips.child(render_strip(app, pane, ratio, reserve_captions, cx));
@@ -310,24 +320,19 @@ fn render_strip(
             .into_any_element(),
     );
 
-    // Keep the active tab in view when it changed or the strip was resized since the last render.
+    // Keep the active tab in view when it changed. If a tab is currently being dragged, do
+    // not scroll so the drag target doesn't jump away from the pointer.
     let handle = app.layout.strips[pane].clone();
-    if let Some(child) = active_child {
+    if app.layout.tab_drag.is_none() && let Some(child) = active_child {
         let active_note = tab_list.get(active_pos).copied().unwrap_or(usize::MAX);
-        let width = f32::from(handle.bounds().size.width).round().max(0.0) as u32;
-        let count = children.len();
-        let prev = app.layout.strip_seen[pane].replace(Some((active_note, width, count)));
-        let moved = prev.map(|(n, w, _)| (n, w)) != Some((active_note, width));
-        if moved {
-            // The item bounds of the last frame match the children only when their number did not
-            // change; otherwise gpui reveals the tab once this frame's layout is known.
-            let same_layout = prev.is_some_and(|(_, _, c)| c == count);
-            if !(same_layout && reveal_child(&handle, child)) {
-                handle.scroll_to_item(child);
-            }
+        let prev = app.layout.strip_seen[pane].replace(Some((active_note, 0, 0)));
+        let note_changed = prev.map(|(n, _, _)| n) != Some(active_note);
+        if note_changed && !reveal_child(&handle, child) {
+            handle.scroll_to_item(child);
         }
     }
 
+    let scroller_drop_pane = pane;
     // The scroller: as wide as its tabs, shrinking (and scrolling) when they do not fit.
     let scroller = div()
         .id(ElementId::NamedInteger(
@@ -366,6 +371,15 @@ fn render_strip(
                 }
             }),
         )
+        .on_drop(cx.listener(move |this, drag: &TabDrag, _, cx| {
+            let state = this.layout.tab_drag.take();
+            if drag.pane == scroller_drop_pane
+                && let Some(slot) = state.and_then(|s| s.slot)
+            {
+                move_tab(this, scroller_drop_pane, drag.from, slot);
+            }
+            cx.notify();
+        }))
         .children(children);
 
     // Chevrons at the ends of the strip while its tabs overflow it (the wheel scrolls it too).
@@ -432,6 +446,9 @@ fn render_strip(
         .flex_row()
         .min_w_0()
         .h_full()
+        .on_scroll_wheel(cx.listener(move |this, ev: &ScrollWheelEvent, _, cx| {
+            handle_scroll_wheel(this, pane, ev, cx);
+        }))
         .on_drop(cx.listener(move |this, drag: &TabDrag, _, cx| {
             let state = this.layout.tab_drag.take();
             if drag.pane == pane
@@ -592,29 +609,45 @@ fn tab_el(
         .on_drag(drag, tab_chip)
         .on_drag_move::<TabDrag>(
             cx.listener(move |this, ev: &DragMoveEvent<TabDrag>, _, cx| {
-                if !ev.bounds.contains(&ev.event.position) {
-                    return;
-                }
                 let dpane = ev.drag(cx).pane;
                 if dpane != pane {
                     return;
                 }
-                // The left half of a tab is the gap in front of it, the right half the gap after.
-                let mid = ev.bounds.center();
-                let slot = if ev.event.position.x < mid.x {
-                    pos
-                } else {
-                    pos + 1
-                };
-                if let Some(state) = this.layout.tab_drag.as_mut()
-                    && state.pane == pane
-                    && state.slot != Some(slot)
-                {
-                    state.slot = Some(slot);
+                let mut changed = false;
+                if ev.bounds.contains(&ev.event.position) {
+                    // The left half of a tab is the gap in front of it, the right half the gap after.
+                    let mid = ev.bounds.center();
+                    let slot = if ev.event.position.x < mid.x {
+                        pos
+                    } else {
+                        pos + 1
+                    };
+                    if let Some(state) = this.layout.tab_drag.as_mut()
+                        && state.pane == pane
+                        && state.slot != Some(slot)
+                    {
+                        state.slot = Some(slot);
+                        changed = true;
+                    }
+                }
+                let strip_bounds = this.layout.strips[pane].bounds();
+                if autoscroll(this, pane, ev.event.position.x, strip_bounds) {
+                    changed = true;
+                }
+                if changed {
                     cx.notify();
                 }
             }),
-        );
+        )
+        .on_drop(cx.listener(move |this, drag: &TabDrag, _, cx| {
+            let state = this.layout.tab_drag.take();
+            if drag.pane == pane
+                && let Some(slot) = state.and_then(|s| s.slot)
+            {
+                move_tab(this, pane, drag.from, slot);
+            }
+            cx.notify();
+        }));
     // A click on the tab shows it. Middle click closes it; right click opens its menu (close,
     // close others and the right-hand tabs, copy path, reveal in Explorer).
     tab = tab
@@ -749,6 +782,30 @@ fn scroll_strip(app: &RustdianApp, pane: usize, forward: bool) {
     handle.set_offset(point(px(-next), offset.y));
 }
 
+/// Handles mouse wheel scrolling over the tab strip.
+fn handle_scroll_wheel(
+    app: &mut RustdianApp,
+    pane: usize,
+    ev: &ScrollWheelEvent,
+    cx: &mut Context<RustdianApp>,
+) {
+    let delta = ev.delta.pixel_delta(px(20.0));
+    let x = f32::from(delta.x);
+    let y = f32::from(delta.y);
+    let dx = if x.abs() > 0.0 { x } else { y };
+    if dx.abs() > 0.0 {
+        let handle = &app.layout.strips[pane];
+        let offset = handle.offset();
+        let max = f32::from(handle.max_offset().width);
+        let current = -f32::from(offset.x);
+        let next = scroll_by(current, -dx, max);
+        if (next - current).abs() > 0.1 {
+            handle.set_offset(point(px(-next), offset.y));
+            cx.notify();
+        }
+    }
+}
+
 /// Makes the tab at `pos` of the focused pane the active one.
 pub fn activate_tab(app: &mut RustdianApp, pos: usize) {
     if let Some(&note_idx) = app.vault.open_tabs.get(pos) {
@@ -848,5 +905,13 @@ mod tests {
         assert_eq!(overflow_hints(0.0, 300.0), (false, true));
         assert_eq!(overflow_hints(150.0, 300.0), (true, true));
         assert_eq!(overflow_hints(300.0, 300.0), (true, false));
+    }
+
+    #[test]
+    fn wheel_delta_scrolls_strip() {
+        // Scrolling wheel down (negative dy: delta=-50, -dx=+50) advances strip to right
+        assert_eq!(scroll_by(0.0, 50.0, 500.0), 50.0);
+        // Scrolling wheel up (positive dy: delta=+50, -dx=-50) retreats strip to left
+        assert_eq!(scroll_by(50.0, -50.0, 500.0), 0.0);
     }
 }

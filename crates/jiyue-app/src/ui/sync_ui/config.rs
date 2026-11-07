@@ -58,6 +58,15 @@ pub enum Interval {
 impl Interval {
     pub const LABELS: [&'static str; 4] = ["30 秒", "1 分钟", "5 分钟", "15 分钟"];
 
+    pub fn labels() -> [String; 4] {
+        [
+            crate::t!("sync-time-30s"),
+            crate::t!("sync-time-1m"),
+            crate::t!("sync-time-5m"),
+            crate::t!("sync-time-15m"),
+        ]
+    }
+
     pub fn secs(self) -> u64 {
         match self {
             Interval::S30 => 30,
@@ -89,6 +98,14 @@ impl Interval {
 /// Choices for the save debounce, in seconds.
 pub const DEBOUNCE_CHOICES: [u64; 3] = [10, 30, 60];
 pub const DEBOUNCE_LABELS: [&str; 3] = ["10 秒", "30 秒", "1 分钟"];
+
+pub fn debounce_labels() -> [String; 3] {
+    [
+        crate::t!("sync-time-10s"),
+        crate::t!("sync-time-30s"),
+        crate::t!("sync-time-1m"),
+    ]
+}
 
 /// Index of a debounce value in [`DEBOUNCE_CHOICES`]; unknown values map to the default (10 s).
 pub fn debounce_index(secs: u64) -> usize {

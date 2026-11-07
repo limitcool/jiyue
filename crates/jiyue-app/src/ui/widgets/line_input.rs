@@ -31,7 +31,7 @@ use crate::ui::text_input::{
 
 /// Key context of the input (see `bind_keys`).
 pub const CONTEXT: &str = "LineInput";
-const HEIGHT: f32 = 34.0;
+const HEIGHT: f32 = 30.0;
 const FONT_SIZE: f32 = 13.0;
 const LINE_H: f32 = 18.0;
 const CARET_WIDTH: f32 = 1.5;

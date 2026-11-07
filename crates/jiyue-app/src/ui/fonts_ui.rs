@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use gpui::{
     AnyElement, App, Context, Div, FontWeight, IntoElement, MouseButton, MouseDownEvent,
-    SharedString, Subscription, Window, div, prelude::*, px,
+    ScrollHandle, SharedString, Subscription, Window, div, prelude::*, px,
 };
 use jiyue_core::config::appearance::{
     Appearance, CODE_SIZE_FOLLOW, CODE_SIZE_RANGE, EDITOR_SIZE_DEFAULT, EDITOR_SIZE_RANGE,
@@ -39,6 +39,7 @@ pub enum NumField {
 pub struct Picker {
     pub slot: Slot,
     pub input: gpui::Entity<LineInput>,
+    pub scroll: ScrollHandle,
     _sub: Subscription,
 }
 
@@ -78,14 +79,14 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 .text_size(px(13.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(t.tx)
-                .child("字体与字号"),
+                .child(SharedString::from(crate::t!("settings-fonts-title"))),
         )
         .child(
             div()
                 .pb(px(4.0))
                 .text_size(px(12.0))
                 .text_color(t.tx3)
-                .child("对所有笔记库生效，修改后立即显示在编辑区和界面中"),
+                .child(SharedString::from(crate::t!("settings-fonts-desc"))),
         );
 
     // Font families.
@@ -94,7 +95,7 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         cx,
         Slot::Ui,
         &cfg.ui_font,
-        "默认界面字体",
+        &crate::t!("settings-font-default-ui"),
         &snapshot.ui_family,
     );
     let editor_row = font_row(
@@ -102,7 +103,7 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         cx,
         Slot::Editor,
         &cfg.editor_font,
-        "与界面字体相同",
+        &crate::t!("settings-font-same-as-ui"),
         &snapshot.editor_family,
     );
     let code_row = font_row(
@@ -110,7 +111,7 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         cx,
         Slot::Code,
         &cfg.code_font,
-        "默认等宽字体",
+        &crate::t!("settings-font-default-code"),
         &snapshot.code_family,
     );
     block = block
@@ -124,23 +125,23 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     block = block
         .child(setting_row(
             &t,
-            "正文字号",
-            "编辑区与阅读模式的文字大小（标题按比例放大）",
+            &crate::t!("settings-editor-font-size"),
+            &crate::t!("settings-editor-font-size-desc"),
             size_control(app, cx, NumField::EditorSize, &cfg),
             false,
         ))
         .child(preset_row(app, cx, &cfg))
         .child(setting_row(
             &t,
-            "行高",
-            "行与行之间的距离，相对于字号的倍数",
+            &crate::t!("settings-line-height"),
+            &crate::t!("settings-line-height-desc"),
             number_stepper(app, cx, NumField::LineHeight, line_text(&cfg), -1, 1),
             false,
         ))
         .child(setting_row(
             &t,
-            "代码字号",
-            "代码块与行内代码；“跟随正文”时为正文的 90%",
+            &crate::t!("settings-code-font-size"),
+            &crate::t!("settings-code-font-size-desc"),
             code_size_control(app, cx, &cfg),
             true,
         ));
@@ -172,21 +173,21 @@ fn font_row(
     let t = app.theme;
     let open = app.settings.fonts.picker.as_ref().map(|p| p.slot) == Some(slot);
     let (title, desc) = match slot {
-        Slot::Ui => ("界面字体", "菜单、侧栏、标签和按钮的字体"),
-        Slot::Editor => ("正文字体", "编辑区与阅读模式的字体"),
-        Slot::Code => ("代码字体", "代码块与行内代码的字体"),
+        Slot::Ui => (crate::t!("settings-ui-font"), crate::t!("settings-ui-font-desc")),
+        Slot::Editor => (crate::t!("settings-editor-font"), crate::t!("settings-editor-font-desc")),
+        Slot::Code => (crate::t!("settings-code-font"), crate::t!("settings-code-font-desc")),
     };
     let shown = if value.is_empty() {
-        format!("默认（{default_label}）")
+        crate::t!("settings-font-default", label = default_label)
     } else {
         value.to_string()
     };
-    let trigger = div()
+    let mut trigger = div()
         .flex()
         .items_center()
         .justify_between()
         .gap(px(8.0))
-        .w(px(240.0))
+        .w(px(280.0))
         .h(px(32.0))
         .px(px(10.0))
         .rounded(px(8.0))
@@ -204,18 +205,20 @@ fn font_row(
                 .text_color(t.tx)
                 .child(SharedString::from(shown)),
         )
-        .child(crate::ui::icons::icon("selector", 15.0, t.tx3))
-        .on_mouse_down(
+        .child(crate::ui::icons::icon("selector", 15.0, t.tx3));
+    if !open {
+        trigger = trigger.on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, _, window, cx| {
                 toggle_picker(this, slot, window, cx);
                 cx.notify();
             }),
         );
+    }
     let mut block = div()
         .flex()
         .flex_col()
-        .child(setting_row(&t, title, desc, trigger, false));
+        .child(setting_row(&t, &title, &desc, trigger, false));
     if open {
         block = block.children(picker_panel(app, cx, slot, value));
     }
@@ -241,13 +244,17 @@ fn picker_panel(
         .flex_col()
         .gap(px(1.0))
         .max_h(px(240.0))
-        .overflow_y_scroll();
+        .overflow_y_scroll()
+        .track_scroll(&picker.scroll)
+        .on_scroll_wheel(|_, _, cx| {
+            cx.stop_propagation();
+        });
     rows = rows.child(picker_row(
         &t,
         cx,
         slot,
         String::new(),
-        "默认（系统）".to_string(),
+        crate::t!("settings-font-system-default"),
         value.is_empty(),
         None,
     ));
@@ -263,39 +270,32 @@ fn picker_panel(
         ));
     }
     let footer = if list.is_empty() {
-        "正在读取字体列表…".to_string()
+        crate::t!("settings-font-searching")
     } else if matches.is_empty() {
-        "没有匹配的字体".to_string()
+        crate::t!("settings-font-no-matches")
     } else if matches.len() > PICKER_MAX_ROWS {
-        format!(
-            "还有 {} 个，请输入更多文字缩小范围",
-            matches.len() - PICKER_MAX_ROWS
+        crate::t!(
+            "settings-font-more",
+            count = matches.len() - PICKER_MAX_ROWS
         )
     } else {
-        format!("共 {} 个字体", matches.len())
+        crate::t!("settings-font-count", count = matches.len())
     };
 
     let search = div()
         .flex()
         .items_center()
-        .gap(px(8.0))
-        .px(px(8.0))
+        .px(px(6.0))
         .py(px(6.0))
         .border_b_1()
         .border_color(t.line_soft)
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .h(px(28.0))
-                .rounded(px(6.0))
-                .border_1()
-                .border_color(t.line)
-                .bg(t.sheet)
-                .child(picker.input.clone()),
-        );
+        .child(picker.input.clone());
+
     Some(
         div()
+            .ml_auto()
+            .w(px(280.0))
+            .mt(px(4.0))
             .mb(px(8.0))
             .rounded(px(8.0))
             .border_1()
@@ -303,11 +303,15 @@ fn picker_panel(
             .bg(t.raised)
             .shadow_md()
             .overflow_hidden()
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                this.settings.fonts.picker = None;
+                cx.notify();
+            }))
             .child(search)
             .child(rows)
             .child(
                 div()
-                    .px(px(10.0))
+                    .px(px(16.0))
                     .py(px(6.0))
                     .border_t_1()
                     .border_color(t.line_soft)
@@ -340,30 +344,32 @@ fn picker_row(
     if let Some(f) = &family {
         name = name.font_family(SharedString::from(f.clone()));
     }
+    let mut right = div().flex().flex_none().items_center().gap(px(6.0));
+    if let Some(f) = &family {
+        if fonts::is_cjk_font(f) {
+            right = right.child(tag(t, &crate::t!("settings-font-tag-cjk")));
+        }
+        if fonts::is_mono_font(f) {
+            right = right.child(tag(t, &crate::t!("settings-font-tag-mono")));
+        }
+    }
+    if selected {
+        right = right.child(crate::ui::icons::icon("check", 13.0, t.ac));
+    }
     let mut row = div()
         .flex()
         .items_center()
+        .justify_between()
         .gap(px(8.0))
-        .h(px(30.0))
-        .mx(px(4.0))
-        .px(px(8.0))
+        .h(px(32.0))
+        .mx(px(6.0))
+        .px(px(10.0))
         .rounded(px(6.0))
         .cursor_pointer()
-        .child(name);
-    if let Some(f) = &family {
-        let mut tags = div().flex().flex_none().gap(px(4.0));
-        if fonts::is_cjk_font(f) {
-            tags = tags.child(tag(t, "中文"));
-        }
-        if fonts::is_mono_font(f) {
-            tags = tags.child(tag(t, "等宽"));
-        }
-        row = row.child(tags);
-    }
+        .child(name)
+        .child(right);
     if selected {
-        row = row
-            .bg(t.active)
-            .child(crate::ui::icons::icon("check", 13.0, t.ac));
+        row = row.bg(t.active);
     } else {
         row = row.hover(|s| s.bg(t.hover));
     }
@@ -409,14 +415,18 @@ fn toggle_picker(
         // The list is read when the editor first paints; the settings page asks for it too.
         fonts::ensure_installed(|| cx.text_system().all_font_names());
     }
-    let input = cx.new(|cx| LineInput::new(cx, "搜索字体…"));
+    let input = cx.new(|cx| LineInput::new(cx, &crate::t!("settings-font-search-placeholder")));
     let theme = app.theme;
     input.update(cx, |i, cx| i.set_theme(theme, cx));
     let sub = cx.subscribe(
         &input,
         |this: &mut RustdianApp, _, ev: &LineInputEvent, cx| {
             match ev {
-                LineInputEvent::Changed(_) => {}
+                LineInputEvent::Changed(_) => {
+                    if let Some(picker) = this.settings.fonts.picker.as_ref() {
+                        picker.scroll.scroll_to_item(0);
+                    }
+                }
                 LineInputEvent::Cancel => this.settings.fonts.picker = None,
                 LineInputEvent::Submit(query) => {
                     let first = this
@@ -445,9 +455,11 @@ fn toggle_picker(
         },
     );
     input.update(cx, |i, _| i.focus(window));
+    let scroll = ScrollHandle::default();
     app.settings.fonts.picker = Some(Picker {
         slot,
         input,
+        scroll,
         _sub: sub,
     });
 }
@@ -487,7 +499,8 @@ fn size_control(
 fn code_size_control(app: &RustdianApp, cx: &mut Context<RustdianApp>, cfg: &Appearance) -> Div {
     let label = if cfg.code_font_size == CODE_SIZE_FOLLOW {
         let resolved = fonts::current().code_size;
-        format!("跟随正文 {} px", fmt_num(resolved))
+        let s = fmt_num(resolved);
+        crate::t!("settings-font-preset-follow", size = s.as_str())
     } else {
         format!("{} px", fmt_num(cfg.code_font_size))
     };
@@ -515,11 +528,6 @@ fn number_stepper(
     let value: AnyElement = match editing {
         Some(n) => div()
             .w(px(96.0))
-            .h(px(28.0))
-            .rounded(px(6.0))
-            .border_1()
-            .border_color(t.ac)
-            .bg(t.sheet)
             .child(n.input.clone())
             .into_any_element(),
         None => div()
@@ -527,8 +535,11 @@ fn number_stepper(
             .items_center()
             .justify_center()
             .w(px(96.0))
-            .h(px(28.0))
+            .h(px(30.0))
             .rounded(px(6.0))
+            .border_1()
+            .border_color(t.line)
+            .bg(t.raised)
             .cursor_pointer()
             .text_size(px(13.0))
             .text_color(t.tx)
@@ -746,7 +757,12 @@ fn preview(t: &ActiveTheme, body: &str, code: &str, m: &fonts::Metrics) -> Div {
         .flex()
         .flex_col()
         .gap(px(6.0))
-        .child(div().text_size(px(11.5)).text_color(t.tx3).child("预览"))
+        .child(
+            div()
+                .text_size(px(11.5))
+                .text_color(t.tx3)
+                .child(SharedString::from(crate::t!("settings-font-preview-title"))),
+        )
         .child(
             div()
                 .font_family(SharedString::from(body.to_string()))
@@ -754,7 +770,7 @@ fn preview(t: &ActiveTheme, body: &str, code: &str, m: &fonts::Metrics) -> Div {
                 .line_height(px(m.heading_lh[1]))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(t.tx)
-                .child("标题示例 Heading"),
+                .child(SharedString::from(crate::t!("settings-font-preview-heading"))),
         )
         .child(
             div()
@@ -762,7 +778,7 @@ fn preview(t: &ActiveTheme, body: &str, code: &str, m: &fonts::Metrics) -> Div {
                 .text_size(px(m.font))
                 .line_height(px(m.line))
                 .text_color(t.tx)
-                .child("霁月是一款本地优先的 Markdown 笔记应用。The quick brown fox 1234567890"),
+                .child(SharedString::from(crate::t!("settings-font-preview-body"))),
         )
         .child(
             div()
@@ -783,7 +799,7 @@ fn reset_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .pt(px(4.0))
         .child(reset_button(
             &t,
-            "恢复默认字体",
+            &crate::t!("settings-font-reset-family"),
             cx.listener(|this, _, _, cx| {
                 edit(this, cx, |a| {
                     a.ui_font.clear();
@@ -796,7 +812,7 @@ fn reset_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         ))
         .child(reset_button(
             &t,
-            "恢复默认字号",
+            &crate::t!("settings-font-reset-size"),
             cx.listener(|this, _, _, cx| {
                 edit(this, cx, |a| {
                     a.editor_font_size = EDITOR_SIZE_DEFAULT;

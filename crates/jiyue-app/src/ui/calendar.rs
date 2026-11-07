@@ -127,7 +127,7 @@ impl RustdianApp {
             .text_color(t.tx3)
             .cursor_pointer()
             .hover(|s| s.text_color(t.tx2))
-            .child("日历")
+            .child(gpui::SharedString::from(crate::t!("sidebar-calendar")))
             .child(icon(chevron, 13.0, t.tx3))
             .on_mouse_down(
                 MouseButton::Left,

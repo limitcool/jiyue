@@ -17,23 +17,23 @@ pub fn render_statusbar(
 ) -> impl IntoElement + use<> {
     let t = app.theme;
     let mode = match app.view_mode {
-        ViewMode::Source => "Markdown 源码",
-        ViewMode::Live => "Markdown",
-        ViewMode::Read => "阅读",
+        ViewMode::Source => crate::t!("status-source"),
+        ViewMode::Live => crate::t!("status-live-preview"),
+        ViewMode::Read => crate::t!("status-reading"),
     };
     let status = app.active_save_status(cx);
     let (label, dot) = match status {
-        SaveStatus::Saved => ("已保存", div().size(px(6.0)).rounded_full().bg(t.ok)),
+        SaveStatus::Saved => (crate::t!("status-saved"), div().size(px(6.0)).rounded_full().bg(t.ok)),
         SaveStatus::Unsaved => (
-            "未保存",
+            crate::t!("status-unsaved"),
             div().size(px(6.0)).rounded_full().bg(rgb(UNSAVED_AMBER)),
         ),
         SaveStatus::Saving => (
-            "保存中…",
+            crate::t!("status-saving"),
             div().size(px(6.0)).rounded_full().bg(rgb(UNSAVED_AMBER)),
         ),
         SaveStatus::Failed => (
-            "保存失败",
+            crate::t!("status-save-failed"),
             div().size(px(6.0)).rounded_full().bg(rgb(SAVE_FAILED_RED)),
         ),
     };
@@ -60,9 +60,10 @@ pub fn render_statusbar(
             div()
                 .flex_none()
                 .mr(px(16.0))
-                .child(SharedString::from(format!(
-                    "第 {} 行，第 {} 列",
-                    app.cursor_row, app.cursor_col
+                .child(SharedString::from(crate::t!(
+                    "status-cursor",
+                    line = app.cursor_row,
+                    col = app.cursor_col
                 ))),
         )
         .child(div().flex_none().mr(px(16.0)).child("UTF-8"))

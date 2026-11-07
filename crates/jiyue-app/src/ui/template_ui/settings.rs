@@ -48,8 +48,8 @@ pub fn folder_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     }
     setting_row(
         &t,
-        "模板文件夹",
-        "插入模板和用模板新建笔记时读取的文件夹，相对于笔记库根目录",
+        &crate::t!("settings-template-folder"),
+        &crate::t!("settings-template-folder-desc"),
         control,
         false,
     )
@@ -76,7 +76,7 @@ pub fn daily_template_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> D
             .find(|tpl| &tpl.path == path)
             .map(|tpl| tpl.name.clone())
             .unwrap_or_else(|| path.clone()),
-        None => "内置模板".to_owned(),
+        None => crate::t!("settings-template-builtin"),
     };
     let next_button = div()
         .flex()
@@ -91,7 +91,7 @@ pub fn daily_template_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> D
         .hover(|s| s.bg(t.hover))
         .text_size(px(12.5))
         .text_color(t.tx2)
-        .child("更换")
+        .child(SharedString::from(crate::t!("settings-template-change")))
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, _, _, cx| {
@@ -120,8 +120,8 @@ pub fn daily_template_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> D
         .child(next_button.into_any_element());
     setting_row(
         &t,
-        "日记模板",
-        "新建日记时使用的模板；「更换」在笔记模板之间切换，最后回到内置模板",
+        &crate::t!("settings-daily-template"),
+        &crate::t!("settings-daily-template-desc"),
         control,
         true,
     )

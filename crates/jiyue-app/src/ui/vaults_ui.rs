@@ -531,7 +531,7 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
         .child(app_button(
             &me,
             &t,
-            "在资源管理器中显示",
+            &crate::t!("settings-vault-reveal"),
             ButtonKind::Secondary,
             "folder-open",
             |app, _| {
@@ -541,7 +541,7 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
         .child(app_button(
             &me,
             &t,
-            "复制路径",
+            &crate::t!("settings-vault-copy-path"),
             ButtonKind::Secondary,
             "copy",
             |app, cx| {
@@ -551,7 +551,7 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
         .child(app_button(
             &me,
             &t,
-            "打开其他笔记库…",
+            &crate::t!("settings-vault-open-other"),
             ButtonKind::Secondary,
             "folder-open",
             |app, cx| {
@@ -561,7 +561,7 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
         .child(app_button(
             &me,
             &t,
-            "新建笔记库…",
+            &crate::t!("settings-vault-new"),
             ButtonKind::Secondary,
             "folder-plus",
             |app, cx| {
@@ -571,7 +571,7 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
         .child(app_button(
             &me,
             &t,
-            "重命名文件夹…",
+            &crate::t!("settings-vault-rename-folder"),
             ButtonKind::Secondary,
             "folder",
             |app, cx| {
@@ -586,7 +586,7 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
                 .py(px(10.0))
                 .text_size(px(12.5))
                 .text_color(t.tx3)
-                .child("还没有最近打开的笔记库"),
+                .child(SharedString::from(crate::t!("settings-vault-recent-empty"))),
         );
     }
     for (i, row) in rows.iter().enumerate() {
@@ -599,8 +599,8 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
         .mt(px(10.0))
         .child(setting_row(
             &t,
-            "笔记库名称",
-            "显示在侧栏、窗口标题和最近列表中",
+            &crate::t!("settings-vault-name"),
+            &crate::t!("settings-vault-name-desc"),
             div()
                 .flex()
                 .items_center()
@@ -616,7 +616,7 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
                 .child(app_button(
                     &me,
                     &t,
-                    "重命名",
+                    &crate::t!("settings-vault-rename"),
                     ButtonKind::Secondary,
                     "pencil",
                     |app, cx| {
@@ -627,27 +627,27 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
         ))
         .child(setting_row(
             &t,
-            "笔记库位置",
-            "笔记库所在的文件夹（鼠标移到路径上可看完整路径）",
+            &crate::t!("settings-vault-path"),
+            &crate::t!("settings-vault-path-desc"),
             path_block,
             false,
         ))
         .child(setting_row(
             &t,
-            "笔记数量",
-            "笔记库中的 Markdown 文件",
+            &crate::t!("settings-vault-note-count"),
+            &crate::t!("settings-vault-note-count-desc"),
             count,
             false,
         ))
         .child(setting_row(
             &t,
-            "标签数量",
-            "笔记中出现过的不重复标签",
+            &crate::t!("settings-vault-tag-count"),
+            &crate::t!("settings-vault-tag-count-desc"),
             tags,
             true,
         ))
         .child(actions)
-        .child(section_title(&t, "最近打开的笔记库"))
+        .child(section_title(&t, &crate::t!("settings-vault-recent-title")))
         .child(list)
         .into_any_element()
 }
@@ -668,10 +668,10 @@ fn recent_row(
             .child(SharedString::from(row.name.clone())),
     );
     if row.current {
-        name_line = name_line.child(badge(t, "当前", BadgeKind::Accent));
+        name_line = name_line.child(badge(t, &crate::t!("settings-vault-badge-current"), BadgeKind::Accent));
     }
     if row.missing {
-        name_line = name_line.child(badge(t, "文件夹不存在", BadgeKind::Warn));
+        name_line = name_line.child(badge(t, &crate::t!("settings-vault-badge-missing"), BadgeKind::Warn));
     }
     let left = div()
         .flex()
@@ -695,7 +695,7 @@ fn recent_row(
         actions = actions.child(app_button(
             me,
             t,
-            "打开",
+            &crate::t!("settings-vault-open"),
             ButtonKind::Secondary,
             "folder-open",
             move |app, cx| {
@@ -707,7 +707,7 @@ fn recent_row(
     actions = actions.child(app_button(
         me,
         t,
-        "移除",
+        &crate::t!("settings-vault-remove"),
         ButtonKind::Ghost,
         "x",
         move |app, cx| {
@@ -1084,7 +1084,7 @@ impl Render for VaultChooser {
             actions = actions.child(choose_button(
                 &me,
                 &t,
-                "打开",
+                &crate::t!("settings-vault-open"),
                 ButtonKind::Secondary,
                 "folder-open",
                 move |this, cx| {
@@ -1094,7 +1094,7 @@ impl Render for VaultChooser {
             actions = actions.child(choose_button(
                 &me,
                 &t,
-                "移除",
+                &crate::t!("settings-vault-remove"),
                 ButtonKind::Ghost,
                 "x",
                 move |this, cx| {
@@ -1148,7 +1148,7 @@ impl Render for VaultChooser {
                     .py(px(10.0))
                     .text_size(px(12.5))
                     .text_color(t.tx3)
-                    .child("还没有最近打开的笔记库"),
+                    .child(SharedString::from(crate::t!("settings-vault-recent-empty"))),
             );
         }
 
@@ -1195,7 +1195,7 @@ impl Render for VaultChooser {
                     .child(choose_button(
                         &me,
                         &t,
-                        "新建笔记库…",
+                        &crate::t!("settings-vault-new"),
                         ButtonKind::Secondary,
                         "folder-plus",
                         |_, cx| {
@@ -1213,7 +1213,7 @@ impl Render for VaultChooser {
                         },
                     )),
             )
-            .child(section_title(&t, "最近打开的笔记库"))
+            .child(section_title(&t, &crate::t!("settings-vault-recent-title")))
             .child(
                 div()
                     .id("chooser-recent")

@@ -1167,7 +1167,7 @@ fn mode_pill(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoEleme
     bg.a = 0.92;
     let current = app.view_mode;
 
-    let item = |name: &'static str, label: &'static str, mode: ViewMode| {
+    let item = |name: &'static str, label: String, mode: ViewMode| {
         let on = current == mode;
         let color = if on { t.ac_on } else { t.tx2 };
         let mut node = div()
@@ -1184,7 +1184,7 @@ fn mode_pill(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoEleme
             .when(on, |d| d.bg(t.ac))
             .when(!on, |d| d.hover(|s| s.bg(t.hover)))
             .child(icon(name, 14.0, color))
-            .child(div().child(label));
+            .child(div().child(SharedString::from(label)));
         node = node.on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, _, _, cx| {
@@ -1212,9 +1212,9 @@ fn mode_pill(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoEleme
                 .border_1()
                 .border_color(t.line)
                 .shadow_md()
-                .child(item("code", "源码", ViewMode::Source))
-                .child(item("eye", "实时预览", ViewMode::Live))
-                .child(item("book-2", "阅读", ViewMode::Read)),
+                .child(item("code", crate::t!("status-source"), ViewMode::Source))
+                .child(item("eye", crate::t!("status-live-preview"), ViewMode::Live))
+                .child(item("book-2", crate::t!("status-reading"), ViewMode::Read)),
         )
 }
 

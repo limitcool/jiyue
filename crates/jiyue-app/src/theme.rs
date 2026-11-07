@@ -233,6 +233,16 @@ impl ThemeKind {
         }
     }
 
+    pub fn localized_name(self) -> String {
+        match self {
+            ThemeKind::Paper => crate::t!("theme-paper"),
+            ThemeKind::Ink => crate::t!("theme-ink"),
+            ThemeKind::Moss => crate::t!("theme-moss"),
+            ThemeKind::Graphite => crate::t!("theme-graphite"),
+            ThemeKind::Fog => crate::t!("theme-fog"),
+        }
+    }
+
     /// Parses a command line theme name (`ink`, `fog`, `paper`, `moss`, `graphite`).
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_ascii_lowercase().as_str() {

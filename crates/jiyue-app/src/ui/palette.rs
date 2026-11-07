@@ -242,7 +242,7 @@ pub fn command_rows_for(labels: &[&str], query: &str, command_first: bool) -> Ve
 
 /// Muted hint row shown under the list while the query is empty.
 pub fn empty_hint(total_commands: usize) -> String {
-    format!("输入以搜索全部 {total_commands} 条命令和所有笔记")
+    crate::t!("palette-empty-hint", count = total_commands)
 }
 
 /// Builds the two sections; `command_first` puts 命令 above 最近笔记. Empty sections are dropped.
@@ -495,7 +495,7 @@ impl RustdianApp {
                     .py(px(24.0))
                     .text_size(px(13.0))
                     .text_color(t.tx3)
-                    .child("没有匹配项")
+                    .child(SharedString::from(crate::t!("palette-no-matches")))
                     .into_any_element(),
             );
         }
@@ -546,10 +546,16 @@ impl RustdianApp {
             .text_color(t.tx3)
             .child(footer_hint(
                 vec![key_icon("arrow-up", &t), key_icon("arrow-down", &t)],
-                "选择",
+                &crate::t!("palette-footer-select"),
             ))
-            .child(footer_hint(vec![key_icon("corner-down-left", &t)], "打开"))
-            .child(footer_hint(vec![key_text("Esc", &t)], "关闭"));
+            .child(footer_hint(
+                vec![key_icon("corner-down-left", &t)],
+                &crate::t!("palette-footer-open"),
+            ))
+            .child(footer_hint(
+                vec![key_text("Esc", &t)],
+                &crate::t!("palette-footer-close"),
+            ));
 
         let card = div()
             .flex()

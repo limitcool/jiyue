@@ -15,6 +15,8 @@ pub const DEFAULT_THEME: &str = "ink";
 pub struct UiPrefs {
     /// Theme name: one of `KNOWN_THEMES`. Unknown names fall back to the default.
     pub theme: String,
+    /// Interface language locale code (e.g., "zh-CN", "en-US", or empty/auto for system).
+    pub locale: String,
     /// The rendered view is the default for notes (设置 > 编辑器 > 实时预览).
     pub live_preview: bool,
     /// The left sidebar (files, search, tags) is shown.
@@ -27,6 +29,7 @@ impl Default for UiPrefs {
     fn default() -> Self {
         Self {
             theme: DEFAULT_THEME.to_string(),
+            locale: String::new(),
             live_preview: true,
             left_sidebar: true,
             right_sidebar: true,

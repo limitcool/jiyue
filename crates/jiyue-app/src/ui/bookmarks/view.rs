@@ -114,17 +114,17 @@ fn menu_rows(app: &RustdianApp, id: &str) -> (Vec<MenuItem>, Vec<Option<Act>>) {
     };
     add(
         MenuItem::new(if is_group {
-            "重命名分组"
+            crate::t!("bookmark-rename-group")
         } else {
-            "重命名书签"
+            crate::t!("bookmark-rename")
         })
         .icon("pencil"),
         Some(Act::Rename),
     );
     add(MenuItem::separator(), None);
-    let up = MenuItem::new("上移").icon("arrow-up");
+    let up = MenuItem::new(crate::t!("bookmark-move-up")).icon("arrow-up");
     add(if pos == 0 { up.disabled() } else { up }, Some(Act::Up));
-    let down = MenuItem::new("下移").icon("arrow-down");
+    let down = MenuItem::new(crate::t!("bookmark-move-down")).icon("arrow-down");
     add(
         if pos + 1 >= len {
             down.disabled()
@@ -134,23 +134,26 @@ fn menu_rows(app: &RustdianApp, id: &str) -> (Vec<MenuItem>, Vec<Option<Act>>) {
         Some(Act::Down),
     );
     add(
-        MenuItem::new("移到分组…").icon("folder-plus"),
+        MenuItem::new(crate::t!("bookmark-move-to-group")).icon("folder-plus"),
         Some(Act::MoveTo),
     );
     if is_group {
-        add(MenuItem::new("解散分组").icon("folder"), Some(Act::Ungroup));
+        add(
+            MenuItem::new(crate::t!("bookmark-ungroup")).icon("folder"),
+            Some(Act::Ungroup),
+        );
     }
     add(MenuItem::separator(), None);
     if has_path {
         add(
-            MenuItem::new("在资源管理器中显示").icon("folder-open"),
+            MenuItem::new(crate::t!("menu-reveal-file")).icon("folder-open"),
             Some(Act::Reveal),
         );
     }
     let remove = if is_group {
-        MenuItem::new("移除分组")
+        MenuItem::new(crate::t!("bookmark-remove-group"))
     } else {
-        MenuItem::new("移除书签")
+        MenuItem::new(crate::t!("bookmark-remove"))
     };
     add(remove.icon("trash").danger(), Some(Act::Remove));
     (items, acts)
@@ -254,7 +257,7 @@ pub fn section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
             t.tx3,
         ))
         .child(icon("bookmark", 13.0, t.tx3))
-        .child(SharedString::from("书签"))
+        .child(SharedString::from(crate::t!("sidebar-bookmarks")))
         .child(
             div()
                 .ml(px(4.0))
@@ -294,7 +297,7 @@ pub fn section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
                 .py(px(4.0))
                 .text_size(px(11.5))
                 .text_color(t.tx3)
-                .child("在笔记上点星标，或右键加入书签"),
+                .child(SharedString::from(crate::t!("sidebar-bookmarks-empty"))),
         );
     }
     for row in rows {

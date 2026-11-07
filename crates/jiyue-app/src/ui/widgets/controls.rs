@@ -150,7 +150,7 @@ pub fn toggle(
 
 /// Segmented control: one segment per option, the selected one highlighted. `on_select` gets the
 /// index of the clicked segment.
-pub fn segmented(t: &ActiveTheme, options: &[&str], selected: usize, on_select: PickIndex) -> Div {
+pub fn segmented(t: &ActiveTheme, options: &[impl AsRef<str>], selected: usize, on_select: PickIndex) -> Div {
     let mut control = div()
         .flex()
         .flex_none()
@@ -176,7 +176,7 @@ pub fn segmented(t: &ActiveTheme, options: &[&str], selected: usize, on_select: 
             } else {
                 FontWeight::NORMAL
             })
-            .child(SharedString::from(name.to_string()));
+            .child(SharedString::from(name.as_ref().to_string()));
         // The container clips only its rectangle, so the end segments round their own outer corners
         // (inside the 1px border: radius minus the border width).
         let inner = RADIUS_M - 1.0;

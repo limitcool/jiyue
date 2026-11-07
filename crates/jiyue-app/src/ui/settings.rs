@@ -5,6 +5,7 @@ use gpui::{
     AnyElement, Context, Div, FontWeight, IntoElement, KeyDownEvent, MouseButton, Rgba,
     ScrollHandle, SharedString, div, img, prelude::*, px,
 };
+use futures_util::StreamExt;
 
 use crate::daily::{self, DailySettings, Date};
 use crate::theme::{ActiveTheme, RADIUS_L, ThemeKind};
@@ -35,6 +36,21 @@ const CATEGORIES: [(&str, &str); 8] = [
     ("关于", "info-circle"),
 ];
 
+/// Returns the localized label for a category.
+pub fn category_label(idx: usize) -> String {
+    let key = match idx {
+        0 => "settings-cat-editor",
+        1 => "settings-cat-appearance",
+        2 => "settings-cat-daily",
+        3 => "settings-cat-sync",
+        4 => "settings-cat-ai",
+        5 => "settings-cat-keymap",
+        6 => "settings-cat-vaults",
+        _ => "settings-cat-about",
+    };
+    crate::t!(key)
+}
+
 /// Daily folder presets, shown as a segmented control.
 const FOLDER_PRESETS: [&str; 3] = ["日记", "Daily", "笔记/日记"];
 /// Daily date format presets, cycled by clicking the format button.
@@ -52,6 +68,8 @@ pub struct SettingsState {
     pub scroll: ScrollHandle,
     /// Open font picker and number field of the 外观 page (see `ui/fonts_ui.rs`).
     pub fonts: crate::ui::fonts_ui::FontUi,
+    /// Auto update state.
+    pub update: crate::update::UpdateState,
 }
 
 impl Default for SettingsState {
@@ -62,6 +80,7 @@ impl Default for SettingsState {
             daily: None,
             scroll: ScrollHandle::default(),
             fonts: Default::default(),
+            update: crate::update::UpdateState::Idle,
         }
     }
 }
@@ -92,6 +111,125 @@ pub fn date_format_example(date: Date, fmt: &str) -> String {
 }
 
 impl RustdianApp {
+    /// Checks for application updates from GitHub. If `manual` is true, displays toast notifications.
+    pub fn trigger_check_update(&mut self, manual: bool, cx: &mut Context<Self>) {
+        if matches!(
+            self.settings.update,
+            crate::update::UpdateState::Checking | crate::update::UpdateState::Downloading { .. }
+        ) {
+            return;
+        }
+        self.settings.update = crate::update::UpdateState::Checking;
+        cx.notify();
+
+        let current_version = env!("CARGO_PKG_VERSION");
+        let owner = crate::update::DEFAULT_REPO_OWNER;
+        let repo = crate::update::DEFAULT_REPO_NAME;
+
+        cx.spawn(async move |this, cx| {
+            let res = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::update::check_for_update(owner, repo, current_version)
+                })
+                .await;
+            let _ = this.update(cx, |app, cx| {
+                match res {
+                    Ok(Some(info)) => {
+                        let ver = info.version.clone();
+                        app.settings.update = crate::update::UpdateState::Available(info);
+                        app.toast(crate::ui::ext::ToastKind::Info, format!("发现新版本 v{ver}，可前往设置查看"));
+                    }
+                    Ok(None) => {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        app.settings.update = crate::update::UpdateState::UpToDate { checked_at: now };
+                        if manual {
+                            app.toast(crate::ui::ext::ToastKind::Success, "当前已是最新版本");
+                        }
+                    }
+                    Err(err) => {
+                        app.settings.update = crate::update::UpdateState::Failed(err.clone());
+                        if manual {
+                            app.toast(crate::ui::ext::ToastKind::Error, format!("检查更新失败: {err}"));
+                        }
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Downloads the available update installer.
+    pub fn trigger_download_update(&mut self, info: crate::update::UpdateInfo, cx: &mut Context<Self>) {
+        let version = info.version.clone();
+        let total = info.file_size;
+        self.settings.update = crate::update::UpdateState::Downloading {
+            version: version.clone(),
+            progress: 0.0,
+            downloaded: 0,
+            total,
+        };
+        cx.notify();
+
+        let (tx, mut rx) = futures_channel::mpsc::unbounded::<(f32, u64, u64)>();
+        let info_clone = info.clone();
+
+        cx.spawn(async move |this, cx| {
+            let res = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::update::download_installer(&info_clone, move |p, d, t| {
+                        let _ = tx.unbounded_send((p, d, t));
+                    })
+                })
+                .await;
+
+            let _ = this.update(cx, |app, cx| {
+                match res {
+                    Ok(installer_path) => {
+                        app.settings.update = crate::update::UpdateState::Ready {
+                            version: version.clone(),
+                            installer_path,
+                        };
+                        app.toast(crate::ui::ext::ToastKind::Success, format!("新版本 v{version} 已下载就绪，可立即重启更新"));
+                    }
+                    Err(err) => {
+                        app.settings.update = crate::update::UpdateState::Failed(err.clone());
+                        app.toast(crate::ui::ext::ToastKind::Error, format!("下载更新失败: {err}"));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+
+        cx.spawn(async move |this, cx| {
+            while let Some((p, d, t)) = rx.next().await {
+                let _ = this.update(cx, |app, cx| {
+                    if let crate::update::UpdateState::Downloading { progress, downloaded, total, .. } = &mut app.settings.update {
+                        *progress = p;
+                        *downloaded = d;
+                        *total = t;
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// Triggers silent installation and app relaunch.
+    pub fn trigger_apply_update(&mut self, installer_path: std::path::PathBuf, cx: &mut Context<Self>) {
+        if let Err(err) = crate::update::apply_update_and_restart(&installer_path) {
+            self.toast(crate::ui::ext::ToastKind::Error, format!("启动更新失败: {err}"));
+            cx.notify();
+        }
+    }
+
     /// Writes a change to the daily settings: updates the working copy and saves it to the vault.
     fn update_daily(&mut self, change: impl FnOnce(&mut DailySettings)) {
         let mut settings = self
@@ -136,11 +274,92 @@ impl RustdianApp {
                     .text_size(px(17.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(t.tx)
-                    .child("设置"),
+                    .child(SharedString::from(crate::t!("settings-title"))),
             );
-        for (idx, (name, ic)) in CATEGORIES.iter().enumerate() {
-            nav = nav.child(nav_row(&t, idx, name, ic, idx == category, cx));
+        for (idx, (_name, ic)) in CATEGORIES.iter().enumerate() {
+            let label = category_label(idx);
+            nav = nav.child(nav_row(&t, idx, &label, ic, idx == category, cx));
         }
+
+        let cur_loc = crate::i18n::configured_locale();
+        let lang_bottom = div()
+            .mt_auto()
+            .pt(px(10.0))
+            .border_t_1()
+            .border_color(t.line_soft)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px(px(6.0))
+                    .py(px(4.0))
+                    .rounded(px(6.0))
+                    .bg(t.raised)
+                    .border_1()
+                    .border_color(t.line)
+                    .child(
+                        div()
+                            .text_size(px(11.5))
+                            .text_color(t.tx2)
+                            .child(SharedString::from(match cur_loc.as_str() {
+                                "zh-CN" => "简体中文",
+                                "en-US" => "English",
+                                _ => "Auto",
+                            })),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(3.0))
+                            .child(
+                                div()
+                                    .px(px(6.0))
+                                    .py(px(2.0))
+                                    .rounded(px(4.0))
+                                    .cursor_pointer()
+                                    .text_size(px(11.0))
+                                    .bg(if cur_loc == "zh-CN" { t.active } else { t.sheet })
+                                    .text_color(if cur_loc == "zh-CN" { t.tx } else { t.tx3 })
+                                    .border_1()
+                                    .border_color(if cur_loc == "zh-CN" { t.ac } else { t.line })
+                                    .hover(|s| s.bg(t.hover))
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _, cx| {
+                                            crate::i18n::set_locale("zh-CN");
+                                            crate::config_store::sync_ui(this);
+                                            cx.notify();
+                                        }),
+                                    )
+                                    .child("中"),
+                            )
+                            .child(
+                                div()
+                                    .px(px(6.0))
+                                    .py(px(2.0))
+                                    .rounded(px(4.0))
+                                    .cursor_pointer()
+                                    .text_size(px(11.0))
+                                    .bg(if cur_loc == "en-US" { t.active } else { t.sheet })
+                                    .text_color(if cur_loc == "en-US" { t.tx } else { t.tx3 })
+                                    .border_1()
+                                    .border_color(if cur_loc == "en-US" { t.ac } else { t.line })
+                                    .hover(|s| s.bg(t.hover))
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _, _, cx| {
+                                            crate::i18n::set_locale("en-US");
+                                            crate::config_store::sync_ui(this);
+                                            cx.notify();
+                                        }),
+                                    )
+                                    .child("EN"),
+                            ),
+                    ),
+            );
+        nav = nav.child(lang_bottom);
 
         let body: AnyElement = match category {
             0 => editor_section(self, cx).into_any_element(),
@@ -150,9 +369,9 @@ impl RustdianApp {
             4 => crate::ui::ai_ui::render_settings_section(self, cx),
             5 => crate::ui::keymap_ui::render_section(self, cx),
             6 => crate::ui::vaults_ui::render_library_section(self, cx),
-            _ => about_section(&t).into_any_element(),
+            _ => about_section(self, cx).into_any_element(),
         };
-        let title = CATEGORIES[category].0;
+        let title = category_label(category);
 
         let close = div()
             .absolute()
@@ -196,7 +415,7 @@ impl RustdianApp {
             .flex_col()
             .overflow_hidden()
             .children(crate::ui::config_ui::banner(self, cx))
-            .child(heading(&t, title))
+            .child(heading(&t, &title))
             .child(scroll_body)
             .child(close);
 
@@ -480,7 +699,7 @@ fn theme_card(
                     FontWeight::NORMAL
                 })
                 .text_color(if selected { t.ac } else { t.tx2 })
-                .child(kind.name_zh()),
+                .child(kind.localized_name()),
         )
 }
 
@@ -546,8 +765,8 @@ fn editor_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .mt(px(10.0))
         .child(setting_row(
             &t,
-            "实时预览",
-            "在编辑区直接显示 Markdown 效果",
+            &crate::t!("settings-live-preview"),
+            &crate::t!("settings-live-preview-desc"),
             toggle(&t, app.live_preview).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
@@ -559,8 +778,8 @@ fn editor_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         ))
         .child(setting_row(
             &t,
-            "新建笔记时用首个标题作为文件名",
-            "新笔记用 # 标题 的文字命名文件（仅限本次运行中新建的笔记）",
+            &crate::t!("settings-autoname"),
+            &crate::t!("settings-autoname-desc"),
             toggle(
                 &t,
                 crate::ui::files_ui::autoname::load(&app.vault.root_dir).auto_name_from_heading,
@@ -574,7 +793,7 @@ fn editor_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             ),
             true,
         ))
-        .child(note(&t, "更多编辑选项将在支持文本编辑后提供"))
+        .child(note(&t, &crate::t!("settings-editor-more-note")))
 }
 
 fn appearance_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
@@ -594,13 +813,13 @@ fn appearance_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 .text_size(px(13.5))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(t.tx)
-                .child("主题"),
+                .child(SharedString::from(crate::t!("settings-theme"))),
         )
         .child(
             div()
                 .text_size(px(12.0))
                 .text_color(t.tx3)
-                .child("选择界面的配色方案"),
+                .child(SharedString::from(crate::t!("settings-theme-desc"))),
         )
         .child(cards);
 
@@ -619,21 +838,66 @@ fn appearance_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         }),
     );
 
+    let cur_locale = crate::i18n::configured_locale();
+    let mut lang_buttons = div().flex().flex_none().items_center().gap(px(6.0));
+    for (code, label) in crate::i18n::SUPPORTED_LOCALES {
+        let is_selected = cur_locale == code;
+
+        let btn = div()
+            .flex()
+            .items_center()
+            .justify_center()
+            .px(px(10.0))
+            .h(px(28.0))
+            .rounded(px(6.0))
+            .cursor_pointer()
+            .text_size(px(12.5))
+            .font_weight(if is_selected {
+                FontWeight::MEDIUM
+            } else {
+                FontWeight::NORMAL
+            })
+            .text_color(if is_selected { t.tx } else { t.tx2 })
+            .bg(if is_selected { t.active } else { t.sheet })
+            .border_1()
+            .border_color(if is_selected { t.ac } else { t.line })
+            .hover(|s| s.bg(t.hover))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    crate::i18n::set_locale(code);
+                    crate::config_store::sync_ui(this);
+                    cx.notify();
+                }),
+            )
+            .child(label);
+        lang_buttons = lang_buttons.child(btn);
+    }
+
+    let lang_row = setting_row(
+        &t,
+        &crate::t!("settings-language"),
+        &crate::t!("settings-language-desc"),
+        lang_buttons,
+        false,
+    );
+
     div()
         .flex()
         .flex_col()
         .child(theme_block)
+        .child(lang_row)
         .child(setting_row(
             &t,
-            "显示左侧栏",
-            "文件树、搜索与标签所在的侧栏",
+            &crate::t!("settings-show-left-sidebar"),
+            &crate::t!("settings-show-left-sidebar-desc"),
             left_toggle,
             false,
         ))
         .child(setting_row(
             &t,
-            "显示右侧栏",
-            "大纲与反向链接所在的面板",
+            &crate::t!("settings-show-right-panel"),
+            &crate::t!("settings-show-right-panel-desc"),
             right_toggle,
             true,
         ))
@@ -689,7 +953,7 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             div()
                 .text_size(px(11.5))
                 .text_color(t.tx3)
-                .child(SharedString::from(format!("示例：{example}"))),
+                .child(SharedString::from(crate::t!("settings-daily-format-example", example = example.as_str()))),
         );
 
     div()
@@ -698,15 +962,15 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .mt(px(10.0))
         .child(setting_row(
             &t,
-            "日记文件夹",
-            "新建日记的位置，相对于笔记库根目录",
+            &crate::t!("settings-daily-folder"),
+            &crate::t!("settings-daily-folder-desc"),
             folder,
             false,
         ))
         .child(setting_row(
             &t,
-            "日期格式",
-            "日记标题与文件名使用的日期格式",
+            &crate::t!("settings-daily-format"),
+            &crate::t!("settings-daily-format-desc"),
             format_control,
             false,
         ))
@@ -714,16 +978,17 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .child(crate::ui::template_ui::folder_row(app, cx))
         .child(note(
             &t,
-            "已有的日记不会被重命名，新的设置只影响之后创建的日记。",
+            &crate::t!("settings-daily-note-hint"),
         ))
 }
 
-fn about_section(t: &ActiveTheme) -> Div {
+fn about_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
+    let t = app.theme;
     div()
         .flex()
         .flex_col()
         .mt(px(10.0))
-        .gap(px(6.0))
+        .gap(px(8.0))
         .child(
             div()
                 .flex()
@@ -733,35 +998,315 @@ fn about_section(t: &ActiveTheme) -> Div {
                 .child(img("logo/icon-64.png").size(px(64.0)).flex_none())
                 .child(
                     div()
-                        .font_family(display_family(t))
-                        .text_size(px(22.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(t.tx)
-                        .child("霁月 Jiyue"),
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .child(
+                            div()
+                                .font_family(display_family(&t))
+                                .text_size(px(22.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.tx)
+                                .child("霁月 Jiyue"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(t.tx3)
+                                .child("基于 GPUI 的本地 Markdown 笔记应用"),
+                        ),
                 ),
         )
         .child(
             div()
-                .text_size(px(13.0))
-                .text_color(t.tx2)
-                .child("基于 GPUI 的本地 Markdown 笔记应用"),
-        )
-        .child(
-            div()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
                 .text_size(px(13.0))
                 .text_color(t.tx2)
                 .child(SharedString::from(format!(
-                    "版本 {}",
+                    "{} v{}",
+                    crate::t!("update-current-version"),
                     env!("CARGO_PKG_VERSION")
                 ))),
         )
+        .child(update_block(app, cx))
         .child(
             div()
-                .pt(px(8.0))
-                .text_size(px(12.5))
+                .pt(px(12.0))
+                .text_size(px(12.0))
                 .text_color(t.tx3)
-                .child("笔记保存在本地的 .md 文件中"),
+                .child("笔记保存在本地的纯文本 Markdown 文件中，无需联网即可使用。"),
         )
+}
+
+fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
+    let t = app.theme;
+    let card = div()
+        .flex()
+        .flex_col()
+        .gap(px(10.0))
+        .mt(px(6.0))
+        .p(px(14.0))
+        .rounded(px(8.0))
+        .border_1()
+        .border_color(t.line)
+        .bg(t.sheet);
+
+    match &app.settings.update {
+        crate::update::UpdateState::Idle => {
+            let btn = crate::ui::widgets::controls::button(
+                &t,
+                &crate::t!("update-check-now"),
+                crate::ui::widgets::ButtonKind::Secondary,
+                Some("rotate-cw"),
+                cx.listener(|this, _, _, cx| {
+                    this.trigger_check_update(true, cx);
+                }),
+            );
+            card.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .text_size(px(13.0))
+                            .text_color(t.tx2)
+                            .child(SharedString::from(crate::t!("update-channel"))),
+                    )
+                    .child(btn),
+            )
+        }
+        crate::update::UpdateState::Checking => card.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.0))
+                .child(crate::ui::widgets::controls::spinner(&t, 16.0))
+                .child(
+                    div()
+                        .text_size(px(13.0))
+                        .text_color(t.tx2)
+                        .child(SharedString::from(crate::t!("update-checking"))),
+                ),
+        ),
+        crate::update::UpdateState::UpToDate { .. } => {
+            let recheck = crate::ui::widgets::controls::button(
+                &t,
+                &crate::t!("update-check-now"),
+                crate::ui::widgets::ButtonKind::Secondary,
+                Some("rotate-cw"),
+                cx.listener(|this, _, _, cx| {
+                    this.trigger_check_update(true, cx);
+                }),
+            );
+            card.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(crate::ui::icons::icon("check", 16.0, t.ac))
+                            .child(
+                                div()
+                                    .text_size(px(13.0))
+                                    .text_color(t.tx)
+                                    .child(SharedString::from(crate::t!("update-up-to-date"))),
+                            ),
+                    )
+                    .child(recheck),
+            )
+        }
+        crate::update::UpdateState::Available(info) => {
+            let info_clone = info.clone();
+            let dl_btn = crate::ui::widgets::controls::button(
+                &t,
+                &crate::t!("update-download"),
+                crate::ui::widgets::ButtonKind::Primary,
+                Some("download"),
+                cx.listener(move |this, _, _, cx| {
+                    this.trigger_download_update(info_clone.clone(), cx);
+                }),
+            );
+            let mb = (info.file_size as f64) / (1024.0 * 1024.0);
+            let mut col = div().flex().flex_col().gap(px(8.0));
+            col = col.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(crate::ui::icons::icon("arrow-up-circle", 18.0, t.ac))
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_size(px(14.0))
+                                    .text_color(t.tx)
+                                    .child(SharedString::from(format!("发现新版本 v{}", info.version))),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(t.tx3)
+                                    .child(SharedString::from(format!("({:.1} MB)", mb))),
+                            ),
+                    )
+                    .child(dl_btn),
+            );
+            if !info.release_notes.trim().is_empty() {
+                col = col.child(
+                    div()
+                        .max_h(px(90.0))
+                        .overflow_hidden()
+                        .p(px(8.0))
+                        .rounded(px(6.0))
+                        .bg(t.raised)
+                        .border_1()
+                        .border_color(t.line_soft)
+                        .text_size(px(12.0))
+                        .text_color(t.tx2)
+                        .child(SharedString::from(info.release_notes.clone())),
+                );
+            }
+            card.child(col)
+        }
+        crate::update::UpdateState::Downloading {
+            version,
+            progress,
+            downloaded,
+            total,
+        } => {
+            let dl_mb = (*downloaded as f64) / (1024.0 * 1024.0);
+            let tot_mb = (*total as f64) / (1024.0 * 1024.0);
+            let pct = (*progress * 100.0).clamp(0.0, 100.0);
+            card.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.0))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_size(px(13.5))
+                                    .text_color(t.tx)
+                                    .child(SharedString::from(format!(
+                                        "正在下载更新 v{}…",
+                                        version
+                                    ))),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(t.tx2)
+                                    .child(SharedString::from(format!(
+                                        "{:.1} MB / {:.1} MB ({:.0}%)",
+                                        dl_mb, tot_mb, pct
+                                    ))),
+                            ),
+                    )
+                    .child(crate::ui::widgets::controls::progress_bar(&t, *progress)),
+            )
+        }
+        crate::update::UpdateState::Ready {
+            version,
+            installer_path,
+        } => {
+            let path_clone = installer_path.clone();
+            let restart_btn = crate::ui::widgets::controls::button(
+                &t,
+                &crate::t!("update-install"),
+                crate::ui::widgets::ButtonKind::Primary,
+                Some("rotate-cw"),
+                cx.listener(move |this, _, _, cx| {
+                    this.trigger_apply_update(path_clone.clone(), cx);
+                }),
+            );
+            let ready_title = crate::t!("update-ready", version = version.as_str());
+            card.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(2.0))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.0))
+                                    .child(crate::ui::icons::icon("check", 16.0, t.ac))
+                                    .child(
+                                        div()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_size(px(13.5))
+                                            .text_color(t.tx)
+                                            .child(SharedString::from(ready_title)),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(t.tx3)
+                                    .child(SharedString::from(crate::t!("update-ready-desc"))),
+                            ),
+                    )
+                    .child(restart_btn),
+            )
+        }
+        crate::update::UpdateState::Failed(err) => {
+            let err_clone = err.clone();
+            let retry_btn = crate::ui::widgets::controls::button(
+                &t,
+                &crate::t!("update-retry"),
+                crate::ui::widgets::ButtonKind::Secondary,
+                Some("rotate-cw"),
+                cx.listener(|this, _, _, cx| {
+                    this.trigger_check_update(true, cx);
+                }),
+            );
+            card.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(crate::ui::icons::icon(
+                                "alert-triangle",
+                                16.0,
+                                gpui::rgb(crate::ui::widgets::controls::DANGER_RGB),
+                            ))
+                            .child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .text_color(t.tx2)
+                                    .child(SharedString::from(format!("更新出错: {err_clone}"))),
+                            ),
+                    )
+                    .child(retry_btn),
+            )
+        }
+    }
 }
 
 #[cfg(test)]

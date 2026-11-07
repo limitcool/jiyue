@@ -128,7 +128,7 @@ pub fn open(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     let input = match app.ext.search.panel.input.clone() {
         Some(input) => input,
         None => {
-            let input = cx.new(|cx| LineInput::new(cx, PLACEHOLDER));
+            let input = cx.new(|cx| LineInput::new(cx, &crate::t!("search-placeholder")));
             let sub = cx.subscribe(
                 &input,
                 |app: &mut RustdianApp, _input, ev: &LineInputEvent, cx| match ev {
@@ -527,7 +527,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
                 .gap(px(10.0))
                 .child(div().text_size(px(11.5)).text_color(t.tx3).child(
                     if has_query && st.searched {
-                        format!("共 {} 条", st.results.len())
+                        crate::t!("search-results-count", count = st.results.len())
                     } else {
                         String::new()
                     },
@@ -548,7 +548,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
                             .cursor_pointer()
                             .hover(|s| s.bg(t.hover))
                             .child(icon("bookmark", 13.0, t.ac))
-                            .child("加入书签")
+                            .child(gpui::SharedString::from(crate::t!("search-add-bookmark")))
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |this, _, _, cx| {
@@ -582,12 +582,12 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
 
     if !has_query {
         if !st.history.is_empty() {
-            list = list.child(section_label("最近搜索", &t));
+            list = list.child(section_label(&crate::t!("search-recent"), &t));
             for query in &st.history {
                 list = list.child(history_row(&t, cx, query));
             }
         }
-        list = list.child(section_label("语法", &t));
+        list = list.child(section_label(&crate::t!("search-syntax"), &t));
         let mut chips = div()
             .flex()
             .flex_wrap()
@@ -621,14 +621,14 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
             list = list.child(controls::empty_state(
                 &t,
                 "search",
-                "没有匹配的笔记",
-                "换个关键词，或去掉 -排除 / 标签限制再试",
+                &crate::t!("search-no-results"),
+                &crate::t!("search-no-results-hint"),
             ));
         } else {
             let text = if app.ext.search.service.index.is_some() {
-                "正在搜索…"
+                crate::t!("search-searching")
             } else {
-                "索引准备中…"
+                crate::t!("search-indexing")
             };
             list = list.child(
                 div()
@@ -636,7 +636,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
                     .py(px(24.0))
                     .text_size(px(13.0))
                     .text_color(t.tx3)
-                    .child(text),
+                    .child(gpui::SharedString::from(text)),
             );
         }
     } else {
@@ -658,22 +658,22 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         .text_color(t.tx3)
         .child(hint(
             icon("arrow-up", 12.0, t.tx3).into_any_element(),
-            "选择",
+            &crate::t!("search-footer-select"),
             &t,
         ))
         .child(hint(
             controls::kbd(&t, "Enter").into_any_element(),
-            "打开",
+            &crate::t!("search-footer-open"),
             &t,
         ))
         .child(hint(
             controls::kbd(&t, "Ctrl Enter").into_any_element(),
-            "新标签",
+            &crate::t!("search-footer-tab"),
             &t,
         ))
         .child(hint(
             controls::kbd(&t, "Esc").into_any_element(),
-            "关闭",
+            &crate::t!("search-footer-close"),
             &t,
         ));
 

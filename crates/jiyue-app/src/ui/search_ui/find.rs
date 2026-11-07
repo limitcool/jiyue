@@ -72,8 +72,8 @@ fn ensure_inputs(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     if app.ext.search.find.find_input.is_some() {
         return;
     }
-    let find = cx.new(|cx| LineInput::new(cx, FIND_PLACEHOLDER));
-    let replace = cx.new(|cx| LineInput::new(cx, REPLACE_PLACEHOLDER));
+    let find = cx.new(|cx| LineInput::new(cx, &crate::t!("find-placeholder")));
+    let replace = cx.new(|cx| LineInput::new(cx, &crate::t!("find-replace-placeholder")));
     // Enter and Escape are bound by the fields, so they arrive as events: Enter in the find field
     // goes to the next match, Enter in the replace field replaces the current one.
     let find_sub = cx.subscribe(
@@ -260,7 +260,7 @@ fn replace_all(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     let matches = logic::find_matches(&text, &needle, opts);
     let Some((start, end, new_text)) = logic::replace_all_edit(&text, &matches, &replacement)
     else {
-        app.toast(ToastKind::Info, "没有可替换的内容");
+        app.toast(ToastKind::Info, crate::t!("find-no-match-to-replace"));
         return;
     };
     let count = matches.len();
@@ -268,7 +268,10 @@ fn replace_all(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         ed.replace_text_range(start..end, &new_text, cx);
     });
     refresh(app, cx);
-    app.toast(ToastKind::Success, format!("已替换 {count} 处"));
+    app.toast(
+        ToastKind::Success,
+        crate::t!("find-replaced-count", count = count),
+    );
 }
 
 /// The active note's text changed: refresh the matches of the open bar.
@@ -368,7 +371,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     let typed = !field_text(&st.find_input, cx).is_empty();
     let count = if st.matches.is_empty() {
         if typed {
-            "无结果".to_string()
+            crate::t!("find-no-results")
         } else {
             String::new()
         }
@@ -434,14 +437,14 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
                 .child(div().flex_1().min_w_0().child(replace))
                 .child(controls::button(
                     &t,
-                    "替换",
+                    &crate::t!("find-replace"),
                     ButtonKind::Secondary,
                     None,
                     cx.listener(|this, _, _, cx| replace_current(this, cx)),
                 ))
                 .child(controls::button(
                     &t,
-                    "全部替换",
+                    &crate::t!("find-replace-all"),
                     ButtonKind::Secondary,
                     None,
                     cx.listener(|this, _, _, cx| replace_all(this, cx)),
@@ -455,15 +458,27 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
             .items_center()
             .gap(px(14.0))
             .px(px(2.0))
-            .child(option_item(app, cx, "区分大小写", st.case_sensitive, true))
-            .child(option_item(app, cx, "整词", st.whole_word, false))
+            .child(option_item(
+                app,
+                cx,
+                &crate::t!("find-case-sensitive"),
+                st.case_sensitive,
+                true,
+            ))
+            .child(option_item(
+                app,
+                cx,
+                &crate::t!("find-whole-word"),
+                st.whole_word,
+                false,
+            ))
             .child(
                 div()
                     .ml_auto()
                     .text_size(px(11.0))
                     .text_color(t.tx3)
                     .whitespace_nowrap()
-                    .child("Enter 下一个 · Esc 关闭"),
+                    .child(gpui::SharedString::from(crate::t!("find-shortcut-hint"))),
             ),
     );
 

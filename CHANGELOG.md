@@ -3,6 +3,36 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.2.0] - 2026-11-07
+
+### 中文
+
+**新增**
+- **自动检查更新系统**：在“关于”页面支持检测 GitHub 最新版本，显示版本号、更新日志与各平台安装包（Windows MSI、macOS DMG、Linux AppImage），支持 SHA-256 校验；内置智能回退机制，在遇到 GitHub API 403 匿名访问限流时自动从 Releases 网页兜底解析，确保更新检测始终可用。
+- **全新欢迎引导页**：在首次打开笔记库或未打开任何笔记时展示优雅的欢迎页，提供“新建笔记”、“快速切换”、“每日笔记”、“知识图谱”等核心快捷入口，并展示最近访问的笔记卡片与常用快捷键指引。
+- **全量多语言国际化（i18n）**：基于 Fluent 引擎支持简体中文（zh-CN）与英语（en-US）实时热切换，完整覆盖编辑器、外观、每日笔记、同步、AI、快捷键、笔记库与关于等全部设置面板、操作按钮与输入框占位符；设置弹窗左侧导航栏底部新增常驻中英快速切换条，语言偏好持久化保存。
+- **主题明暗模式设置**：外观面板支持将主题指定为“跟随主题”、“暗色 (Dark)”或“浅色 (Light)”模式，并在切换后即时刷新界面且落盘保存。
+
+**优化与修复**
+- **分屏（Split View）分割线与交互重构**：修复左右/上下分屏时中间没有清晰分割线的视觉缺陷；重构为自适应主题色的 1px 贯通分割线与 6px 舒适鼠标拖拽命中区，并新增鼠标悬浮与拖拽时的主题强调色高亮反馈；顶栏标签组同步加入对齐分隔线。
+- **下拉菜单交互与宽度修复**：修复设置页中字体选择等下拉菜单宽度对齐问题，并支持点击下拉菜单外部区域直接关闭。
+- **设置面板 UI 细节排版**：修复设置页单选按钮组、开关、文本输入框在不同语言与缩放下的对齐与挤压问题。
+
+---
+
+### English
+
+**Added**
+- **Automatic update checking**: Check for the latest releases from GitHub directly in the About page, showing version details, changelogs, and platform-specific installers (Windows MSI, macOS DMG, Linux AppImage) with SHA-256 checksums; includes a resilient fallback parser that gracefully recovers from GitHub API HTTP 403 anonymous rate limits.
+- **Welcome onboarding page**: A clean and helpful welcome screen displayed on empty states or initial launch, featuring quick actions (New Note, Quick Switcher, Daily Notes, Knowledge Graph), recent note cards, and keyboard shortcut tips.
+- **Comprehensive internationalization (i18n)**：Full bilingual support (Simplified Chinese & English) powered by Fluent with instant live-reloading across all settings dialogs (Editor, Appearance, Daily Notes, Sync, AI, Shortcuts, Vaults, About), control buttons, and input placeholders; persistent locale settings and a quick language toggle in the settings sidebar.
+- **Theme mode preference**: Explicitly configure appearance to match the theme default, Force Dark, or Force Light, with instant UI refresh and persistent storage.
+
+**Improved & Fixed**
+- **Split view divider & interaction overhaul**: Fixed the missing visual divider between panes; engineered a 1px theme-adaptive visible line centered inside a 6px comfortable drag hit target with dynamic hover/drag accent highlighting; synchronized tab strips with aligned dividers.
+- **Dropdown menus & layout fixes**: Fixed dropdown width alignment (e.g. font pickers) and added click-outside-to-dismiss behavior.
+- **Settings UI refinements**: Fixed flex-shrink squishing and height alignment on radio buttons, toggles, and inputs across languages.
+
 ## [0.1.1] - 2026-11-06
 
 感谢 ZoftTy 在 [#1](https://github.com/limitcool/jiyue/issues/1) 中提交的详细反馈，这个版本修复了其中的全部问题。

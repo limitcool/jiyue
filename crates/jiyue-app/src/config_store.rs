@@ -287,6 +287,9 @@ impl ConfigStore {
         if base.theme != now.theme {
             disk.theme = now.theme.clone();
         }
+        if base.locale != now.locale {
+            disk.locale = now.locale.clone();
+        }
         if base.live_preview != now.live_preview {
             disk.live_preview = now.live_preview;
         }
@@ -362,11 +365,17 @@ pub fn saved_theme() -> String {
     read_ui_prefs_at(&config::user_dir()).theme
 }
 
+/// The interface locale saved in `config.toml`.
+pub fn saved_locale() -> String {
+    read_ui_prefs_at(&config::user_dir()).locale
+}
+
 /// Writes the interface preferences of the running app, at most once per change (called at the
 /// start of every render). A failure is reported once as a toast.
 pub fn sync_ui(app: &mut crate::RustdianApp) {
     let now = UiPrefs {
         theme: crate::vaults::theme_arg(app.theme.kind).to_string(),
+        locale: crate::i18n::configured_locale(),
         live_preview: app.live_preview,
         left_sidebar: app.left_sidebar_open,
         right_sidebar: app.right_sidebar_open,

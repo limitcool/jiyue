@@ -55,12 +55,12 @@ pub fn render_right_panel(
         .border_color(t.line_soft)
         .font_family(crate::ui::fonts::ui_name())
         .child(properties_section(app, cx))
-        .child(section_title(&t, "大纲", headings.len(), 0.0))
+        .child(section_title(&t, &crate::t!("panel-outline"), headings.len(), 0.0))
         .child(outline(app, &headings, cx))
-        .child(section_title(&t, "反向链接", backlinks.len(), 0.0))
-        .child(cards(app, &backlinks, 0, "暂无反向链接", cx))
-        .child(section_title(&t, "未链接的提及", unlinked.len(), 12.0))
-        .child(cards(app, &unlinked, 10_000, "暂无未链接的提及", cx))
+        .child(section_title(&t, &crate::t!("panel-backlinks"), backlinks.len(), 0.0))
+        .child(cards(app, &backlinks, 0, &crate::t!("panel-backlinks-empty"), cx))
+        .child(section_title(&t, &crate::t!("panel-unlinked"), unlinked.len(), 12.0))
+        .child(cards(app, &unlinked, 10_000, &crate::t!("panel-unlinked-empty"), cx))
 }
 
 /// Section heading row: title on the left, item count on the right.
@@ -665,7 +665,7 @@ fn outline(
             .mb(px(14.0))
             .text_size(px(12.5))
             .text_color(t.tx3)
-            .child("暂无大纲")
+            .child(SharedString::from(crate::t!("panel-outline-empty")))
             .into_any_element();
     }
     let active_line = headings

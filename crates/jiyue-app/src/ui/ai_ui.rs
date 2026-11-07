@@ -499,7 +499,11 @@ pub fn statusbar_items(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<
             .hover(|s| s.bg(t.hover))
             .text_color(color)
             .child(icon("bulb", 13.0, color))
-            .child(if enabled { "AI" } else { "AI 已关闭" })
+            .child(if enabled {
+                gpui::SharedString::from(crate::t!("status-ai-on"))
+            } else {
+                gpui::SharedString::from(crate::t!("status-ai-off"))
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _: &gpui::MouseDownEvent, _, cx| {

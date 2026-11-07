@@ -11,12 +11,14 @@ use std::time::{Duration, Instant};
 pub use jiyue_core::{buffer, daily, editor_state, md_edit, vault};
 
 mod config_store;
+pub mod i18n;
 mod jobs;
 mod journal;
 mod launch;
 mod session;
 mod theme;
 mod ui;
+pub mod update;
 mod vaults;
 
 use gpui::{
@@ -270,6 +272,8 @@ impl RustdianApp {
         }
         let user_config = jiyue_core::config::user_file(jiyue_core::config::USER_CONFIG_FILE);
         if changed.iter().any(|p| p == &user_config) {
+            // Initialize i18n from user configuration
+            i18n::set_locale(&config_store::saved_locale());
             ui::keymap::init_from_disk();
             ui::keymap::rebind(cx);
         }
@@ -1555,6 +1559,8 @@ fn main() {
                 &jiyue_core::config::user_file(jiyue_core::config::USER_CONFIG_FILE),
                 jiyue_core::config::templates::USER_CONFIG,
             );
+            // Initialize i18n from user configuration
+            i18n::set_locale(&config_store::saved_locale());
             ui::keymap::init_from_disk();
             ui::keymap::rebind(cx);
             let Some(vault_dir) = vault_dir else {
@@ -1574,6 +1580,16 @@ fn main() {
                 view.update(cx, |app, _| app.activation_sub = Some(activation));
                 let focus = view.read(cx).initial_focus(cx);
                 window.focus(&focus);
+
+                // Auto update: silently check for updates in background 10 seconds after startup.
+                let update_view = view.clone();
+                cx.spawn(async move |cx| {
+                    cx.background_executor().timer(Duration::from_secs(10)).await;
+                    let _ = update_view.update(cx, |app, cx| {
+                        app.trigger_check_update(false, cx);
+                    });
+                })
+                .detach();
                 // Window close: save what is unsaved (best effort), then close.
                 let on_close = view.clone();
                 // The sync module saves dirty notes and may keep the window open for one last

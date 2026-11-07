@@ -36,6 +36,7 @@ pub mod tabbar;
 pub mod template_ui;
 pub mod text_input;
 pub mod vaults_ui;
+pub mod welcome;
 pub mod widgets;
 
 use crate::theme::{ActiveTheme, ThemeKind};

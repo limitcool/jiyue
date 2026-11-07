@@ -594,7 +594,7 @@ pub fn statusbar_items(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<
         .text_color(color)
         .font_family(crate::ui::UI_FONT)
         .child(crate::ui::icons::icon("clock", 13.0, color))
-        .child("历史版本")
+        .child(gpui::SharedString::from(crate::t!("status-history")))
         .on_mouse_down(
             gpui::MouseButton::Left,
             cx.listener(|this, _, _, cx| {

@@ -48,7 +48,7 @@ pub fn render_sidebar(
             row(
                 &t,
                 "search",
-                "搜索笔记",
+                &crate::t!("sidebar-search"),
                 Some(&crate::ui::keymap::shortcut_text("view.quick_switch")),
                 true,
             )
@@ -66,7 +66,7 @@ pub fn render_sidebar(
             row(
                 &t,
                 "square-rounded-plus",
-                "新建笔记",
+                &crate::t!("sidebar-new-note"),
                 Some(&crate::ui::keymap::shortcut_text("file.new_note")),
                 false,
             )
@@ -78,7 +78,7 @@ pub fn render_sidebar(
                 }),
             ),
         )
-        .child(row(&t, "affiliate", "知识图谱", None, false).on_mouse_down(
+        .child(row(&t, "affiliate", &crate::t!("sidebar-graph"), None, false).on_mouse_down(
             MouseButton::Left,
             cx.listener(|this, _, _, cx| {
                 this.viewport_mode = if this.viewport_mode == ViewportMode::GraphView {
@@ -90,7 +90,7 @@ pub fn render_sidebar(
             }),
         ))
         .child(
-            row(&t, "calendar-event", "今日日记", None, false)
+            row(&t, "calendar-event", &crate::t!("sidebar-journal"), None, false)
                 .when(today_active, |d| {
                     d.bg(t.active)
                         .text_color(t.tx)
@@ -108,7 +108,7 @@ pub fn render_sidebar(
         .child(app.render_calendar(cx))
         // 书签: a collapsible section (see ui/bookmarks).
         .child(super::ext::bookmarks::section(app, cx))
-        .child(section_header(&t, "文件", true, cx))
+        .child(section_header(&t, &crate::t!("sidebar-files"), true, cx))
         // The file tree takes the remaining height and scrolls. It has focus after a click on a
         // row, so Delete, F2, Enter and the Menu key act on the selection (files_ui::tree_key).
         .child({
@@ -149,7 +149,7 @@ pub fn render_sidebar(
             }
             tree
         })
-        .child(section_header(&t, "标签", false, cx))
+        .child(section_header(&t, &crate::t!("sidebar-tags"), false, cx))
         // At most five tags are visible; more scroll inside this block.
         .child(
             div().flex().flex_col().flex_none().child(
@@ -168,7 +168,7 @@ pub fn render_sidebar(
                 .items_center()
                 .gap(px(2.0))
                 .child(
-                    row(&t, "settings", "设置", None, false)
+                    row(&t, "settings", &crate::t!("sidebar-settings"), None, false)
                         .flex_1()
                         .on_mouse_down(
                             MouseButton::Left,
@@ -250,7 +250,7 @@ fn workspace(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoEleme
                                 .text_size(px(11.5))
                                 .text_color(t.tx3)
                                 .truncate()
-                                .child(SharedString::from(format!("{} 篇笔记", count))),
+                                .child(SharedString::from(crate::t!("sidebar-note-count", count = count))),
                         ),
                 ),
         )
@@ -297,14 +297,20 @@ fn row(
         .items_center()
         .gap(px(ICON_GAP))
         .h(px(if search { 32.0 } else { 30.0 }))
-        .px(px(8.0))
+        .pl(px(if search { 7.0 } else { 8.0 }))
+        .pr(px(8.0))
         .rounded(px(6.0))
         .whitespace_nowrap()
         .text_color(t.tx2)
         .cursor_pointer()
         .hover(|s| s.bg(t.hover).text_color(t.tx))
         .child(icon(icon_name, ICON_SIZE, t.tx3))
-        .child(div().child(SharedString::from(label.to_string())));
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(SharedString::from(label.to_string())),
+        );
     if search {
         r = r
             .mb(px(4.0))
@@ -316,7 +322,7 @@ fn row(
     if let Some(k) = kbd {
         r = r.child(
             div()
-                .ml_auto()
+                .flex_none()
                 .px(px(5.0))
                 .py(px(1.0))
                 .rounded(px(5.0))
@@ -783,10 +789,15 @@ fn tags(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + 
                     .font_weight(FontWeight::MEDIUM)
                     .child("#"),
             )
-            .child(div().child(SharedString::from(name)))
             .child(
                 div()
-                    .ml_auto()
+                    .flex_1()
+                    .min_w_0()
+                    .child(SharedString::from(name)),
+            )
+            .child(
+                div()
+                    .flex_none()
                     .text_size(px(11.5))
                     .text_color(t.tx3)
                     .child(format!("{}", count)),

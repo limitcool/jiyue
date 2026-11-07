@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Context, Div, Entity, FontWeight, MouseButton, MouseDownEvent, Window, div,
+    AnyElement, App, Context, Div, Entity, FontWeight, MouseButton, MouseDownEvent, SharedString, Window, div,
     prelude::*, px,
 };
 use jiyue_ai::{ProviderEntry, ProviderKind};
@@ -544,8 +544,8 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
 
     col = col.child(form_row(
         &t,
-        "启用 AI 功能",
-        "默认关闭。开启时会先说明哪些内容会被发送。",
+        &crate::t!("ai-enable"),
+        &crate::t!("ai-enable-desc"),
         toggle(
             &t,
             cfg.enabled,
@@ -572,10 +572,10 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         );
     }
 
-    col = col.child(section_title(&t, "服务商"));
+    col = col.child(section_title(&t, &crate::t!("ai-providers")));
     if cfg.providers.is_empty() && s.test.is_none() {
         col = col.child(div().py(px(6.0)).text_color(t.tx3).child(
-            "还没有服务商。支持 OpenAI 兼容接口与 Anthropic，密钥以明文保存在用户目录的 credentials.toml 中。",
+            SharedString::from(crate::t!("ai-no-providers-hint")),
         ));
     }
     for p in &cfg.providers {
@@ -604,7 +604,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     }
     col = col.child(div().pt(px(8.0)).child(button(
         &t,
-        "添加服务",
+        &crate::t!("ai-add-provider"),
         ButtonKind::Secondary,
         Some("plus"),
         cx.listener(|this, _: &MouseDownEvent, _, cx| begin_edit(this, None, cx)),
@@ -620,10 +620,10 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         .map(|p| (p.id.clone(), p.name.clone()))
         .collect();
     let active_chat = effective_config(s).active_chat;
-    col = col.child(section_title(&t, "对话服务"));
+    col = col.child(section_title(&t, &crate::t!("ai-chat-service")));
     let mut chat_row = div().flex().flex_wrap().gap(px(6.0));
     if chat_options.is_empty() {
-        chat_row = chat_row.child(div().text_color(t.tx3).child("先添加服务"));
+        chat_row = chat_row.child(div().text_color(t.tx3).child(SharedString::from(crate::t!("ai-add-service-first"))));
     }
     for (id, name) in &chat_options {
         let on = active_chat.as_deref() == Some(id.as_str());
@@ -646,11 +646,11 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         .map(|p| (p.id.clone(), p.name.clone()))
         .collect();
     let active_embed = effective_config(s).active_embedding;
-    col = col.child(section_title(&t, "嵌入服务（用于向量检索，可选）"));
+    col = col.child(section_title(&t, &crate::t!("ai-embed-service")));
     let mut embed_row = div().flex().flex_wrap().gap(px(6.0));
     embed_row = embed_row.child(choice_chip(
         &t,
-        "不使用",
+        &crate::t!("ai-do-not-use"),
         active_embed.is_none(),
         cx.listener(|this, _: &MouseDownEvent, _, cx| set_active_embedding(this, None, cx)),
     ));
@@ -669,20 +669,20 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     col = col.child(embed_row);
 
     // Exclusions.
-    col = col.child(section_title(&t, "排除的文件夹"));
+    col = col.child(section_title(&t, &crate::t!("ai-excluded-folders")));
     col = col.child(exclusion_list(app, ListKind::Folder, cx));
-    col = col.child(section_title(&t, "排除的标签"));
+    col = col.child(section_title(&t, &crate::t!("ai-excluded-tags")));
     col = col.child(exclusion_list(app, ListKind::Tag, cx));
     col = col.child(
         div()
             .pt(px(4.0))
             .text_size(px(12.0))
             .text_color(t.tx3)
-            .child("这些笔记不会发送给任何模型，也不会进入向量索引；它们的 AI 操作会被禁用。"),
+            .child(SharedString::from(crate::t!("ai-exclusions-desc"))),
     );
 
     // Index.
-    col = col.child(section_title(&t, "向量索引"));
+    col = col.child(section_title(&t, &crate::t!("ai-vector-index")));
     let (status, is_error) = status_text(app);
     col = col.child(
         div()
@@ -696,20 +696,20 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
             .pt(px(2.0))
             .text_size(px(12.0))
             .text_color(t.tx3)
-            .child("每个笔记按约 800 字切块，每块发送一次嵌入请求，按服务商的价格计费。索引保存在 .jiyue/index，可随时重建。"),
+            .child(SharedString::from(crate::t!("ai-index-desc"))),
     );
     col = col.child(div().pt(px(6.0)).child(button(
         &t,
-        "重建向量索引",
+        &crate::t!("ai-rebuild-index"),
         ButtonKind::Secondary,
         Some("link"),
         cx.listener(|this, _: &MouseDownEvent, _, cx| rebuild(this, cx)),
     )));
 
     // Privacy.
-    col = col.child(section_title(&t, "隐私"));
+    col = col.child(section_title(&t, &crate::t!("ai-privacy")));
     col = col.child(div().text_size(px(12.5)).text_color(t.tx2).child(
-        "发送前一定会显示预览。API 密钥只存放在用户目录的 credentials.toml，不写入笔记库或日志。",
+        SharedString::from(crate::t!("ai-privacy-desc")),
     ));
 
     div()
@@ -725,12 +725,12 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
 fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
     let key_text = match app.ext.ai.settings.key_saved.get(&p.id) {
-        Some(true) => "已保存到 credentials.toml",
-        Some(false) => "未设置密钥",
-        None => "正在读取密钥状态…",
+        Some(true) => crate::t!("ai-key-saved"),
+        Some(false) => crate::t!("ai-key-unset"),
+        None => crate::t!("ai-key-reading"),
     };
     let kind = match p.kind {
-        ProviderKind::OpenAiCompatible => "OpenAI 兼容",
+        ProviderKind::OpenAiCompatible => "OpenAI Compatible",
         ProviderKind::Anthropic => "Anthropic",
     };
     let edit_id = p.id.clone();
@@ -755,7 +755,7 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
                     host_of(&p.base_url),
                     p.chat_model
                 )))
-                .child(div().text_size(px(11.5)).text_color(t.tx3).child(key_text)),
+                .child(div().text_size(px(11.5)).text_color(t.tx3).child(SharedString::from(key_text))),
         )
         .child(
             div()
@@ -764,7 +764,7 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
                 .gap(px(6.0))
                 .child(button(
                     &t,
-                    "编辑",
+                    &crate::t!("ai-edit-btn"),
                     ButtonKind::Ghost,
                     None,
                     cx.listener(move |this, _: &MouseDownEvent, _, cx| {
@@ -815,15 +815,20 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .unwrap_or_default();
     let clear_id = editing.id.clone().unwrap_or_default();
     let key_hint = if saved {
-        "已保存到 credentials.toml（留空则保留原密钥）"
+        crate::t!("ai-key-hint-saved")
     } else {
-        "输入后保存到 credentials.toml（明文）"
+        crate::t!("ai-key-hint-unsaved")
     };
     let test_line = match &s.settings.test {
         TestState::Idle => None,
-        TestState::Running => Some(("正在测试连接…".to_string(), t.tx3)),
-        TestState::Ok => Some(("连接正常".to_string(), t.ok)),
+        TestState::Running => Some((crate::t!("ai-testing"), t.tx3)),
+        TestState::Ok => Some((crate::t!("ai-test-ok"), t.ok)),
         TestState::Failed(m) => Some((m.clone(), gpui::rgb(RED))),
+    };
+    let form_title = if editing.id.is_some() {
+        crate::t!("ai-edit-provider")
+    } else {
+        crate::t!("ai-add-provider")
     };
     let mut col = div()
         .flex()
@@ -838,13 +843,9 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .child(
             div()
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(if editing.id.is_some() {
-                    "编辑服务"
-                } else {
-                    "添加服务"
-                }),
+                .child(SharedString::from(form_title)),
         )
-        .child(text_field(&t, "名称", inputs.name.clone()))
+        .child(text_field(&t, &crate::t!("ai-name"), inputs.name.clone()))
         .child(
             div()
                 .flex()
@@ -854,32 +855,32 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                     div()
                         .text_size(px(12.0))
                         .text_color(t.tx2)
-                        .child("接口类型"),
+                        .child(SharedString::from(crate::t!("ai-kind"))),
                 )
                 .child(segmented(
                     &t,
-                    &["OpenAI 兼容", "Anthropic"],
+                    &["OpenAI Compatible", "Anthropic"],
                     kind_index,
                     kind_pick,
                 )),
         )
-        .child(text_field(&t, "服务地址（Base URL）", inputs.url.clone()))
-        .child(text_field(&t, "对话模型", inputs.chat_model.clone()))
+        .child(text_field(&t, &crate::t!("ai-base-url"), inputs.url.clone()))
+        .child(text_field(&t, &crate::t!("ai-chat-model"), inputs.chat_model.clone()))
         .child(text_field(
             &t,
-            "嵌入模型（可留空）",
+            &crate::t!("ai-embed-model"),
             inputs.embed_model.clone(),
         ))
         .child(crate::ui::config_ui::secret_control(
             &t,
             &key_display,
-            text_field(&t, "API 密钥", inputs.api_key.clone()).into_any_element(),
+            text_field(&t, &crate::t!("ai-api-key"), inputs.api_key.clone()).into_any_element(),
             cx.listener(move |this, _: &gpui::MouseDownEvent, _, cx| {
                 clear_key(this, &clear_id, cx)
             }),
         ))
         .child(crate::ui::config_ui::credentials_help(&t))
-        .child(div().text_size(px(11.5)).text_color(t.tx3).child(key_hint));
+        .child(div().text_size(px(11.5)).text_color(t.tx3).child(SharedString::from(key_hint)));
     if let Some((text, color)) = test_line {
         col = col.child(div().text_size(px(12.5)).text_color(color).child(text));
     }
@@ -899,21 +900,21 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             .gap(px(8.0))
             .child(button(
                 &t,
-                "取消",
+                &crate::t!("ai-cancel-btn"),
                 ButtonKind::Ghost,
                 None,
                 cx.listener(|this, _: &MouseDownEvent, _, cx| cancel_edit(this, cx)),
             ))
             .child(button(
                 &t,
-                "测试连接",
+                &crate::t!("ai-test-btn"),
                 ButtonKind::Secondary,
                 Some("link"),
                 cx.listener(|this, _: &MouseDownEvent, _, cx| test_connection(this, cx)),
             ))
             .child(button(
                 &t,
-                "保存",
+                &crate::t!("ai-save-btn"),
                 ButtonKind::Primary,
                 Some("check"),
                 cx.listener(|this, _: &MouseDownEvent, _, cx| save_edit(this, cx)),
@@ -924,17 +925,21 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
 fn exclusion_list(app: &RustdianApp, kind: ListKind, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
     let s = &app.ext.ai;
-    let (items, input, placeholder_hint) = match kind {
+    let (items, input, hint_text) = match kind {
         ListKind::Folder => (
             &s.config.excluded_folders,
             s.inputs.folder.clone(),
-            "例如 私人/日记",
+            crate::t!("ai-folder-relative-hint"),
         ),
-        ListKind::Tag => (&s.config.excluded_tags, s.inputs.tag.clone(), "例如 secret"),
+        ListKind::Tag => (
+            &s.config.excluded_tags,
+            s.inputs.tag.clone(),
+            crate::t!("ai-example-tag"),
+        ),
     };
     let mut chips = div().flex().flex_wrap().gap(px(6.0));
     if items.is_empty() {
-        chips = chips.child(div().text_size(px(12.0)).text_color(t.tx3).child("（无）"));
+        chips = chips.child(div().text_size(px(12.0)).text_color(t.tx3).child(SharedString::from(crate::t!("ai-none"))));
     }
     for (i, item) in items.iter().enumerate() {
         chips = chips.child(
@@ -986,7 +991,7 @@ fn exclusion_list(app: &RustdianApp, kind: ListKind, cx: &mut Context<RustdianAp
                 .child(div().flex_1().min_w_0().children(input))
                 .child(button(
                     &t,
-                    "添加",
+                    &crate::t!("ai-add-btn"),
                     ButtonKind::Secondary,
                     Some("plus"),
                     cx.listener(move |this, _: &MouseDownEvent, _, cx| {
@@ -998,7 +1003,7 @@ fn exclusion_list(app: &RustdianApp, kind: ListKind, cx: &mut Context<RustdianAp
             div()
                 .text_size(px(11.5))
                 .text_color(t.tx3)
-                .child(format!("{placeholder_hint}（文件夹相对于笔记库根目录）")),
+                .child(SharedString::from(hint_text)),
         )
 }
 

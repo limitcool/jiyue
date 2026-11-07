@@ -12,8 +12,8 @@
 use std::path::PathBuf;
 
 use gpui::{
-    AnyElement, Context, DragMoveEvent, IntoElement, MouseDownEvent, Render, ScrollHandle, Window,
-    div, prelude::*, px, relative,
+    AnyElement, Context, DragMoveEvent, IntoElement, MouseDownEvent, Render, ScrollHandle,
+    SharedString, Window, div, prelude::*, px, relative,
 };
 
 use gpui::Focusable;
@@ -37,6 +37,8 @@ pub struct Layout {
     pub split: Option<SplitState>,
     /// Scroll position of each pane's tab strip (index = physical pane).
     pub strips: [ScrollHandle; 2],
+    /// Scroll position for the welcome page.
+    pub welcome_scroll: ScrollHandle,
     /// Per pane, as last rendered: the active note, the strip width and the number of its children
     /// (see `tabbar::render_strip`). A change of the active note or the width brings the active tab
     /// into view.
@@ -355,7 +357,8 @@ pub fn render_editor_area(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> A
     }
     let Some(split) = app.layout.split.as_ref() else {
         let Some(note) = app.vault.active_note() else {
-            return div().flex_1().into_any_element();
+            return crate::ui::welcome::render_welcome_page(app, &app.layout.welcome_scroll, cx)
+                .into_any_element();
         };
         let editor = editor::render_editor(app, note, true, cx);
         // Dragging a tab onto the left or right edge of the editor splits the view.
@@ -375,7 +378,8 @@ pub fn render_editor_area(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> A
     let focused_pane = split.focused;
     let focused_el = match app.vault.active_note() {
         Some(note) => editor::render_editor(app, note, true, cx).into_any_element(),
-        None => div().flex_1().into_any_element(),
+        None => crate::ui::welcome::render_welcome_page(app, &app.layout.welcome_scroll, cx)
+            .into_any_element(),
     };
     let other_note = split
         .other
@@ -449,12 +453,33 @@ pub fn render_editor_area(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> A
             }),
         )
     };
+    let group_id = SharedString::from("split_divider");
+    let line_color = gpui::Rgba { a: 0.22, ..t.tx };
     let divider = div()
         .id("split_divider")
+        .group(group_id.clone())
         .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
         .when(!down, |d| d.w(px(DIVIDER_PX)).h_full().cursor_col_resize())
         .when(down, |d| d.h(px(DIVIDER_PX)).w_full().cursor_row_resize())
         .hover(move |s| s.bg(t.ac_soft))
+        .child(
+            div()
+                .when(!down, |d| {
+                    d.w(px(1.0))
+                        .h_full()
+                        .bg(line_color)
+                        .group_hover(group_id.clone(), move |s| s.w(px(2.0)).bg(t.ac))
+                })
+                .when(down, |d| {
+                    d.h(px(1.0))
+                        .w_full()
+                        .bg(line_color)
+                        .group_hover(group_id.clone(), move |s| s.h(px(2.0)).bg(t.ac))
+                }),
+        )
         .on_drag(DividerDrag, |_, _, _, cx| cx.new(|_| Blank));
 
     div()

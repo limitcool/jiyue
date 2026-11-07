@@ -531,19 +531,15 @@ pub fn statusbar_items(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<
     let t = app.theme;
     let s = &app.ext.sync;
     let (text, dot, color) = match status(s) {
-        Status::Off => ("同步未启用".to_owned(), t.tx3, t.tx3),
+        Status::Off => (crate::t!("status-sync-off"), t.tx3, t.tx3),
         Status::Running(p) => (schedule::progress_text(p.done, p.total), t.ac, t.tx2),
-        Status::Failed => ("同步失败".to_owned(), t.st, t.st),
-        Status::Conflicts(n) => (format!("{n} 个冲突"), t.ac, t.ac),
-        Status::Idle(None) => ("尚未同步".to_owned(), t.tx3, t.tx3),
-        Status::Idle(Some(ms)) => (
-            format!(
-                "已同步 · {}",
-                schedule::relative_zh(jiyue_sync::state::now_ms(), ms)
-            ),
-            t.ok,
-            t.tx3,
-        ),
+        Status::Failed => (crate::t!("status-sync-failed"), t.st, t.st),
+        Status::Conflicts(n) => (crate::t!("status-sync-conflicts", count = n), t.ac, t.ac),
+        Status::Idle(None) => (crate::t!("status-sync-never"), t.tx3, t.tx3),
+        Status::Idle(Some(ms)) => {
+            let rel = schedule::relative_zh(jiyue_sync::state::now_ms(), ms);
+            (crate::t!("status-sync-synced", time = rel.as_str()), t.ok, t.tx3)
+        }
     };
     let chip = div()
         .flex()

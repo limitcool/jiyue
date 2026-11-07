@@ -81,20 +81,20 @@ pub fn open(app: &mut RustdianApp, target: Target, pos: (f32, f32), win: (f32, f
 /// split.
 fn tab_rows(app: &RustdianApp, pos: usize) -> Vec<(MenuItem, Option<Cmd>)> {
     let mut rows = vec![
-        row("向右拆分", "layout-columns", Cmd::Tab(TabCmd::SplitRight)),
-        row("向下拆分", "arrow-down", Cmd::Tab(TabCmd::SplitDown)),
+        row(&crate::t!("menu-split-right"), "layout-columns", Cmd::Tab(TabCmd::SplitRight)),
+        row(&crate::t!("menu-split-down"), "arrow-down", Cmd::Tab(TabCmd::SplitDown)),
     ];
     if app.layout.split.is_some() {
-        rows.push(row("关闭分屏", "x", Cmd::Tab(TabCmd::CloseSplit)));
+        rows.push(row(&crate::t!("menu-close-split"), "x", Cmd::Tab(TabCmd::CloseSplit)));
     }
     rows.push(sep());
-    rows.push(row("关闭标签", "x", Cmd::Tab(TabCmd::Close(pos))));
-    rows.push(row("关闭其他标签", "x", Cmd::Tab(TabCmd::CloseOthers(pos))));
-    rows.push(row("关闭右侧标签", "x", Cmd::Tab(TabCmd::CloseRight(pos))));
+    rows.push(row(&crate::t!("menu-close-tab"), "x", Cmd::Tab(TabCmd::Close(pos))));
+    rows.push(row(&crate::t!("menu-close-other-tabs"), "x", Cmd::Tab(TabCmd::CloseOthers(pos))));
+    rows.push(row(&crate::t!("menu-close-right-tabs"), "x", Cmd::Tab(TabCmd::CloseRight(pos))));
     rows.push(sep());
-    rows.push(row("复制文件路径", "copy", Cmd::Tab(TabCmd::CopyPath(pos))));
+    rows.push(row(&crate::t!("menu-copy-path"), "copy", Cmd::Tab(TabCmd::CopyPath(pos))));
     rows.push(row(
-        "在资源管理器中显示",
+        &crate::t!("menu-reveal-file"),
         "folder-open",
         Cmd::Tab(TabCmd::Reveal(pos)),
     ));

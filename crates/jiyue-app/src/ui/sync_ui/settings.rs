@@ -9,7 +9,7 @@ use gpui::{
 use jiyue_sync::store::ConnectionReport;
 
 use super::config::{
-    Backend, DEBOUNCE_CHOICES, DEBOUNCE_LABELS, Interval, SyncConfig, debounce_index,
+    Backend, DEBOUNCE_CHOICES, Interval, SyncConfig, debounce_index,
     normalize_endpoint, normalize_prefix, parse_ignore_text, test_override,
 };
 use super::secrets;
@@ -103,14 +103,20 @@ pub fn fill_inputs(app: &RustdianApp, cx: &mut Context<RustdianApp>) {
     inputs
         .ignore
         .update(cx, |editor, cx| editor.set_text(&ignore_text, cx));
+    inputs.s3_bucket.update(cx, |input, cx| {
+        input.set_placeholder(&crate::t!("sync-bucket-placeholder"), cx);
+    });
+    inputs.device.update(cx, |input, cx| {
+        input.set_placeholder(&crate::t!("sync-device-name-placeholder"), cx);
+    });
     for secret in [&inputs.s3_secret, &inputs.dav_password] {
         secret.update(cx, |input, cx| {
             input.set_text("", cx);
             let placeholder = match &display {
                 crate::ui::config_ui::SecretDisplay::Literal => {
-                    format!("{}（已保存，明文）", crate::ui::config_ui::MASKED)
+                    crate::t!("sync-secret-saved-plain", masked = crate::ui::config_ui::MASKED)
                 }
-                crate::ui::config_ui::SecretDisplay::None => "未保存".to_string(),
+                crate::ui::config_ui::SecretDisplay::None => crate::t!("sync-secret-unsaved"),
                 _ => secrets::STORED_PLACEHOLDER.to_string(),
             };
             input.set_placeholder(&placeholder, cx);
@@ -318,7 +324,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                 .items_center()
                 .justify_between()
                 .py(px(8.0))
-                .child(section_title(&t, "存储后端"))
+                .child(section_title(&t, &crate::t!("sync-backend")))
                 .child(backend),
         );
 
@@ -326,48 +332,48 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         body = body.child(note_line(&t, false, err));
     }
 
-    body = body.child(section_title(&t, "连接"));
+    body = body.child(section_title(&t, &crate::t!("sync-connection")));
     if s3 {
         body = body
             .child(form_row(
                 &t,
-                "服务器地址",
-                "http:// 或 https:// 开头，RustFS / MinIO 填写其地址",
+                &crate::t!("sync-server-addr"),
+                &crate::t!("sync-server-addr-desc-s3"),
                 field(&t, &inputs.s3_endpoint),
                 false,
             ))
             .child(form_row(
                 &t,
-                "区域",
-                "兼容服务可填 us-east-1",
+                &crate::t!("sync-region"),
+                &crate::t!("sync-region-desc"),
                 field(&t, &inputs.s3_region),
                 false,
             ))
             .child(form_row(
                 &t,
-                "存储桶",
-                "需要事先在服务器上创建",
+                &crate::t!("sync-bucket"),
+                &crate::t!("sync-bucket-desc"),
                 field(&t, &inputs.s3_bucket),
                 false,
             ))
             .child(form_row(
                 &t,
-                "路径前缀",
-                "桶内保存本库的文件夹，留空则为 jiyue/<库名>/",
+                &crate::t!("sync-prefix"),
+                &crate::t!("sync-prefix-desc"),
                 field(&t, &inputs.s3_prefix),
                 false,
             ))
             .child(form_row(
                 &t,
-                "Access Key ID",
-                "访问密钥 ID",
+                &crate::t!("sync-access-key-id"),
+                &crate::t!("sync-access-key-id-desc"),
                 field(&t, &inputs.s3_key),
                 false,
             ))
             .child(form_row(
                 &t,
-                "Secret Access Key",
-                "明文保存在 credentials.toml 中，不写入笔记库",
+                &crate::t!("sync-secret-access-key"),
+                &crate::t!("sync-secret-desc"),
                 crate::ui::config_ui::secret_control(
                     &t,
                     &s.secret_display,
@@ -378,8 +384,8 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
             ))
             .child(form_row(
                 &t,
-                "路径风格寻址",
-                "RustFS、MinIO 等自建服务通常需要开启",
+                &crate::t!("sync-path-style"),
+                &crate::t!("sync-path-style-desc"),
                 toggle(
                     &t,
                     d.s3_path_style,
@@ -394,22 +400,22 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         body = body
             .child(form_row(
                 &t,
-                "服务器地址",
-                "WebDAV 根地址，如 https://dav.example.com/dav",
+                &crate::t!("sync-server-addr"),
+                &crate::t!("sync-server-addr-desc-dav"),
                 field(&t, &inputs.dav_endpoint),
                 false,
             ))
             .child(form_row(
                 &t,
-                "用户名",
-                "WebDAV 账户",
+                &crate::t!("sync-username"),
+                &crate::t!("sync-username-desc"),
                 field(&t, &inputs.dav_user),
                 false,
             ))
             .child(form_row(
                 &t,
-                "密码",
-                "明文保存在 credentials.toml 中，不写入笔记库",
+                &crate::t!("sync-password"),
+                &crate::t!("sync-secret-desc"),
                 crate::ui::config_ui::secret_control(
                     &t,
                     &s.secret_display,
@@ -420,19 +426,19 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
             ))
             .child(form_row(
                 &t,
-                "远端目录",
-                "保存本库的文件夹",
+                &crate::t!("sync-dav-root"),
+                &crate::t!("sync-dav-root-desc"),
                 field(&t, &inputs.dav_root),
                 true,
             ));
     }
 
-    body = body.child(section_title(&t, "自动同步"));
+    body = body.child(section_title(&t, &crate::t!("sync-auto-sync-section")));
     body = body
         .child(form_row(
             &t,
-            "启用同步",
-            "关闭时不访问远端；修改后需要点击保存设置",
+            &crate::t!("sync-enable"),
+            &crate::t!("sync-enable-desc"),
             toggle(
                 &t,
                 d.enabled,
@@ -445,8 +451,8 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         ))
         .child(form_row(
             &t,
-            "定时同步",
-            "按间隔自动同步",
+            &crate::t!("sync-periodic"),
+            &crate::t!("sync-periodic-desc"),
             toggle(
                 &t,
                 d.auto_sync,
@@ -459,11 +465,11 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         ))
         .child(form_row(
             &t,
-            "同步间隔",
-            "定时同步时使用",
+            &crate::t!("sync-interval"),
+            &crate::t!("sync-interval-desc"),
             segmented(
                 &t,
-                &Interval::LABELS,
+                &Interval::labels(),
                 d.interval.index(),
                 Rc::new(cx.listener(|this, i: &usize, _, cx| {
                     this.ext.sync.draft.interval = Interval::from_index(*i);
@@ -474,8 +480,8 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         ))
         .child(form_row(
             &t,
-            "保存后同步",
-            "笔记保存后等待一段时间再同步",
+            &crate::t!("sync-on-save"),
+            &crate::t!("sync-on-save-desc"),
             toggle(
                 &t,
                 d.sync_on_save,
@@ -488,11 +494,11 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         ))
         .child(form_row(
             &t,
-            "等待时间",
-            "最后一次保存之后的等待时间",
+            &crate::t!("sync-debounce"),
+            &crate::t!("sync-debounce-desc"),
             segmented(
                 &t,
-                &DEBOUNCE_LABELS,
+                &super::config::debounce_labels(),
                 debounce_index(d.save_debounce_secs),
                 Rc::new(cx.listener(|this, i: &usize, _, cx| {
                     let secs = DEBOUNCE_CHOICES.get(*i).copied().unwrap_or(10);
@@ -504,8 +510,8 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         ))
         .child(form_row(
             &t,
-            "启动时同步",
-            "打开笔记库时同步一次",
+            &crate::t!("sync-on-start"),
+            &crate::t!("sync-on-start-desc"),
             toggle(
                 &t,
                 d.sync_on_start,
@@ -518,8 +524,8 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         ))
         .child(form_row(
             &t,
-            "退出时同步",
-            "关闭窗口前同步一次，最多等待 8 秒",
+            &crate::t!("sync-on-exit"),
+            &crate::t!("sync-on-exit-desc"),
             toggle(
                 &t,
                 d.sync_on_exit,
@@ -532,13 +538,13 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         ))
         .child(form_row(
             &t,
-            "本机名称",
-            "冲突副本文件名中的设备标识",
+            &crate::t!("sync-device-name"),
+            &crate::t!("sync-device-name-desc"),
             field(&t, &inputs.device),
             true,
         ));
 
-    body = body.child(section_title(&t, "忽略规则"));
+    body = body.child(section_title(&t, &crate::t!("sync-ignore-rules")));
     body = body.child(
         div()
             .pb(px(10.0))
@@ -547,7 +553,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                     .text_size(px(12.0))
                     .text_color(t.tx3)
                     .pb(px(6.0))
-                    .child("每行一条，如 *.tmp、drafts/，与内置规则合并"),
+                    .child(SharedString::from(crate::t!("sync-ignore-desc"))),
             )
             .child(
                 div()
@@ -584,7 +590,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                     .gap(px(8.0))
                     .child(button(
                         &t,
-                        "测试连接",
+                        &crate::t!("sync-test-connection"),
                         ButtonKind::Secondary,
                         None,
                         cx.listener(|this, _, _, cx| {
@@ -593,7 +599,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                     ))
                     .child(button(
                         &t,
-                        "立即同步",
+                        &crate::t!("sync-sync-now"),
                         ButtonKind::Secondary,
                         None,
                         cx.listener(|this, _, _, cx| {
@@ -604,7 +610,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                     ))
                     .child(button(
                         &t,
-                        "保存设置",
+                        &crate::t!("sync-save-settings"),
                         ButtonKind::Primary,
                         None,
                         cx.listener(|this, _, _, cx| {
@@ -619,12 +625,12 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         body = body.child(card);
     }
 
-    body = body.child(section_title(&t, "危险区"));
+    body = body.child(section_title(&t, &crate::t!("sync-danger-zone")));
     body = body.child(form_row(
         &t,
-        "重置同步状态",
-        "删除 .jiyue/sync/（基准记录、冲突列表、设备标识）。下次同步会重新比对本地与远端，可能产生冲突副本。",
-        button(&t, "重置", ButtonKind::Danger, Some("trash"), cx.listener(|this, _, _, cx| {
+        &crate::t!("sync-reset-state"),
+        &crate::t!("sync-reset-state-desc"),
+        button(&t, &crate::t!("sync-reset-btn"), ButtonKind::Danger, Some("trash"), cx.listener(|this, _, _, cx| {
             this.ext.sync.confirm = Some(Confirm::Reset);
             cx.notify();
         })),
@@ -644,16 +650,10 @@ fn note_line(t: &ActiveTheme, ok: bool, text: &str) -> AnyElement {
 }
 
 /// One text field in a form row (30px high).
-fn field(t: &ActiveTheme, input: &Entity<LineInput>) -> impl IntoElement + use<> {
+fn field(_t: &ActiveTheme, input: &Entity<LineInput>) -> impl IntoElement + use<> {
     div()
         .w(px(300.0))
-        .h(px(30.0))
         .flex_none()
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.sheet)
-        .overflow_hidden()
         .child(input.clone())
 }
 

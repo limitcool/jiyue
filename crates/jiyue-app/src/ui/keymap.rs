@@ -434,6 +434,53 @@ pub const RESERVED: &[(&str, &str)] = &[
     ("alt-shift-down", "复制行"),
 ];
 
+/// Localized meaning of a reserved editing key.
+pub fn reserved_meaning(keys: &str, default_meaning: &str) -> String {
+    match keys {
+        "ctrl-a" => crate::t!("keymap-reserved-select-all"),
+        "ctrl-c" => crate::t!("keymap-reserved-copy"),
+        "ctrl-x" => crate::t!("keymap-reserved-cut"),
+        "ctrl-v" => crate::t!("keymap-reserved-paste"),
+        "ctrl-z" => crate::t!("keymap-reserved-undo"),
+        "ctrl-y" | "ctrl-shift-z" => crate::t!("keymap-reserved-redo"),
+        "left" => crate::t!("keymap-reserved-move-left"),
+        "right" => crate::t!("keymap-reserved-move-right"),
+        "up" => crate::t!("keymap-reserved-move-up"),
+        "down" => crate::t!("keymap-reserved-move-down"),
+        "shift-left" => crate::t!("keymap-reserved-select-left"),
+        "shift-right" => crate::t!("keymap-reserved-select-right"),
+        "shift-up" => crate::t!("keymap-reserved-select-up"),
+        "shift-down" => crate::t!("keymap-reserved-select-down"),
+        "ctrl-left" => crate::t!("keymap-reserved-word-left"),
+        "ctrl-right" => crate::t!("keymap-reserved-word-right"),
+        "ctrl-shift-left" | "ctrl-shift-right" => crate::t!("keymap-reserved-select-word"),
+        "home" => crate::t!("keymap-reserved-line-start"),
+        "end" => crate::t!("keymap-reserved-line-end"),
+        "shift-home" => crate::t!("keymap-reserved-select-line-start"),
+        "shift-end" => crate::t!("keymap-reserved-select-line-end"),
+        "ctrl-home" => crate::t!("keymap-reserved-doc-start"),
+        "ctrl-end" => crate::t!("keymap-reserved-doc-end"),
+        "ctrl-shift-home" => crate::t!("keymap-reserved-select-doc-start"),
+        "ctrl-shift-end" => crate::t!("keymap-reserved-select-doc-end"),
+        "pageup" => crate::t!("keymap-reserved-page-up"),
+        "pagedown" => crate::t!("keymap-reserved-page-down"),
+        "shift-pageup" => crate::t!("keymap-reserved-select-page-up"),
+        "shift-pagedown" => crate::t!("keymap-reserved-select-page-down"),
+        "backspace" => crate::t!("keymap-reserved-del-prev-char"),
+        "delete" => crate::t!("keymap-reserved-del-next-char"),
+        "ctrl-backspace" => crate::t!("keymap-reserved-del-prev-word"),
+        "ctrl-delete" => crate::t!("keymap-reserved-del-next-word"),
+        "enter" => crate::t!("keymap-reserved-line-break"),
+        "tab" => crate::t!("keymap-reserved-indent"),
+        "shift-tab" => crate::t!("keymap-reserved-outdent"),
+        "escape" => crate::t!("keymap-reserved-close-cancel"),
+        "alt-up" => crate::t!("keymap-reserved-move-line-up"),
+        "alt-down" => crate::t!("keymap-reserved-move-line-down"),
+        "alt-shift-down" => crate::t!("keymap-reserved-dup-line"),
+        _ => default_meaning.to_string(),
+    }
+}
+
 /// Looks up a registry row by id.
 pub fn spec(id: &str) -> Option<&'static Spec> {
     SPECS.iter().find(|s| s.id == id)
@@ -796,7 +843,11 @@ impl Keymap {
                 if Chord::parse(&primary(keys)).ok().as_ref() == Some(chord) {
                     out.push(Conflict {
                         id: String::new(),
-                        label: format!("文字编辑键：{meaning}"),
+                        label: format!(
+                            "{prefix}：{localized}",
+                            prefix = crate::t!("keymap-reserved-conflict-prefix"),
+                            localized = reserved_meaning(keys, meaning)
+                        ),
                     });
                 }
             }

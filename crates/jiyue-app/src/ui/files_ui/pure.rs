@@ -236,7 +236,7 @@ pub fn menu_rows(target: &Target) -> Vec<(MenuItem, Option<Act>)> {
                 row("新建文件夹", "folder-plus", None, Act::NewFolder(dir)),
                 sep(),
                 row(
-                    "重命名",
+                    &crate::t!("menu-rename"),
                     "pencil",
                     Some("F2"),
                     Act::Rename {
@@ -245,7 +245,7 @@ pub fn menu_rows(target: &Target) -> Vec<(MenuItem, Option<Act>)> {
                     },
                 ),
                 row(
-                    "移动到…",
+                    &crate::t!("menu-move-to"),
                     "folder",
                     None,
                     Act::Move {
@@ -253,15 +253,15 @@ pub fn menu_rows(target: &Target) -> Vec<(MenuItem, Option<Act>)> {
                         is_dir: *is_dir,
                     },
                 ),
-                row("复制路径", "copy", None, Act::CopyPath(path.clone())),
+                row(&crate::t!("menu-copy-path"), "copy", None, Act::CopyPath(path.clone())),
                 row(
-                    "加入/取消书签",
+                    &crate::t!("menu-bookmark-toggle"),
                     "bookmark",
                     None,
                     Act::Bookmark(path.clone()),
                 ),
                 row(
-                    "在资源管理器中显示",
+                    &crate::t!("menu-reveal-file"),
                     "folder-open",
                     None,
                     Act::Reveal(path.clone()),
@@ -269,7 +269,7 @@ pub fn menu_rows(target: &Target) -> Vec<(MenuItem, Option<Act>)> {
                 sep(),
             ];
             let (delete, act) = row(
-                "删除",
+                &crate::t!("menu-delete"),
                 "trash",
                 Some("Delete"),
                 Act::Delete {
@@ -281,22 +281,22 @@ pub fn menu_rows(target: &Target) -> Vec<(MenuItem, Option<Act>)> {
             rows
         }
         Target::Empty => vec![
-            row("新建笔记", "file-plus", None, Act::NewNote(String::new())),
+            row(&crate::t!("menu-new-note"), "file-plus", None, Act::NewNote(String::new())),
             row(
-                "新建文件夹",
+                &crate::t!("menu-new-folder"),
                 "folder-plus",
                 None,
                 Act::NewFolder(String::new()),
             ),
         ],
         Target::Tab(pos) => vec![
-            row("关闭", "x", None, Act::CloseTab(*pos)),
-            row("关闭其他", "x", None, Act::CloseOthers(*pos)),
-            row("关闭右侧", "x", None, Act::CloseRight(*pos)),
+            row(&crate::t!("menu-close-tab"), "x", None, Act::CloseTab(*pos)),
+            row(&crate::t!("menu-close-other-tabs"), "x", None, Act::CloseOthers(*pos)),
+            row(&crate::t!("menu-close-right-tabs"), "x", None, Act::CloseRight(*pos)),
             sep(),
-            row("复制路径", "copy", None, Act::CopyTabPath(*pos)),
+            row(&crate::t!("menu-copy-path"), "copy", None, Act::CopyTabPath(*pos)),
             row(
-                "在资源管理器中显示",
+                &crate::t!("menu-reveal-file"),
                 "folder-open",
                 None,
                 Act::RevealTab(*pos),
