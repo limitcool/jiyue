@@ -173,9 +173,18 @@ fn font_row(
     let t = app.theme;
     let open = app.settings.fonts.picker.as_ref().map(|p| p.slot) == Some(slot);
     let (title, desc) = match slot {
-        Slot::Ui => (crate::t!("settings-ui-font"), crate::t!("settings-ui-font-desc")),
-        Slot::Editor => (crate::t!("settings-editor-font"), crate::t!("settings-editor-font-desc")),
-        Slot::Code => (crate::t!("settings-code-font"), crate::t!("settings-code-font-desc")),
+        Slot::Ui => (
+            crate::t!("settings-ui-font"),
+            crate::t!("settings-ui-font-desc"),
+        ),
+        Slot::Editor => (
+            crate::t!("settings-editor-font"),
+            crate::t!("settings-editor-font-desc"),
+        ),
+        Slot::Code => (
+            crate::t!("settings-code-font"),
+            crate::t!("settings-code-font-desc"),
+        ),
     };
     let shown = if value.is_empty() {
         crate::t!("settings-font-default", label = default_label)
@@ -415,7 +424,7 @@ fn toggle_picker(
         // The list is read when the editor first paints; the settings page asks for it too.
         fonts::ensure_installed(|| cx.text_system().all_font_names());
     }
-    let input = cx.new(|cx| LineInput::new(cx, &crate::t!("settings-font-search-placeholder")));
+    let input = cx.new(|cx| LineInput::new(cx, crate::t!("settings-font-search-placeholder")));
     let theme = app.theme;
     input.update(cx, |i, cx| i.set_theme(theme, cx));
     let sub = cx.subscribe(
@@ -526,10 +535,7 @@ fn number_stepper(
         .as_ref()
         .filter(|n| n.field == field);
     let value: AnyElement = match editing {
-        Some(n) => div()
-            .w(px(96.0))
-            .child(n.input.clone())
-            .into_any_element(),
+        Some(n) => div().w(px(96.0)).child(n.input.clone()).into_any_element(),
         None => div()
             .flex()
             .items_center()
@@ -770,7 +776,9 @@ fn preview(t: &ActiveTheme, body: &str, code: &str, m: &fonts::Metrics) -> Div {
                 .line_height(px(m.heading_lh[1]))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(t.tx)
-                .child(SharedString::from(crate::t!("settings-font-preview-heading"))),
+                .child(SharedString::from(crate::t!(
+                    "settings-font-preview-heading"
+                ))),
         )
         .child(
             div()

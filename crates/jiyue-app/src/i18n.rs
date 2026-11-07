@@ -89,7 +89,8 @@ impl I18nManager {
     pub fn configured_locale(&self) -> String {
         self.configured_locale
             .read()
-            .map(|l| l.clone())
+            .as_deref()
+            .cloned()
             .unwrap_or_else(|_| LOCALE_AUTO.to_string())
     }
 
@@ -97,7 +98,8 @@ impl I18nManager {
     pub fn current_locale(&self) -> String {
         self.current_locale
             .read()
-            .map(|l| l.clone())
+            .as_deref()
+            .cloned()
             .unwrap_or_else(|_| LOCALE_ZH_CN.to_string())
     }
 
@@ -107,31 +109,34 @@ impl I18nManager {
         let cur = self.current_locale();
 
         // Try current bundle
-        if let Some(bundle) = self.bundles.get(&cur) {
-            if let Some(msg) = bundle.get_message(key) {
-                if let Some(pattern) = msg.value() {
-                    let mut errors = vec![];
-                    let val = bundle.format_pattern(pattern, args, &mut errors);
-                    return val.to_string();
-                }
-            }
+        if let Some(bundle) = self.bundles.get(&cur)
+            && let Some(msg) = bundle.get_message(key)
+            && let Some(pattern) = msg.value()
+        {
+            let mut errors = vec![];
+            let val = bundle.format_pattern(pattern, args, &mut errors);
+            return val.to_string();
         }
 
         // Fallback to zh-CN
-        if cur != LOCALE_ZH_CN {
-            if let Some(bundle) = self.bundles.get(LOCALE_ZH_CN) {
-                if let Some(msg) = bundle.get_message(key) {
-                    if let Some(pattern) = msg.value() {
-                        let mut errors = vec![];
-                        let val = bundle.format_pattern(pattern, args, &mut errors);
-                        return val.to_string();
-                    }
-                }
-            }
+        if cur != LOCALE_ZH_CN
+            && let Some(bundle) = self.bundles.get(LOCALE_ZH_CN)
+            && let Some(msg) = bundle.get_message(key)
+            && let Some(pattern) = msg.value()
+        {
+            let mut errors = vec![];
+            let val = bundle.format_pattern(pattern, args, &mut errors);
+            return val.to_string();
         }
 
         // Ultimate fallback: key itself
         key.to_string()
+    }
+}
+
+impl Default for I18nManager {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

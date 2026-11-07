@@ -1213,7 +1213,11 @@ fn mode_pill(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoEleme
                 .border_color(t.line)
                 .shadow_md()
                 .child(item("code", crate::t!("status-source"), ViewMode::Source))
-                .child(item("eye", crate::t!("status-live-preview"), ViewMode::Live))
+                .child(item(
+                    "eye",
+                    crate::t!("status-live-preview"),
+                    ViewMode::Live,
+                ))
                 .child(item("book-2", crate::t!("status-reading"), ViewMode::Read)),
         )
 }

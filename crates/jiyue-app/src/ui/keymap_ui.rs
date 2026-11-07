@@ -43,7 +43,7 @@ pub struct State {
 
 /// Creates the filter field and subscribes to it. Called once from `RustdianApp::new`.
 pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
-    let input = cx.new(|cx| LineInput::new(cx, &crate::t!("keymap-search-placeholder")));
+    let input = cx.new(|cx| LineInput::new(cx, crate::t!("keymap-search-placeholder")));
     let sub = cx.subscribe(
         &input,
         |this: &mut RustdianApp, _, ev: &LineInputEvent, cx| {

@@ -78,32 +78,40 @@ pub fn render_sidebar(
                 }),
             ),
         )
-        .child(row(&t, "affiliate", &crate::t!("sidebar-graph"), None, false).on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|this, _, _, cx| {
-                this.viewport_mode = if this.viewport_mode == ViewportMode::GraphView {
-                    ViewportMode::Editor
-                } else {
-                    ViewportMode::GraphView
-                };
-                cx.notify();
-            }),
-        ))
         .child(
-            row(&t, "calendar-event", &crate::t!("sidebar-journal"), None, false)
-                .when(today_active, |d| {
-                    d.bg(t.active)
-                        .text_color(t.tx)
-                        .font_weight(FontWeight::MEDIUM)
-                })
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.reset_calendar_month();
-                        this.open_today();
-                        cx.notify();
-                    }),
-                ),
+            row(&t, "affiliate", &crate::t!("sidebar-graph"), None, false).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.viewport_mode = if this.viewport_mode == ViewportMode::GraphView {
+                        ViewportMode::Editor
+                    } else {
+                        ViewportMode::GraphView
+                    };
+                    cx.notify();
+                }),
+            ),
+        )
+        .child(
+            row(
+                &t,
+                "calendar-event",
+                &crate::t!("sidebar-journal"),
+                None,
+                false,
+            )
+            .when(today_active, |d| {
+                d.bg(t.active)
+                    .text_color(t.tx)
+                    .font_weight(FontWeight::MEDIUM)
+            })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.reset_calendar_month();
+                    this.open_today();
+                    cx.notify();
+                }),
+            ),
         )
         .child(app.render_calendar(cx))
         // 书签: a collapsible section (see ui/bookmarks).
@@ -250,7 +258,10 @@ fn workspace(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoEleme
                                 .text_size(px(11.5))
                                 .text_color(t.tx3)
                                 .truncate()
-                                .child(SharedString::from(crate::t!("sidebar-note-count", count = count))),
+                                .child(SharedString::from(crate::t!(
+                                    "sidebar-note-count",
+                                    count = count
+                                ))),
                         ),
                 ),
         )
@@ -789,12 +800,7 @@ fn tags(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + 
                     .font_weight(FontWeight::MEDIUM)
                     .child("#"),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(SharedString::from(name)),
-            )
+            .child(div().flex_1().min_w_0().child(SharedString::from(name)))
             .child(
                 div()
                     .flex_none()

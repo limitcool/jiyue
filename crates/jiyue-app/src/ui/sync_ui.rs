@@ -538,7 +538,11 @@ pub fn statusbar_items(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<
         Status::Idle(None) => (crate::t!("status-sync-never"), t.tx3, t.tx3),
         Status::Idle(Some(ms)) => {
             let rel = schedule::relative_zh(jiyue_sync::state::now_ms(), ms);
-            (crate::t!("status-sync-synced", time = rel.as_str()), t.ok, t.tx3)
+            (
+                crate::t!("status-sync-synced", time = rel.as_str()),
+                t.ok,
+                t.tx3,
+            )
         }
     };
     let chip = div()

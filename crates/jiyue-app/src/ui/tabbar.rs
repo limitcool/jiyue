@@ -323,7 +323,9 @@ fn render_strip(
     // Keep the active tab in view when it changed. If a tab is currently being dragged, do
     // not scroll so the drag target doesn't jump away from the pointer.
     let handle = app.layout.strips[pane].clone();
-    if app.layout.tab_drag.is_none() && let Some(child) = active_child {
+    if app.layout.tab_drag.is_none()
+        && let Some(child) = active_child
+    {
         let active_note = tab_list.get(active_pos).copied().unwrap_or(usize::MAX);
         let prev = app.layout.strip_seen[pane].replace(Some((active_note, 0, 0)));
         let note_changed = prev.map(|(n, _, _)| n) != Some(active_note);

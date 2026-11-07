@@ -1,11 +1,11 @@
 //! Settings dialog (820x540, centred over a scrim). Only controls that change something
 //! today are offered; the rest of the design is left out on purpose.
 
+use futures_util::StreamExt;
 use gpui::{
     AnyElement, Context, Div, FontWeight, IntoElement, KeyDownEvent, MouseButton, Rgba,
     ScrollHandle, SharedString, div, img, prelude::*, px,
 };
-use futures_util::StreamExt;
 
 use crate::daily::{self, DailySettings, Date};
 use crate::theme::{ActiveTheme, RADIUS_L, ThemeKind};
@@ -129,23 +129,25 @@ impl RustdianApp {
         cx.spawn(async move |this, cx| {
             let res = cx
                 .background_executor()
-                .spawn(async move {
-                    crate::update::check_for_update(owner, repo, current_version)
-                })
+                .spawn(async move { crate::update::check_for_update(owner, repo, current_version) })
                 .await;
             let _ = this.update(cx, |app, cx| {
                 match res {
                     Ok(Some(info)) => {
                         let ver = info.version.clone();
                         app.settings.update = crate::update::UpdateState::Available(info);
-                        app.toast(crate::ui::ext::ToastKind::Info, format!("发现新版本 v{ver}，可前往设置查看"));
+                        app.toast(
+                            crate::ui::ext::ToastKind::Info,
+                            format!("发现新版本 v{ver}，可前往设置查看"),
+                        );
                     }
                     Ok(None) => {
                         let now = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_secs())
                             .unwrap_or(0);
-                        app.settings.update = crate::update::UpdateState::UpToDate { checked_at: now };
+                        app.settings.update =
+                            crate::update::UpdateState::UpToDate { checked_at: now };
                         if manual {
                             app.toast(crate::ui::ext::ToastKind::Success, "当前已是最新版本");
                         }
@@ -153,7 +155,10 @@ impl RustdianApp {
                     Err(err) => {
                         app.settings.update = crate::update::UpdateState::Failed(err.clone());
                         if manual {
-                            app.toast(crate::ui::ext::ToastKind::Error, format!("检查更新失败: {err}"));
+                            app.toast(
+                                crate::ui::ext::ToastKind::Error,
+                                format!("检查更新失败: {err}"),
+                            );
                         }
                     }
                 }
@@ -164,7 +169,11 @@ impl RustdianApp {
     }
 
     /// Downloads the available update installer.
-    pub fn trigger_download_update(&mut self, info: crate::update::UpdateInfo, cx: &mut Context<Self>) {
+    pub fn trigger_download_update(
+        &mut self,
+        info: crate::update::UpdateInfo,
+        cx: &mut Context<Self>,
+    ) {
         let version = info.version.clone();
         let total = info.file_size;
         self.settings.update = crate::update::UpdateState::Downloading {
@@ -195,11 +204,17 @@ impl RustdianApp {
                             version: version.clone(),
                             installer_path,
                         };
-                        app.toast(crate::ui::ext::ToastKind::Success, format!("新版本 v{version} 已下载就绪，可立即重启更新"));
+                        app.toast(
+                            crate::ui::ext::ToastKind::Success,
+                            format!("新版本 v{version} 已下载就绪，可立即重启更新"),
+                        );
                     }
                     Err(err) => {
                         app.settings.update = crate::update::UpdateState::Failed(err.clone());
-                        app.toast(crate::ui::ext::ToastKind::Error, format!("下载更新失败: {err}"));
+                        app.toast(
+                            crate::ui::ext::ToastKind::Error,
+                            format!("下载更新失败: {err}"),
+                        );
                     }
                 }
                 cx.notify();
@@ -210,7 +225,13 @@ impl RustdianApp {
         cx.spawn(async move |this, cx| {
             while let Some((p, d, t)) = rx.next().await {
                 let _ = this.update(cx, |app, cx| {
-                    if let crate::update::UpdateState::Downloading { progress, downloaded, total, .. } = &mut app.settings.update {
+                    if let crate::update::UpdateState::Downloading {
+                        progress,
+                        downloaded,
+                        total,
+                        ..
+                    } = &mut app.settings.update
+                    {
                         *progress = p;
                         *downloaded = d;
                         *total = t;
@@ -223,9 +244,16 @@ impl RustdianApp {
     }
 
     /// Triggers silent installation and app relaunch.
-    pub fn trigger_apply_update(&mut self, installer_path: std::path::PathBuf, cx: &mut Context<Self>) {
+    pub fn trigger_apply_update(
+        &mut self,
+        installer_path: std::path::PathBuf,
+        cx: &mut Context<Self>,
+    ) {
         if let Err(err) = crate::update::apply_update_and_restart(&installer_path) {
-            self.toast(crate::ui::ext::ToastKind::Error, format!("启动更新失败: {err}"));
+            self.toast(
+                crate::ui::ext::ToastKind::Error,
+                format!("启动更新失败: {err}"),
+            );
             cx.notify();
         }
     }
@@ -320,7 +348,11 @@ impl RustdianApp {
                                     .rounded(px(4.0))
                                     .cursor_pointer()
                                     .text_size(px(11.0))
-                                    .bg(if cur_loc == "zh-CN" { t.active } else { t.sheet })
+                                    .bg(if cur_loc == "zh-CN" {
+                                        t.active
+                                    } else {
+                                        t.sheet
+                                    })
                                     .text_color(if cur_loc == "zh-CN" { t.tx } else { t.tx3 })
                                     .border_1()
                                     .border_color(if cur_loc == "zh-CN" { t.ac } else { t.line })
@@ -342,7 +374,11 @@ impl RustdianApp {
                                     .rounded(px(4.0))
                                     .cursor_pointer()
                                     .text_size(px(11.0))
-                                    .bg(if cur_loc == "en-US" { t.active } else { t.sheet })
+                                    .bg(if cur_loc == "en-US" {
+                                        t.active
+                                    } else {
+                                        t.sheet
+                                    })
                                     .text_color(if cur_loc == "en-US" { t.tx } else { t.tx3 })
                                     .border_1()
                                     .border_color(if cur_loc == "en-US" { t.ac } else { t.line })
@@ -953,7 +989,10 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             div()
                 .text_size(px(11.5))
                 .text_color(t.tx3)
-                .child(SharedString::from(crate::t!("settings-daily-format-example", example = example.as_str()))),
+                .child(SharedString::from(crate::t!(
+                    "settings-daily-format-example",
+                    example = example.as_str()
+                ))),
         );
 
     div()
@@ -976,10 +1015,7 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         ))
         .child(crate::ui::template_ui::daily_template_row(app, cx))
         .child(crate::ui::template_ui::folder_row(app, cx))
-        .child(note(
-            &t,
-            &crate::t!("settings-daily-note-hint"),
-        ))
+        .child(note(&t, &crate::t!("settings-daily-note-hint")))
 }
 
 fn about_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
@@ -1151,7 +1187,10 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_size(px(14.0))
                                     .text_color(t.tx)
-                                    .child(SharedString::from(format!("发现新版本 v{}", info.version))),
+                                    .child(SharedString::from(format!(
+                                        "发现新版本 v{}",
+                                        info.version
+                                    ))),
                             )
                             .child(
                                 div()
@@ -1208,15 +1247,12 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                                         version
                                     ))),
                             )
-                            .child(
-                                div()
-                                    .text_size(px(12.0))
-                                    .text_color(t.tx2)
-                                    .child(SharedString::from(format!(
-                                        "{:.1} MB / {:.1} MB ({:.0}%)",
-                                        dl_mb, tot_mb, pct
-                                    ))),
-                            ),
+                            .child(div().text_size(px(12.0)).text_color(t.tx2).child(
+                                SharedString::from(format!(
+                                    "{:.1} MB / {:.1} MB ({:.0}%)",
+                                    dl_mb, tot_mb, pct
+                                )),
+                            )),
                     )
                     .child(crate::ui::widgets::controls::progress_bar(&t, *progress)),
             )

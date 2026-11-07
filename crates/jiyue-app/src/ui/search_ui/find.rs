@@ -72,8 +72,8 @@ fn ensure_inputs(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     if app.ext.search.find.find_input.is_some() {
         return;
     }
-    let find = cx.new(|cx| LineInput::new(cx, &crate::t!("find-placeholder")));
-    let replace = cx.new(|cx| LineInput::new(cx, &crate::t!("find-replace-placeholder")));
+    let find = cx.new(|cx| LineInput::new(cx, crate::t!("find-placeholder")));
+    let replace = cx.new(|cx| LineInput::new(cx, crate::t!("find-replace-placeholder")));
     // Enter and Escape are bound by the fields, so they arrive as events: Enter in the find field
     // goes to the next match, Enter in the replace field replaces the current one.
     let find_sub = cx.subscribe(

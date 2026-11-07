@@ -128,7 +128,7 @@ pub fn open(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     let input = match app.ext.search.panel.input.clone() {
         Some(input) => input,
         None => {
-            let input = cx.new(|cx| LineInput::new(cx, &crate::t!("search-placeholder")));
+            let input = cx.new(|cx| LineInput::new(cx, crate::t!("search-placeholder")));
             let sub = cx.subscribe(
                 &input,
                 |app: &mut RustdianApp, _input, ev: &LineInputEvent, cx| match ev {

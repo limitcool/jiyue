@@ -668,10 +668,18 @@ fn recent_row(
             .child(SharedString::from(row.name.clone())),
     );
     if row.current {
-        name_line = name_line.child(badge(t, &crate::t!("settings-vault-badge-current"), BadgeKind::Accent));
+        name_line = name_line.child(badge(
+            t,
+            &crate::t!("settings-vault-badge-current"),
+            BadgeKind::Accent,
+        ));
     }
     if row.missing {
-        name_line = name_line.child(badge(t, &crate::t!("settings-vault-badge-missing"), BadgeKind::Warn));
+        name_line = name_line.child(badge(
+            t,
+            &crate::t!("settings-vault-badge-missing"),
+            BadgeKind::Warn,
+        ));
     }
     let left = div()
         .flex()

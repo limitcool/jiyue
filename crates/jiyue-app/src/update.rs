@@ -80,7 +80,7 @@ pub enum UpdateState {
 
 /// Parses a SemVer triple `(major, minor, patch)` from a version string (e.g. "0.1.1", "v0.1.2").
 pub fn parse_semver(s: &str) -> Option<(u64, u64, u64)> {
-    let clean = s.trim().trim_start_matches(|c| c == 'v' || c == 'V');
+    let clean = s.trim().trim_start_matches(['v', 'V']);
     let mut parts = clean.split('.');
     let major = parts.next()?.parse::<u64>().ok()?;
     let minor = parts.next()?.parse::<u64>().ok()?;
@@ -101,42 +101,46 @@ pub fn is_newer(candidate_tag: &str, current_version: &str) -> bool {
 }
 
 /// Selects the best release asset matching `os` and `arch`.
-pub fn pick_asset<'a>(assets: &'a [ReleaseAsset], os: &str, arch: &str) -> Option<&'a ReleaseAsset> {
+pub fn pick_asset<'a>(
+    assets: &'a [ReleaseAsset],
+    os: &str,
+    arch: &str,
+) -> Option<&'a ReleaseAsset> {
     match os {
         "windows" => {
             let is_arm = arch == "aarch64" || arch == "arm64";
             assets.iter().find(|a| {
                 let lower = a.name.to_lowercase();
-                lower.ends_with(".msi") && if is_arm {
-                    lower.contains("arm64")
-                } else {
-                    lower.contains("x64") || lower.contains("x86_64")
-                }
+                lower.ends_with(".msi")
+                    && if is_arm {
+                        lower.contains("arm64")
+                    } else {
+                        lower.contains("x64") || lower.contains("x86_64")
+                    }
             })
         }
         "macos" => {
             let is_arm = arch == "aarch64" || arch == "arm64";
             assets.iter().find(|a| {
                 let lower = a.name.to_lowercase();
-                lower.ends_with(".dmg") && if is_arm {
-                    lower.contains("aarch64") || lower.contains("arm64")
-                } else {
-                    lower.contains("x64") || lower.contains("x86_64")
-                }
+                lower.ends_with(".dmg")
+                    && if is_arm {
+                        lower.contains("aarch64") || lower.contains("arm64")
+                    } else {
+                        lower.contains("x64") || lower.contains("x86_64")
+                    }
             })
         }
-        "linux" => {
-            assets.iter().find(|a| {
-                let lower = a.name.to_lowercase();
-                lower.ends_with(".appimage") || lower.ends_with(".deb")
-            })
-        }
+        "linux" => assets.iter().find(|a| {
+            let lower = a.name.to_lowercase();
+            lower.ends_with(".appimage") || lower.ends_with(".deb")
+        }),
         _ => None,
     }
 }
 
 /// Finds the `SHA256SUMS` checksums asset in the release if present.
-pub fn find_checksums_asset<'a>(assets: &'a [ReleaseAsset]) -> Option<&'a ReleaseAsset> {
+pub fn find_checksums_asset(assets: &[ReleaseAsset]) -> Option<&ReleaseAsset> {
     assets.iter().find(|a| {
         let lower = a.name.to_lowercase();
         lower == "sha256sums" || lower == "sha256sum" || lower.ends_with(".sha256")
@@ -204,9 +208,7 @@ pub fn check_for_update(
         return Err(format!("检查更新请求失败 (HTTP {})", status));
     }
 
-    let release: GithubRelease = resp
-        .json()
-        .map_err(|e| format!("解析版本信息失败: {e}"))?;
+    let release: GithubRelease = resp.json().map_err(|e| format!("解析版本信息失败: {e}"))?;
 
     if !is_newer(&release.tag_name, current_version) {
         return Ok(None);
@@ -222,10 +224,7 @@ pub fn check_for_update(
     };
 
     let sha256_url = find_checksums_asset(&release.assets).map(|a| a.browser_download_url.clone());
-    let clean_version = release
-        .tag_name
-        .trim_start_matches(|c| c == 'v' || c == 'V')
-        .to_string();
+    let clean_version = release.tag_name.trim_start_matches(['v', 'V']).to_string();
 
     Ok(Some(UpdateInfo {
         version: clean_version,
@@ -258,38 +257,36 @@ pub fn check_latest_tag_via_web(
         .map_err(|e| format!("检查更新连接失败: {e}"))?;
 
     let status = resp.status();
-    if status.is_redirection() {
-        if let Some(loc) = resp.headers().get("Location").and_then(|v| v.to_str().ok()) {
-            if let Some(tag) = loc.split("/tag/").nth(1) {
-                let tag = tag.trim_matches('/');
-                if !is_newer(tag, current_version) {
-                    return Ok(None);
-                }
-
-                let clean_version = tag.trim_start_matches(|c| c == 'v' || c == 'V').to_string();
-                let os = std::env::consts::OS;
-                let arch = std::env::consts::ARCH;
-                let (file_name, _) = default_asset_name_for(os, arch, &clean_version);
-                let download_url = format!(
-                    "https://github.com/{owner}/{repo}/releases/download/{tag}/{file_name}"
-                );
-                let sha256_url = Some(format!(
-                    "https://github.com/{owner}/{repo}/releases/download/{tag}/SHA256SUMS"
-                ));
-
-                return Ok(Some(UpdateInfo {
-                    version: clean_version,
-                    release_notes: format!(
-                        "请前往 https://github.com/{owner}/{repo}/releases/tag/{tag} 查看更新日志。"
-                    ),
-                    published_at: None,
-                    download_url,
-                    file_name,
-                    file_size: 0,
-                    sha256_url,
-                }));
-            }
+    if status.is_redirection()
+        && let Some(loc) = resp.headers().get("Location").and_then(|v| v.to_str().ok())
+        && let Some(tag) = loc.split("/tag/").nth(1)
+    {
+        let tag = tag.trim_matches('/');
+        if !is_newer(tag, current_version) {
+            return Ok(None);
         }
+
+        let clean_version = tag.trim_start_matches(['v', 'V']).to_string();
+        let os = std::env::consts::OS;
+        let arch = std::env::consts::ARCH;
+        let (file_name, _) = default_asset_name_for(os, arch, &clean_version);
+        let download_url =
+            format!("https://github.com/{owner}/{repo}/releases/download/{tag}/{file_name}");
+        let sha256_url = Some(format!(
+            "https://github.com/{owner}/{repo}/releases/download/{tag}/SHA256SUMS"
+        ));
+
+        return Ok(Some(UpdateInfo {
+            version: clean_version,
+            release_notes: format!(
+                "请前往 https://github.com/{owner}/{repo}/releases/tag/{tag} 查看更新日志。"
+            ),
+            published_at: None,
+            download_url,
+            file_name,
+            file_size: 0,
+            sha256_url,
+        }));
     }
 
     Err(format!(
@@ -325,19 +322,15 @@ pub fn update_cache_dir() -> PathBuf {
 }
 
 /// Downloads the installer described by `info` into `cache_dir`, streaming progress via callback.
-pub fn download_installer<F>(
-    info: &UpdateInfo,
-    progress: F,
-) -> Result<PathBuf, String>
+pub fn download_installer<F>(info: &UpdateInfo, progress: F) -> Result<PathBuf, String>
 where
     F: Fn(f32, u64, u64),
 {
     let cache_dir = update_cache_dir();
-    std::fs::create_dir_all(&cache_dir)
-        .map_err(|e| format!("创建更新目录失败: {e}"))?;
+    std::fs::create_dir_all(&cache_dir).map_err(|e| format!("创建更新目录失败: {e}"))?;
 
     let final_path = cache_dir.join(&info.file_name);
-    let part_path = cache_dir.join(format!("{}.part", &info.file_name));
+    let part_path = cache_dir.join(format!("{}.part", info.file_name));
 
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(300))
@@ -359,13 +352,12 @@ where
     };
 
     // If file already exists and passes checksum, reuse it directly!
-    if final_path.exists() {
-        if let Some(ref hash) = expected_hash {
-            if let Ok(true) = verify_file_sha256(&final_path, hash) {
-                progress(1.0, info.file_size, info.file_size);
-                return Ok(final_path);
-            }
-        }
+    if final_path.exists()
+        && let Some(ref hash) = expected_hash
+        && let Ok(true) = verify_file_sha256(&final_path, hash)
+    {
+        progress(1.0, info.file_size, info.file_size);
+        return Ok(final_path);
     }
 
     let mut resp = client
@@ -378,20 +370,23 @@ where
     }
 
     let total_size = resp.content_length().unwrap_or(info.file_size);
-    let mut file = std::fs::File::create(&part_path)
-        .map_err(|e| format!("创建临时文件失败: {e}"))?;
+    let mut file =
+        std::fs::File::create(&part_path).map_err(|e| format!("创建临时文件失败: {e}"))?;
 
     use std::io::Read;
     let mut buffer = [0u8; 16384]; // 16KB buffer
     let mut downloaded: u64 = 0;
 
     loop {
-        let n = resp.read(&mut buffer).map_err(|e| format!("读取下载数据失败: {e}"))?;
+        let n = resp
+            .read(&mut buffer)
+            .map_err(|e| format!("读取下载数据失败: {e}"))?;
         if n == 0 {
             break;
         }
         use std::io::Write;
-        file.write_all(&buffer[..n]).map_err(|e| format!("写入文件失败: {e}"))?;
+        file.write_all(&buffer[..n])
+            .map_err(|e| format!("写入文件失败: {e}"))?;
         downloaded += n as u64;
         let p = if total_size > 0 {
             (downloaded as f32 / total_size as f32).clamp(0.0, 1.0)
@@ -406,8 +401,8 @@ where
 
     // Verify hash if available
     if let Some(ref hash) = expected_hash {
-        let valid = verify_file_sha256(&part_path, hash)
-            .map_err(|e| format!("校验哈希错误: {e}"))?;
+        let valid =
+            verify_file_sha256(&part_path, hash).map_err(|e| format!("校验哈希错误: {e}"))?;
         if !valid {
             let _ = std::fs::remove_file(&part_path);
             return Err("下载文件的 SHA-256 哈希校验不通过，可能文件已损坏或不完整".to_string());
@@ -418,8 +413,7 @@ where
     if final_path.exists() {
         let _ = std::fs::remove_file(&final_path);
     }
-    std::fs::rename(&part_path, &final_path)
-        .map_err(|e| format!("保存最终文件失败: {e}"))?;
+    std::fs::rename(&part_path, &final_path).map_err(|e| format!("保存最终文件失败: {e}"))?;
 
     Ok(final_path)
 }
@@ -463,7 +457,9 @@ pub fn apply_update_and_restart(installer_path: &Path) -> Result<(), String> {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let mut perms = std::fs::metadata(installer_path).map_err(|e| e.to_string())?.permissions();
+                let mut perms = std::fs::metadata(installer_path)
+                    .map_err(|e| e.to_string())?
+                    .permissions();
                 perms.set_mode(0o755);
                 let _ = std::fs::set_permissions(installer_path, perms);
             }
@@ -472,7 +468,10 @@ pub fn apply_update_and_restart(installer_path: &Path) -> Result<(), String> {
                 .map_err(|e| format!("启动新版本失败: {e}"))?;
             std::process::exit(0);
         } else {
-            return Err(format!("安装包已下载至 {}，请在终端中使用包管理器安装", installer_path.display()));
+            return Err(format!(
+                "安装包已下载至 {}，请在终端中使用包管理器安装",
+                installer_path.display()
+            ));
         }
     }
 
@@ -533,16 +532,28 @@ mod tests {
         ];
 
         let win_x64 = pick_asset(&assets, "windows", "x86_64");
-        assert_eq!(win_x64.map(|a| a.name.as_str()), Some("Jiyue-0.1.2-x64-zh-CN.msi"));
+        assert_eq!(
+            win_x64.map(|a| a.name.as_str()),
+            Some("Jiyue-0.1.2-x64-zh-CN.msi")
+        );
 
         let win_arm = pick_asset(&assets, "windows", "aarch64");
-        assert_eq!(win_arm.map(|a| a.name.as_str()), Some("Jiyue-0.1.2-arm64-zh-CN.msi"));
+        assert_eq!(
+            win_arm.map(|a| a.name.as_str()),
+            Some("Jiyue-0.1.2-arm64-zh-CN.msi")
+        );
 
         let mac = pick_asset(&assets, "macos", "aarch64");
-        assert_eq!(mac.map(|a| a.name.as_str()), Some("Jiyue-0.1.2-aarch64.dmg"));
+        assert_eq!(
+            mac.map(|a| a.name.as_str()),
+            Some("Jiyue-0.1.2-aarch64.dmg")
+        );
 
         let linux = pick_asset(&assets, "linux", "x86_64");
-        assert_eq!(linux.map(|a| a.name.as_str()), Some("Jiyue-0.1.2-x86_64.AppImage"));
+        assert_eq!(
+            linux.map(|a| a.name.as_str()),
+            Some("Jiyue-0.1.2-x86_64.AppImage")
+        );
 
         let sums = find_checksums_asset(&assets);
         assert_eq!(sums.map(|a| a.name.as_str()), Some("SHA256SUMS"));

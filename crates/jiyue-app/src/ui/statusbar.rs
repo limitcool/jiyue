@@ -23,7 +23,10 @@ pub fn render_statusbar(
     };
     let status = app.active_save_status(cx);
     let (label, dot) = match status {
-        SaveStatus::Saved => (crate::t!("status-saved"), div().size(px(6.0)).rounded_full().bg(t.ok)),
+        SaveStatus::Saved => (
+            crate::t!("status-saved"),
+            div().size(px(6.0)).rounded_full().bg(t.ok),
+        ),
         SaveStatus::Unsaved => (
             crate::t!("status-unsaved"),
             div().size(px(6.0)).rounded_full().bg(rgb(UNSAVED_AMBER)),

@@ -9,8 +9,8 @@ use gpui::{
 use jiyue_sync::store::ConnectionReport;
 
 use super::config::{
-    Backend, DEBOUNCE_CHOICES, Interval, SyncConfig, debounce_index,
-    normalize_endpoint, normalize_prefix, parse_ignore_text, test_override,
+    Backend, DEBOUNCE_CHOICES, Interval, SyncConfig, debounce_index, normalize_endpoint,
+    normalize_prefix, parse_ignore_text, test_override,
 };
 use super::secrets;
 use super::service;
@@ -104,17 +104,20 @@ pub fn fill_inputs(app: &RustdianApp, cx: &mut Context<RustdianApp>) {
         .ignore
         .update(cx, |editor, cx| editor.set_text(&ignore_text, cx));
     inputs.s3_bucket.update(cx, |input, cx| {
-        input.set_placeholder(&crate::t!("sync-bucket-placeholder"), cx);
+        input.set_placeholder(crate::t!("sync-bucket-placeholder"), cx);
     });
     inputs.device.update(cx, |input, cx| {
-        input.set_placeholder(&crate::t!("sync-device-name-placeholder"), cx);
+        input.set_placeholder(crate::t!("sync-device-name-placeholder"), cx);
     });
     for secret in [&inputs.s3_secret, &inputs.dav_password] {
         secret.update(cx, |input, cx| {
             input.set_text("", cx);
             let placeholder = match &display {
                 crate::ui::config_ui::SecretDisplay::Literal => {
-                    crate::t!("sync-secret-saved-plain", masked = crate::ui::config_ui::MASKED)
+                    crate::t!(
+                        "sync-secret-saved-plain",
+                        masked = crate::ui::config_ui::MASKED
+                    )
                 }
                 crate::ui::config_ui::SecretDisplay::None => crate::t!("sync-secret-unsaved"),
                 _ => secrets::STORED_PLACEHOLDER.to_string(),
@@ -630,10 +633,16 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         &t,
         &crate::t!("sync-reset-state"),
         &crate::t!("sync-reset-state-desc"),
-        button(&t, &crate::t!("sync-reset-btn"), ButtonKind::Danger, Some("trash"), cx.listener(|this, _, _, cx| {
-            this.ext.sync.confirm = Some(Confirm::Reset);
-            cx.notify();
-        })),
+        button(
+            &t,
+            &crate::t!("sync-reset-btn"),
+            ButtonKind::Danger,
+            Some("trash"),
+            cx.listener(|this, _, _, cx| {
+                this.ext.sync.confirm = Some(Confirm::Reset);
+                cx.notify();
+            }),
+        ),
         true,
     ));
 
@@ -651,10 +660,7 @@ fn note_line(t: &ActiveTheme, ok: bool, text: &str) -> AnyElement {
 
 /// One text field in a form row (30px high).
 fn field(_t: &ActiveTheme, input: &Entity<LineInput>) -> impl IntoElement + use<> {
-    div()
-        .w(px(300.0))
-        .flex_none()
-        .child(input.clone())
+    div().w(px(300.0)).flex_none().child(input.clone())
 }
 
 /// "Last sync" summary above the buttons.

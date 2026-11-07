@@ -55,12 +55,39 @@ pub fn render_right_panel(
         .border_color(t.line_soft)
         .font_family(crate::ui::fonts::ui_name())
         .child(properties_section(app, cx))
-        .child(section_title(&t, &crate::t!("panel-outline"), headings.len(), 0.0))
+        .child(section_title(
+            &t,
+            &crate::t!("panel-outline"),
+            headings.len(),
+            0.0,
+        ))
         .child(outline(app, &headings, cx))
-        .child(section_title(&t, &crate::t!("panel-backlinks"), backlinks.len(), 0.0))
-        .child(cards(app, &backlinks, 0, &crate::t!("panel-backlinks-empty"), cx))
-        .child(section_title(&t, &crate::t!("panel-unlinked"), unlinked.len(), 12.0))
-        .child(cards(app, &unlinked, 10_000, &crate::t!("panel-unlinked-empty"), cx))
+        .child(section_title(
+            &t,
+            &crate::t!("panel-backlinks"),
+            backlinks.len(),
+            0.0,
+        ))
+        .child(cards(
+            app,
+            &backlinks,
+            0,
+            &crate::t!("panel-backlinks-empty"),
+            cx,
+        ))
+        .child(section_title(
+            &t,
+            &crate::t!("panel-unlinked"),
+            unlinked.len(),
+            12.0,
+        ))
+        .child(cards(
+            app,
+            &unlinked,
+            10_000,
+            &crate::t!("panel-unlinked-empty"),
+            cx,
+        ))
 }
 
 /// Section heading row: title on the left, item count on the right.

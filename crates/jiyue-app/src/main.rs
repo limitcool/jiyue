@@ -1584,7 +1584,9 @@ fn main() {
                 // Auto update: silently check for updates in background 10 seconds after startup.
                 let update_view = view.clone();
                 cx.spawn(async move |cx| {
-                    cx.background_executor().timer(Duration::from_secs(10)).await;
+                    cx.background_executor()
+                        .timer(Duration::from_secs(10))
+                        .await;
                     let _ = update_view.update(cx, |app, cx| {
                         app.trigger_check_update(false, cx);
                     });

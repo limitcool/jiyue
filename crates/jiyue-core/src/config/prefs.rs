@@ -196,6 +196,7 @@ mod tests {
     fn ui_prefs_round_trip_through_toml() {
         let prefs = UiPrefs {
             theme: "paper".into(),
+            locale: "zh-CN".into(),
             live_preview: false,
             left_sidebar: false,
             right_sidebar: true,
@@ -209,6 +210,7 @@ mod tests {
         assert!(partial.right_sidebar);
         assert!(partial.live_preview);
         assert_eq!(partial.theme, "ink");
+        assert!(partial.locale.is_empty());
     }
 
     #[test]

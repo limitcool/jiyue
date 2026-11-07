@@ -4,8 +4,8 @@
 //! recently edited notes, keyboard shortcuts cheat sheet, and knowledge base tips.
 
 use gpui::{
-    Context, Div, FontWeight, MouseButton, MouseDownEvent, ScrollHandle, SharedString,
-    div, prelude::*, px,
+    Context, Div, FontWeight, MouseButton, MouseDownEvent, ScrollHandle, SharedString, div,
+    prelude::*, px,
 };
 
 use crate::theme::ActiveTheme;
@@ -94,11 +94,7 @@ pub fn render_welcome_page(
         )
 }
 
-fn render_left_column(
-    app: &RustdianApp,
-    t: &ActiveTheme,
-    cx: &mut Context<RustdianApp>,
-) -> Div {
+fn render_left_column(app: &RustdianApp, t: &ActiveTheme, cx: &mut Context<RustdianApp>) -> Div {
     // 1. Start actions
     let start_title = section_title(t, &t!("welcome-start"));
     let action_new = action_button(
@@ -228,7 +224,11 @@ fn render_right_column(t: &ActiveTheme, _cx: &mut Context<RustdianApp>) -> Div {
         .w_full()
         .child(shortcut_item(t, &t!("welcome-shortcut-palette"), "Ctrl+P"))
         .child(shortcut_item(t, &t!("welcome-new-file"), "Ctrl+N"))
-        .child(shortcut_item(t, &t!("welcome-shortcut-search"), "Ctrl+Shift+F"))
+        .child(shortcut_item(
+            t,
+            &t!("welcome-shortcut-search"),
+            "Ctrl+Shift+F",
+        ))
         .child(shortcut_item(t, &t!("welcome-shortcut-settings"), "Ctrl+,"));
 
     let tip_cards = div()

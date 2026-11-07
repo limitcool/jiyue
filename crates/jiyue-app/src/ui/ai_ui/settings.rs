@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Context, Div, Entity, FontWeight, MouseButton, MouseDownEvent, SharedString, Window, div,
-    prelude::*, px,
+    AnyElement, App, Context, Div, Entity, FontWeight, MouseButton, MouseDownEvent, SharedString,
+    Window, div, prelude::*, px,
 };
 use jiyue_ai::{ProviderEntry, ProviderKind};
 use jiyue_core::config::credentials::{self, AI_TABLE};
@@ -574,9 +574,12 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
 
     col = col.child(section_title(&t, &crate::t!("ai-providers")));
     if cfg.providers.is_empty() && s.test.is_none() {
-        col = col.child(div().py(px(6.0)).text_color(t.tx3).child(
-            SharedString::from(crate::t!("ai-no-providers-hint")),
-        ));
+        col = col.child(
+            div()
+                .py(px(6.0))
+                .text_color(t.tx3)
+                .child(SharedString::from(crate::t!("ai-no-providers-hint"))),
+        );
     }
     for p in &cfg.providers {
         col = col.child(provider_row(app, p, cx));
@@ -623,7 +626,11 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     col = col.child(section_title(&t, &crate::t!("ai-chat-service")));
     let mut chat_row = div().flex().flex_wrap().gap(px(6.0));
     if chat_options.is_empty() {
-        chat_row = chat_row.child(div().text_color(t.tx3).child(SharedString::from(crate::t!("ai-add-service-first"))));
+        chat_row = chat_row.child(
+            div()
+                .text_color(t.tx3)
+                .child(SharedString::from(crate::t!("ai-add-service-first"))),
+        );
     }
     for (id, name) in &chat_options {
         let on = active_chat.as_deref() == Some(id.as_str());
@@ -708,9 +715,12 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
 
     // Privacy.
     col = col.child(section_title(&t, &crate::t!("ai-privacy")));
-    col = col.child(div().text_size(px(12.5)).text_color(t.tx2).child(
-        SharedString::from(crate::t!("ai-privacy-desc")),
-    ));
+    col = col.child(
+        div()
+            .text_size(px(12.5))
+            .text_color(t.tx2)
+            .child(SharedString::from(crate::t!("ai-privacy-desc"))),
+    );
 
     div()
         .id("ai-settings-scroll")
@@ -755,7 +765,12 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
                     host_of(&p.base_url),
                     p.chat_model
                 )))
-                .child(div().text_size(px(11.5)).text_color(t.tx3).child(SharedString::from(key_text))),
+                .child(
+                    div()
+                        .text_size(px(11.5))
+                        .text_color(t.tx3)
+                        .child(SharedString::from(key_text)),
+                ),
         )
         .child(
             div()
@@ -864,8 +879,16 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                     kind_pick,
                 )),
         )
-        .child(text_field(&t, &crate::t!("ai-base-url"), inputs.url.clone()))
-        .child(text_field(&t, &crate::t!("ai-chat-model"), inputs.chat_model.clone()))
+        .child(text_field(
+            &t,
+            &crate::t!("ai-base-url"),
+            inputs.url.clone(),
+        ))
+        .child(text_field(
+            &t,
+            &crate::t!("ai-chat-model"),
+            inputs.chat_model.clone(),
+        ))
         .child(text_field(
             &t,
             &crate::t!("ai-embed-model"),
@@ -880,7 +903,12 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             }),
         ))
         .child(crate::ui::config_ui::credentials_help(&t))
-        .child(div().text_size(px(11.5)).text_color(t.tx3).child(SharedString::from(key_hint)));
+        .child(
+            div()
+                .text_size(px(11.5))
+                .text_color(t.tx3)
+                .child(SharedString::from(key_hint)),
+        );
     if let Some((text, color)) = test_line {
         col = col.child(div().text_size(px(12.5)).text_color(color).child(text));
     }
@@ -939,7 +967,12 @@ fn exclusion_list(app: &RustdianApp, kind: ListKind, cx: &mut Context<RustdianAp
     };
     let mut chips = div().flex().flex_wrap().gap(px(6.0));
     if items.is_empty() {
-        chips = chips.child(div().text_size(px(12.0)).text_color(t.tx3).child(SharedString::from(crate::t!("ai-none"))));
+        chips = chips.child(
+            div()
+                .text_size(px(12.0))
+                .text_color(t.tx3)
+                .child(SharedString::from(crate::t!("ai-none"))),
+        );
     }
     for (i, item) in items.iter().enumerate() {
         chips = chips.child(

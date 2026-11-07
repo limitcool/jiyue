@@ -253,7 +253,12 @@ pub fn menu_rows(target: &Target) -> Vec<(MenuItem, Option<Act>)> {
                         is_dir: *is_dir,
                     },
                 ),
-                row(&crate::t!("menu-copy-path"), "copy", None, Act::CopyPath(path.clone())),
+                row(
+                    &crate::t!("menu-copy-path"),
+                    "copy",
+                    None,
+                    Act::CopyPath(path.clone()),
+                ),
                 row(
                     &crate::t!("menu-bookmark-toggle"),
                     "bookmark",
@@ -281,7 +286,12 @@ pub fn menu_rows(target: &Target) -> Vec<(MenuItem, Option<Act>)> {
             rows
         }
         Target::Empty => vec![
-            row(&crate::t!("menu-new-note"), "file-plus", None, Act::NewNote(String::new())),
+            row(
+                &crate::t!("menu-new-note"),
+                "file-plus",
+                None,
+                Act::NewNote(String::new()),
+            ),
             row(
                 &crate::t!("menu-new-folder"),
                 "folder-plus",
@@ -291,10 +301,25 @@ pub fn menu_rows(target: &Target) -> Vec<(MenuItem, Option<Act>)> {
         ],
         Target::Tab(pos) => vec![
             row(&crate::t!("menu-close-tab"), "x", None, Act::CloseTab(*pos)),
-            row(&crate::t!("menu-close-other-tabs"), "x", None, Act::CloseOthers(*pos)),
-            row(&crate::t!("menu-close-right-tabs"), "x", None, Act::CloseRight(*pos)),
+            row(
+                &crate::t!("menu-close-other-tabs"),
+                "x",
+                None,
+                Act::CloseOthers(*pos),
+            ),
+            row(
+                &crate::t!("menu-close-right-tabs"),
+                "x",
+                None,
+                Act::CloseRight(*pos),
+            ),
             sep(),
-            row(&crate::t!("menu-copy-path"), "copy", None, Act::CopyTabPath(*pos)),
+            row(
+                &crate::t!("menu-copy-path"),
+                "copy",
+                None,
+                Act::CopyTabPath(*pos),
+            ),
             row(
                 &crate::t!("menu-reveal-file"),
                 "folder-open",

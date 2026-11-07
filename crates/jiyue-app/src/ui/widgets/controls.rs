@@ -150,7 +150,12 @@ pub fn toggle(
 
 /// Segmented control: one segment per option, the selected one highlighted. `on_select` gets the
 /// index of the clicked segment.
-pub fn segmented(t: &ActiveTheme, options: &[impl AsRef<str>], selected: usize, on_select: PickIndex) -> Div {
+pub fn segmented(
+    t: &ActiveTheme,
+    options: &[impl AsRef<str>],
+    selected: usize,
+    on_select: PickIndex,
+) -> Div {
     let mut control = div()
         .flex()
         .flex_none()
