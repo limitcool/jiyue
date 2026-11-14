@@ -90,10 +90,6 @@ impl Default for AppConfig {
     }
 }
 
-/// Tabs restored on start-up when the vault contains these notes (the demo vault's
-/// design layout). Otherwise the vault's own default tabs are kept.
-const RESTORED_TABS: &[&str] = &["沉积的想法", "GPUI 笔记", "2026-11-03"];
-
 /// One editor per open note. Lives in `RustdianApp::editors`, keyed by the note's path.
 pub struct NoteEditor {
     pub editor: Entity<TextEditor>,
@@ -368,7 +364,7 @@ impl RustdianApp {
         }
         app.restore_tabs();
         if open == Some("daily") {
-            app.focus_restored_daily_tab();
+            app.open_today();
         }
         // Notes given on the command line open as tabs; the last one ends up focused.
         for rel in launch_notes {
@@ -418,46 +414,9 @@ impl RustdianApp {
         self.focus_target(cx)
     }
 
-    /// Restores the design's tab set when those notes exist.
+    /// Restores the tabs and split saved by the last run.
     fn restore_tabs(&mut self) {
-        // The tabs, their order, the active tab and the split of the last run come first.
-        if ui::split::restore(self) {
-            return;
-        }
-        let indices: Vec<usize> = RESTORED_TABS
-            .iter()
-            .filter_map(|title| {
-                self.vault
-                    .notes
-                    .iter()
-                    .position(|n| n.title.eq_ignore_ascii_case(title))
-            })
-            .collect();
-        if indices.len() == RESTORED_TABS.len() {
-            self.vault.open_tabs = indices;
-            self.vault.active_tab_index = 0;
-            self.vault.active_note_index = self.vault.open_tabs[0];
-        }
-    }
-
-    /// Makes the restored daily-note tab (`RESTORED_TABS[2]`) the active note.
-    fn focus_restored_daily_tab(&mut self) {
-        let daily_title = RESTORED_TABS[2];
-        let tab = self
-            .vault
-            .open_tabs
-            .iter()
-            .enumerate()
-            .find(|(_, note_idx)| {
-                self.vault
-                    .notes
-                    .get(**note_idx)
-                    .is_some_and(|n| n.title.eq_ignore_ascii_case(daily_title))
-            });
-        if let Some((tab_idx, &note_idx)) = tab {
-            self.vault.active_tab_index = tab_idx;
-            self.vault.active_note_index = note_idx;
-        }
+        ui::split::restore(self);
     }
 
     /// Path of the active note.
@@ -1451,7 +1410,7 @@ struct Cli {
     /// `--open palette|switcher|settings|library|graph|calendar|daily|editor|widgets`: start with that screen open (for captures).
     /// `library` is the 笔记库 page of the settings dialog.
     /// `widgets` shows the widget catalogue (`ui::widgets::demo`) on top of the app.
-    /// `daily` activates the restored daily-note tab. `editor` opens the active note in Source mode.
+    /// `daily` opens or creates today's daily note. `editor` opens the active note in Source mode.
     open: Option<String>,
     /// Note files given on the command line, as vault-relative paths (see `launch.rs`).
     notes: Vec<String>,

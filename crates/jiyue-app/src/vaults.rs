@@ -944,9 +944,12 @@ extra = true
             ),
             Action::Switch
         );
-        // The app's own path: an empty folder gets the sample notes.
+        // The app's own path: an empty folder starts clean with no sample notes.
         let vault = jiyue_core::vault::Vault::open_or_create(&vault_dir);
-        assert!(!vault.notes.is_empty(), "sample notes are written");
+        assert!(vault.notes.is_empty(), "no sample notes are injected");
+
+        // Write a test note so the folder is non-empty for the open check.
+        fs::write(vault_dir.join("Note.md"), "# Hello\n").expect("write note");
 
         // Open: the folder now has notes, so it opens without a question.
         let facts = inspect(&vault_dir);

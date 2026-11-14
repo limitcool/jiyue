@@ -412,20 +412,6 @@ impl Vault {
 
         // Scan directory for .md files
         vault.load_from_disk();
-
-        // If no notes exist on disk, create standard sample vault notes
-        if vault.notes.is_empty() {
-            vault.populate_initial_samples();
-            vault.save_all();
-        }
-
-        if !vault.notes.is_empty() {
-            vault.open_tabs = vec![0];
-            if vault.notes.len() > 1 {
-                vault.open_tabs.push(1);
-            }
-        }
-
         vault.rebuild_graph();
         vault
     }
@@ -603,100 +589,6 @@ impl Vault {
     /// The inputs of the graph: id, title and text of every note, in note order.
     pub fn graph_sources(&self) -> Vec<GraphSource> {
         self.notes.iter().map(GraphSource::of).collect()
-    }
-
-    /// Populate the Chinese sample notes shown on first run.
-    fn populate_initial_samples(&mut self) {
-        self.notes.push(Note::new(
-            "欢迎使用 Jiyue",
-            "欢迎使用 Jiyue.md",
-            r#"# 欢迎使用 Jiyue
-
-Jiyue 是一款基于 Rust 与 GPUI 构建的本地笔记应用，支持双向链接、知识图谱和每日笔记。
-
-## 核心功能
-| 功能 | 说明 |
-| --- | --- |
-| 双向链接 | 使用 [[知识图谱]] 连接不同笔记 |
-| 知识图谱 | 在图谱视图中查看笔记之间的关系 |
-| 每日笔记 | 通过日历或「今日日记」打开当天的笔记 |
-| 分屏编辑 | 左右并排阅读与编辑 |
-
-## 格式示例
-- **粗体**、*斜体* 与 ~~删除线~~。
-- 行内代码：`cargo run`。
-- 标签示例：#入门 #笔记
-
-> 先记录，再整理。
-"#,
-        ));
-
-        self.notes.push(Note::new(
-            "GPUI 与 Zed 集成",
-            "GPUI 与 Zed 集成.md",
-            r#"# GPUI 与 Zed 集成
-
-Jiyue 的文本缓冲借鉴了 **Zed** 编辑器的设计，界面由 **GPUI** 框架以 GPU 渲染。
-
-## 设计要点
-1. **SumTree 缓冲区**：编辑与选区更新保持对数复杂度。
-2. **GPU 渲染**：界面由 GPUI 的布局原语驱动。
-3. **分屏**：左侧编辑时，可在右侧打开 [[知识图谱]]。
-
-相关阅读：[[欢迎使用 Jiyue]]、[[Jiyue 引擎]]。
-"#,
-        ));
-
-        self.notes.push(Note::new(
-            "知识图谱",
-            "知识图谱.md",
-            r#"# 知识图谱
-
-在 Jiyue 中，笔记不是孤立的文件，而是相互连接的网络。
-
-## 相关笔记
-- [[欢迎使用 Jiyue]]：入门指南。
-- [[GPUI 与 Zed 集成]]：引擎细节。
-- [[2026-11-03]]：当天的日记。
-- [[Jiyue 引擎]]：工程规格。
-
-#知识 #图谱 #笔记
-"#,
-        ));
-
-        self.notes.push(Note::new(
-            "2026-11-03",
-            "Daily Notes/2026-11-03.md",
-            r#"# 2026-11-03 日记
-
-## 今日安排
-- [x] 梳理 Jiyue 的界面结构
-- [x] 实现知识图谱视图
-- [x] 增加分屏与命令面板
-
-## 记录
-- 界面全部使用 GPUI 绘制。
-- 将 [[GPUI 与 Zed 集成]] 用于高性能的文本缓冲。
-"#,
-        ));
-
-        self.notes.push(Note::new(
-            "Jiyue 引擎",
-            "项目/Jiyue 引擎.md",
-            r#"# 项目 / Jiyue 引擎
-
-用 Rust 并借鉴 Zed 的设计思路重新实现笔记引擎的记录。
-
-| 规格 | 数值 | 来源 |
-| --- | --- | --- |
-| 基础字号 | 16px | 设计稿 |
-| 行高 | 1.5 | 设计稿 |
-| 顶栏高度 | 40px | 设计稿 |
-| 侧栏宽度 | 248px | 设计稿 |
-
-相关：[[欢迎使用 Jiyue]]、[[知识图谱]]。
-"#,
-        ));
     }
 
     /// Get currently active note

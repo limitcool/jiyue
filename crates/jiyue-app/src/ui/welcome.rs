@@ -213,6 +213,17 @@ fn render_left_column(app: &RustdianApp, t: &ActiveTheme, cx: &mut Context<Rustd
             cx.notify();
         }),
     );
+    let action_vault = action_button(
+        t,
+        "folder",
+        &t!("welcome-open-vault"),
+        "",
+        cx.listener(|this, _, _, cx| {
+            this.settings.open = true;
+            this.settings.category = crate::ui::settings::CAT_LIBRARY;
+            cx.notify();
+        }),
+    );
 
     // 2. Recent notes list (up to 5 recent notes)
     let recent_title = section_title(t, &t!("welcome-recent"));
@@ -292,7 +303,8 @@ fn render_left_column(app: &RustdianApp, t: &ActiveTheme, cx: &mut Context<Rustd
                 .w_full()
                 .child(action_new)
                 .child(action_search)
-                .child(action_graph),
+                .child(action_graph)
+                .child(action_vault),
         )
         .child(div().h(px(12.0)))
         .child(recent_title)

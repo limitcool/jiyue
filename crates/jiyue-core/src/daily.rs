@@ -901,12 +901,13 @@ mod tests {
 
         assert_eq!(vault.daily_neighbor(d(2026, 11, 30), 1), d(2026, 12, 1));
 
-        let sample = vault
+        vault.create_new_note("普通笔记");
+        let regular = vault
             .notes
             .iter()
-            .find(|n| n.title == "欢迎使用 Jiyue")
-            .expect("sample note exists");
-        assert!(!vault.is_daily_note(sample));
+            .find(|n| n.title == "普通笔记")
+            .expect("regular note exists");
+        assert!(!vault.is_daily_note(regular));
 
         let _ = fs::remove_dir_all(&dir);
     }

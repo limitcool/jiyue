@@ -682,11 +682,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let bridge = VaultBridge::open_or_create(dir.path());
 
-        // 1. Initial vault notes should exist (defaults)
+        // 1. Initial vault should start clean with no sample notes
         let initial_notes = bridge.list_notes();
         assert!(
-            !initial_notes.is_empty(),
-            "Initial vault should have sample notes"
+            initial_notes.is_empty(),
+            "Initial vault should have no sample notes"
         );
 
         // 2. Create a new note

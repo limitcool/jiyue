@@ -663,6 +663,7 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *Jiyue-0.1.2-aa
     }
 
     #[test]
+    #[ignore]
     fn online_check_with_rate_limit_fallback() {
         // Even when GitHub REST API returns 403 rate limit, web fallback succeeds and finds current version is up to date
         let res = check_for_update("limitcool", "jiyue", env!("CARGO_PKG_VERSION"));
@@ -670,6 +671,7 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *Jiyue-0.1.2-aa
     }
 
     #[test]
+    #[ignore]
     fn online_check_finds_update_and_resolves_asset() {
         let res = check_for_update("limitcool", "jiyue", "0.2.0").expect("check update");
         let info = res.expect("found update info");
