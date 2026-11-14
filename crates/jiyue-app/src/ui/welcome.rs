@@ -9,9 +9,10 @@ use gpui::{
 };
 
 use crate::daily::{Date, weekday_name_zh};
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, RADIUS_M};
 use crate::ui::display_family;
 use crate::ui::icons::icon;
+use crate::ui::widgets::controls::{ButtonKind, ButtonSize, button_sized};
 use crate::{AppCommand, RustdianApp, ViewportMode, t};
 
 /// Renders the VSCode-style welcome page.
@@ -155,17 +156,21 @@ fn render_left_column(app: &RustdianApp, t: &ActiveTheme, cx: &mut Context<Rustd
                         ),
                 ),
         )
-        .child(
-            div()
-                .px(px(10.0))
-                .py(px(4.0))
-                .rounded(px(4.0))
-                .bg(if today_exists { t.sheet } else { t.ac })
-                .text_color(if today_exists { t.tx2 } else { t.ac_on })
-                .text_size(px(11.5))
-                .font_weight(FontWeight::MEDIUM)
-                .child(if today_exists { "查看" } else { "开启今日" }),
-        )
+        .child(button_sized(
+            t,
+            if today_exists { "查看" } else { "开启今日" },
+            if today_exists {
+                ButtonKind::Secondary
+            } else {
+                ButtonKind::Primary
+            },
+            ButtonSize::Small,
+            None,
+            cx.listener(|this, _, _, cx| {
+                this.open_today();
+                cx.notify();
+            }),
+        ))
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(|this, _, _, cx| {
@@ -354,13 +359,13 @@ fn action_button(
         .items_center()
         .justify_between()
         .px(px(10.0))
-        .py(px(8.0))
-        .rounded(px(6.0))
+        .h(px(34.0))
+        .rounded(px(RADIUS_M))
         .cursor_pointer()
         .bg(t.raised)
         .border_1()
-        .border_color(t.line)
-        .hover(|s| s.bg(t.hover))
+        .border_color(t.line_soft)
+        .hover(|s| s.bg(t.hover).border_color(t.line))
         .on_mouse_down(MouseButton::Left, listener)
         .child(
             div()

@@ -12,9 +12,12 @@ use jiyue_core::config::credentials::{self, MEMOS_TABLE};
 use jiyue_memos::{Memo, MemosClient, MemosConfig};
 
 use crate::RustdianApp;
-use crate::theme::{RADIUS_M, RADIUS_S};
+use crate::theme::RADIUS_S;
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
+use crate::ui::widgets::controls::{
+    ButtonKind, ButtonSize, IconBtnSize, button, button_sized, icon_button_sized, toggle,
+};
 use crate::ui::widgets::form_row;
 use crate::ui::widgets::line_input::LineInput;
 
@@ -453,56 +456,35 @@ pub fn render_sidebar_section(
             div()
                 .flex()
                 .items_center()
-                .gap(px(4.0))
+                .gap(px(2.0))
                 // Append to Daily button
-                .child(
-                    div()
-                        .id("memos_btn_append_daily")
-                        .size(px(20.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(RADIUS_S))
-                        .hover(|d| d.bg(t.active))
-                        .child(icon("calendar-event", 12.0, t.tx3))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                append_today_memos_to_daily(this, cx);
-                            }),
-                        ),
-                )
+                .child(icon_button_sized(
+                    &t,
+                    "calendar-event",
+                    IconBtnSize::Small,
+                    cx.listener(|this, _, _, cx| {
+                        append_today_memos_to_daily(this, cx);
+                    }),
+                ))
                 // Refresh button
-                .child(
-                    div()
-                        .id("memos_btn_refresh")
-                        .size(px(20.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(RADIUS_S))
-                        .hover(|d| d.bg(t.active))
-                        .child(icon("arrows-sort", 12.0, t.tx3))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                refresh(this, cx);
-                            }),
-                        ),
-                )
+                .child(icon_button_sized(
+                    &t,
+                    "arrows-sort",
+                    IconBtnSize::Small,
+                    cx.listener(|this, _, _, cx| {
+                        refresh(this, cx);
+                    }),
+                ))
                 // Toggle fold
-                .child(
-                    div()
-                        .size(px(20.0))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .child(icon(
-                            if is_open { "arrow-down" } else { "arrow-up" },
-                            11.0,
-                            t.tx3,
-                        )),
-                ),
+                .child(icon_button_sized(
+                    &t,
+                    if is_open { "arrow-down" } else { "arrow-up" },
+                    IconBtnSize::Small,
+                    cx.listener(|this, _, _, cx| {
+                        this.ext.memos.open = !this.ext.memos.open;
+                        cx.notify();
+                    }),
+                )),
         )
         .on_mouse_down(
             MouseButton::Left,
@@ -700,27 +682,16 @@ pub fn render_sidebar_section(
                     })),
             )
             .child(
-                div()
-                    .ml(px(6.0))
-                    .px(px(10.0))
-                    .h(px(32.0))
-                    .bg(t.ac)
-                    .hover(|h| h.opacity(0.9))
-                    .text_color(t.ac_on)
-                    .text_size(px(12.0))
-                    .font_weight(FontWeight::MEDIUM)
-                    .rounded(px(RADIUS_M))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .cursor_pointer()
-                    .child(crate::t!("memos-btn-send"))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, _, cx| {
-                            submit_new_memo(this, cx);
-                        }),
-                    ),
+                div().ml(px(6.0)).child(button_sized(
+                    &t,
+                    &crate::t!("memos-btn-send"),
+                    ButtonKind::Primary,
+                    ButtonSize::Small,
+                    None,
+                    cx.listener(|this, _, _, cx| {
+                        submit_new_memo(this, cx);
+                    }),
+                )),
             )
     } else {
         div().h(px(0.0))
@@ -802,23 +773,14 @@ pub fn render_sidebar_section(
                                     .child(todo.text.clone()),
                             ),
                     )
-                    .child(
-                        div()
-                            .size(px(16.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(RADIUS_S))
-                            .cursor_pointer()
-                            .hover(|d| d.bg(t.active))
-                            .child(icon("trash", 10.0, t.tx3))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |this, _, _, cx| {
-                                    delete_memo(this, &m_del_name, cx);
-                                }),
-                            ),
-                    );
+                    .child(icon_button_sized(
+                        &t,
+                        "trash",
+                        IconBtnSize::Xs,
+                        cx.listener(move |this, _, _, cx| {
+                            delete_memo(this, &m_del_name, cx);
+                        }),
+                    ));
                 card_container = card_container.child(row);
             }
         } else {
@@ -866,7 +828,7 @@ pub fn render_sidebar_section(
                                 .gap(px(6.0))
                                 .child(
                                     div()
-                                        .text_size(px(10.0))
+                                        .text_size(px(11.0))
                                         .text_color(t.tx3)
                                         .cursor_pointer()
                                         .hover(|d| d.text_color(t.ac))
@@ -878,23 +840,14 @@ pub fn render_sidebar_section(
                                             }),
                                         ),
                                 )
-                                .child(
-                                    div()
-                                        .size(px(16.0))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .rounded(px(RADIUS_S))
-                                        .cursor_pointer()
-                                        .hover(|d| d.bg(t.hover))
-                                        .child(icon("trash", 10.5, t.tx3))
-                                        .on_mouse_down(
-                                            MouseButton::Left,
-                                            cx.listener(move |this, _, _, cx| {
-                                                delete_memo(this, &m_del_name, cx);
-                                            }),
-                                        ),
-                                ),
+                                .child(icon_button_sized(
+                                    &t,
+                                    "trash",
+                                    IconBtnSize::Xs,
+                                    cx.listener(move |this, _, _, cx| {
+                                        delete_memo(this, &m_del_name, cx);
+                                    }),
+                                )),
                         ),
                 );
             card_container = card_container.child(card);
@@ -939,30 +892,17 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
     let mut body = div().flex().flex_col().mt(px(4.0));
 
     // 1. Enable Toggle Row
-    let toggle_btn = div()
-        .px(px(12.0))
-        .py(px(4.0))
-        .rounded(px(RADIUS_S))
-        .bg(if cfg.enabled { t.ac } else { t.sheet })
-        .text_color(if cfg.enabled { t.ac_on } else { t.tx3 })
-        .border_1()
-        .border_color(if cfg.enabled { t.ac } else { t.line })
-        .cursor_pointer()
-        .child(if cfg.enabled {
-            "已启用 / Enabled"
-        } else {
-            "已禁用 / Disabled"
-        })
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |this, _, _, cx| {
-                let root = this.vault.root_dir.clone();
-                let mut c = load_config(&root);
-                c.enabled = !c.enabled;
-                let _ = save_config(&root, &c);
-                cx.notify();
-            }),
-        );
+    let toggle_btn = toggle(
+        &t,
+        cfg.enabled,
+        cx.listener(move |this, _, _, cx| {
+            let root = this.vault.root_dir.clone();
+            let mut c = load_config(&root);
+            c.enabled = !c.enabled;
+            let _ = save_config(&root, &c);
+            cx.notify();
+        }),
+    );
 
     body = body.child(form_row(
         &t,
@@ -995,39 +935,29 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
     }
 
     // 4. Save Button
-    let save_btn = div().flex().justify_end().mt(px(16.0)).child(
-        div()
-            .px(px(16.0))
-            .py(px(7.0))
-            .bg(t.ac)
-            .hover(|h| h.opacity(0.9))
-            .text_color(t.ac_on)
-            .text_size(px(13.0))
-            .font_weight(FontWeight::MEDIUM)
-            .rounded(px(RADIUS_M))
-            .cursor_pointer()
-            .child("保存并连接 / Save & Connect")
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _, cx| {
-                    let root = this.vault.root_dir.clone();
-                    let mut c = load_config(&root);
-                    if let Some(inp) = &this.ext.memos.settings_url_input {
-                        c.base_url = inp.read(cx).text().trim().to_string();
-                    }
-                    let _ = save_config(&root, &c);
+    let save_btn = div().flex().justify_end().mt(px(16.0)).child(button(
+        &t,
+        "保存并连接 / Save & Connect",
+        ButtonKind::Primary,
+        Some("check"),
+        cx.listener(move |this, _, _, cx| {
+            let root = this.vault.root_dir.clone();
+            let mut c = load_config(&root);
+            if let Some(inp) = &this.ext.memos.settings_url_input {
+                c.base_url = inp.read(cx).text().trim().to_string();
+            }
+            let _ = save_config(&root, &c);
 
-                    if let Some(inp) = &this.ext.memos.settings_token_input {
-                        let tok = inp.read(cx).text().trim().to_string();
-                        let _ = save_token(&tok);
-                    }
+            if let Some(inp) = &this.ext.memos.settings_token_input {
+                let tok = inp.read(cx).text().trim().to_string();
+                let _ = save_token(&tok);
+            }
 
-                    this.toast(ToastKind::Info, "已保存 Memos 设置");
-                    refresh(this, cx);
-                    cx.notify();
-                }),
-            ),
-    );
+            this.toast(ToastKind::Info, "已保存 Memos 设置");
+            refresh(this, cx);
+            cx.notify();
+        }),
+    ));
 
     body = body.child(save_btn);
     body.into_any_element()

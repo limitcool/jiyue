@@ -35,6 +35,22 @@ pub enum ButtonKind {
     Danger,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ButtonSize {
+    #[default]
+    Medium,
+    Small,
+    Xs,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum IconBtnSize {
+    #[default]
+    Medium,
+    Small,
+    Xs,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BadgeKind {
     Neutral,
@@ -48,11 +64,12 @@ fn danger_colour() -> gpui::Rgba {
     gpui::rgb(DANGER_RGB)
 }
 
-/// Push button, 30px high. `icon` is an embedded icon name drawn before the label.
-pub fn button(
+/// Push button with configurable size, styling, and optional leading icon.
+pub fn button_sized(
     t: &ActiveTheme,
     label: &str,
     kind: ButtonKind,
+    size: ButtonSize,
     icon_name: Option<&str>,
     on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
@@ -72,25 +89,34 @@ pub fn button(
             danger_colour(),
         ),
     };
+
+    let (height, padding_x, font_sz, radius, icon_sz) = match size {
+        ButtonSize::Medium => (30.0, 12.0, 13.0, RADIUS_M, ICON_SIZE),
+        ButtonSize::Small => (26.0, 8.0, 12.0, RADIUS_S, 14.0),
+        ButtonSize::Xs => (22.0, 6.0, 11.0, RADIUS_S, 12.0),
+    };
+
     let mut el = div()
         .flex()
         .flex_none()
         .items_center()
+        .justify_center()
         .gap(px(ICON_GAP_TIGHT))
-        .h(px(30.0))
-        .px(px(12.0))
-        .rounded(px(RADIUS_M))
+        .h(px(height))
+        .px(px(padding_x))
+        .rounded(px(radius))
         .border_1()
         .border_color(border)
         .bg(bg)
         .font_family(crate::ui::fonts::ui_name())
-        .text_size(px(13.0))
+        .text_size(px(font_sz))
         .font_weight(FontWeight::MEDIUM)
         .text_color(fg)
         .cursor_pointer()
         .whitespace_nowrap();
+
     if let Some(name) = icon_name {
-        el = el.child(icon(name, ICON_SIZE, fg));
+        el = el.child(icon(name, icon_sz, fg));
     }
     el = el.child(SharedString::from(label.to_string()));
     el = match kind {
@@ -100,23 +126,50 @@ pub fn button(
     el.on_mouse_down(MouseButton::Left, on_click)
 }
 
+/// Push button, 30px high. `icon` is an embedded icon name drawn before the label.
+pub fn button(
+    t: &ActiveTheme,
+    label: &str,
+    kind: ButtonKind,
+    icon_name: Option<&str>,
+    on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    button_sized(t, label, kind, ButtonSize::Medium, icon_name, on_click)
+}
+
+/// Square icon-only button with configurable size and hover background.
+pub fn icon_button_sized(
+    t: &ActiveTheme,
+    icon_name: &str,
+    size: IconBtnSize,
+    on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    let (box_sz, icon_sz, radius) = match size {
+        IconBtnSize::Medium => (28.0, ICON_SIZE, RADIUS_S),
+        IconBtnSize::Small => (24.0, 14.0, RADIUS_S),
+        IconBtnSize::Xs => (20.0, 12.0, RADIUS_S),
+    };
+
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(box_sz))
+        .rounded(px(radius))
+        .cursor_pointer()
+        .hover(|s| s.bg(t.hover))
+        .child(icon(icon_name, icon_sz, t.tx2))
+        .on_mouse_down(MouseButton::Left, on_click)
+}
+
 /// Square icon-only button (28px) with a hover background.
 pub fn icon_button(
     t: &ActiveTheme,
     icon_name: &str,
     on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(28.0))
-        .rounded(px(RADIUS_S))
-        .cursor_pointer()
-        .hover(|s| s.bg(t.hover))
-        .child(icon(icon_name, ICON_SIZE, t.tx2))
-        .on_mouse_down(MouseButton::Left, on_click)
+    icon_button_sized(t, icon_name, IconBtnSize::Medium, on_click)
 }
 
 /// Switch, 36x20 as in the settings page. `on_change` is called on click; the caller flips its value.
