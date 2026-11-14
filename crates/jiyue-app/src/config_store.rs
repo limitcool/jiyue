@@ -35,6 +35,7 @@ pub struct VaultConfigDoc {
     pub attachments: AttachSettings,
     pub sync: SyncConfig,
     pub ai: AiConfig,
+    pub memos: jiyue_memos::MemosConfig,
 }
 
 /// Which typed shape a file is checked against.

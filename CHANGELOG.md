@@ -3,6 +3,40 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.3.0] - 2026-11-14
+
+### 中文
+
+**新增**
+- **Memos 待办与微记系统（桌面与移动灵感收件箱）**：
+  - 全新独立核心库 `crates/jiyue-memos`，完整封装 Memos v1 REST API 服务。
+  - 左侧栏原生 GPUI 待办看板：支持待办清单（过滤 Markdown 中的 `- [ ]`）与全部微记时间线视图，支持直接点击勾选框切换完成状态（带划线完成视觉反馈）。
+  - 顶部快速记事栏：输入文字或任务回车直接推送到 Memos 服务，无需打开浏览器。
+  - 今日日记联动（Daily Notes Digest）：面板工具栏提供一键归档按钮，将今日的所有闪念与待办格式化追加到今日日记末尾。
+  - 一键插入笔记：卡片支持一键将微记正文直接插入到当前光标所在笔记。
+  - 安全凭据隔离：设置面板提供专用 Memos 实例与 Access Token 配置，密钥独立保存在本机的 `credentials.toml` 中，保障隐私安全。
+- **Android APK 自动化直出工作流**：
+  - 新增 GitHub Actions 流水线 `.github/workflows/build-apk.yml`，基于 `subosito/flutter-action@v2` 与双重缓存策略构建。
+  - 打包产物直接作为独立 `.apk` 文件发布到 GitHub Releases，免解压缩，安卓手机或浏览器直接一键下载安装。
+  - 支持代码推送自动构建与 GitHub 网页端手动一键点击打包（`workflow_dispatch`）。
+
+---
+
+### English
+
+**Added**
+- **Memos & Todo Dashboard (Capture & Inbox System)**:
+  - New standalone crate `crates/jiyue-memos` wrapping the Memos v1 REST API.
+  - Native GPUI sidebar panel: Filter pending todo tasks (`- [ ]`) or browse full timeline memos; interactive checkbox toggling with optimistic strike-through visual feedback.
+  - Quick capture bar: Instantly post thoughts or tasks directly to Memos from the sidebar without opening a browser.
+  - Daily Notes integration: One-click action to format and append today's memos and tasks into the active daily note.
+  - Insert to note: One-click action to insert memo markdown content directly into the active editor at the cursor.
+  - Secure credentials isolation: Dedicated Memos settings page; access tokens are safely stored in local `credentials.toml`, preventing accidental git leaks.
+- **Android APK Direct Release CI/CD Workflow**:
+  - Added `.github/workflows/build-apk.yml` using `subosito/flutter-action@v2` with SDK and Gradle double-caching.
+  - Direct release delivery: Releases uncompressed `.apk` binaries directly to GitHub Releases assets for instant one-click download on Android devices.
+  - Supports both automatic tag/push triggers and manual one-click web dispatch (`workflow_dispatch`).
+
 ## [0.2.0] - 2026-11-07
 
 ### 中文

@@ -62,6 +62,7 @@ pub struct ExtState {
     pub slash: slash_ui::State,
     pub bookmarks: bookmarks::State,
     pub vaults: vaults_ui::State,
+    pub memos: super::memos_ui::State,
     pub toasts: Toasts,
 }
 
@@ -336,6 +337,7 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     template_ui::init(app, cx);
     slash_ui::init(app, cx);
     bookmarks::init(app, cx);
+    super::memos_ui::init(app, cx);
 }
 
 /// Overlays of every module, then the toast layer. These are the last children of the root.

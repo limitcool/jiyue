@@ -116,6 +116,8 @@ pub fn render_sidebar(
         .child(app.render_calendar(cx))
         // 书签: a collapsible section (see ui/bookmarks).
         .child(super::ext::bookmarks::section(app, cx))
+        // Memos / 待办看板: a collapsible section (see ui/memos_ui).
+        .child(super::memos_ui::render_sidebar_section(app, cx))
         .child(section_header(&t, &crate::t!("sidebar-files"), true, cx))
         // The file tree takes the remaining height and scrolls. It has focus after a click on a
         // row, so Delete, F2, Enter and the Menu key act on the selection (files_ui::tree_key).

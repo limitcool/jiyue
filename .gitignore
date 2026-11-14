@@ -47,3 +47,7 @@
 installer/out/
 installer/obj/
 installer/.wix/
+
+# Local test scratch
+/start_avd_gui.bat
+/test_steps.json

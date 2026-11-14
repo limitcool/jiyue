@@ -21,6 +21,8 @@ use super::{CREDENTIALS_FILE, user_file};
 pub const AI_TABLE: &str = "ai";
 /// Table of sync secrets, keyed by the vault id.
 pub const SYNC_TABLE: &str = "sync";
+/// Table of Memos access tokens, keyed by instance id or "default".
+pub const MEMOS_TABLE: &str = "memos";
 
 /// One AI provider's secret.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -59,12 +61,28 @@ impl fmt::Debug for SyncCredential {
     }
 }
 
+/// Memos access token secret.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct MemosCredential {
+    pub token: String,
+}
+
+impl fmt::Debug for MemosCredential {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MemosCredential")
+            .field("token", &"***")
+            .finish()
+    }
+}
+
 /// The whole credentials file.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct CredentialsFile {
     pub ai: BTreeMap<String, AiCredential>,
     pub sync: BTreeMap<String, SyncCredential>,
+    pub memos: BTreeMap<String, MemosCredential>,
 }
 
 impl fmt::Debug for CredentialsFile {
@@ -72,6 +90,7 @@ impl fmt::Debug for CredentialsFile {
         f.debug_struct("CredentialsFile")
             .field("ai", &self.ai.keys().collect::<Vec<_>>())
             .field("sync", &self.sync.keys().collect::<Vec<_>>())
+            .field("memos", &self.memos.keys().collect::<Vec<_>>())
             .finish()
     }
 }
@@ -257,17 +276,23 @@ mod tests {
             secret_access_key: "hunter2".into(),
             ..SyncCredential::default()
         };
+        let memo = MemosCredential {
+            token: "memos-super-secret".into(),
+        };
         let file = CredentialsFile {
             ai: [("openai".to_string(), cred.clone())].into_iter().collect(),
             sync: [("v1".to_string(), sync.clone())].into_iter().collect(),
+            memos: [("default".to_string(), memo.clone())].into_iter().collect(),
         };
         for text in [
             format!("{cred:?}"),
             format!("{sync:?}"),
+            format!("{memo:?}"),
             format!("{file:?}"),
         ] {
             assert!(!text.contains("sk-super"), "{text}");
             assert!(!text.contains("hunter2"), "{text}");
+            assert!(!text.contains("memos-super"), "{text}");
         }
     }
 

@@ -22,6 +22,7 @@ pub mod inline;
 pub mod keymap;
 pub mod keymap_ui;
 pub mod md_style;
+pub mod memos_ui;
 pub mod nav_history;
 pub mod palette;
 pub mod right_panel;

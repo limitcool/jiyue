@@ -21,16 +21,19 @@ pub const CAT_DAILY: usize = 2;
 pub const CAT_SYNC: usize = 3;
 /// Index of the AI category (rendered by `ai_ui`).
 pub const CAT_AI: usize = 4;
+/// Index of the Memos category (rendered by `memos_ui`).
+pub const CAT_MEMOS: usize = 5;
 /// Index of the 笔记库 category (rendered by `vaults_ui`).
-pub const CAT_LIBRARY: usize = 6;
+pub const CAT_LIBRARY: usize = 7;
 
 /// Category rows: (label, icon name).
-const CATEGORIES: [(&str, &str); 8] = [
+const CATEGORIES: [(&str, &str); 9] = [
     ("编辑器", "pencil"),
     ("外观", "palette"),
     ("日记", "calendar-event"),
     ("同步", "link"),
     ("AI", "bulb"),
+    ("Memos", "checkbox"),
     ("快捷键", "keyboard"),
     ("笔记库", "folder"),
     ("关于", "info-circle"),
@@ -44,8 +47,9 @@ pub fn category_label(idx: usize) -> String {
         2 => "settings-cat-daily",
         3 => "settings-cat-sync",
         4 => "settings-cat-ai",
-        5 => "settings-cat-keymap",
-        6 => "settings-cat-vaults",
+        5 => "settings-cat-memos",
+        6 => "settings-cat-keymap",
+        7 => "settings-cat-vaults",
         _ => "settings-cat-about",
     };
     crate::t!(key)
@@ -403,8 +407,9 @@ impl RustdianApp {
             2 => daily_section(self, cx).into_any_element(),
             3 => crate::ui::sync_ui::render_settings_section(self, cx),
             4 => crate::ui::ai_ui::render_settings_section(self, cx),
-            5 => crate::ui::keymap_ui::render_section(self, cx),
-            6 => crate::ui::vaults_ui::render_library_section(self, cx),
+            5 => crate::ui::memos_ui::render_settings_section(self, cx),
+            6 => crate::ui::keymap_ui::render_section(self, cx),
+            7 => crate::ui::vaults_ui::render_library_section(self, cx),
             _ => about_section(self, cx).into_any_element(),
         };
         let title = category_label(category);
@@ -1399,9 +1404,11 @@ mod tests {
     fn sync_and_ai_categories_follow_daily() {
         assert_eq!(CATEGORIES[CAT_SYNC].0, "同步");
         assert_eq!(CATEGORIES[CAT_AI].0, "AI");
+        assert_eq!(CATEGORIES[CAT_MEMOS].0, "Memos");
         assert_eq!(CAT_SYNC, CAT_DAILY + 1);
         assert_eq!(CAT_AI, CAT_SYNC + 1);
-        assert_eq!(CATEGORIES[CAT_AI + 1].0, "快捷键");
-        assert_eq!(CATEGORIES.len(), 8);
+        assert_eq!(CAT_MEMOS, CAT_AI + 1);
+        assert_eq!(CATEGORIES[CAT_MEMOS + 1].0, "快捷键");
+        assert_eq!(CATEGORIES.len(), 9);
     }
 }
