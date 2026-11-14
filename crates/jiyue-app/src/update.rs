@@ -237,6 +237,31 @@ pub fn check_for_update(
     }))
 }
 
+/// Parses raw HTML from GitHub expanded_assets into ReleaseAsset list.
+pub fn parse_expanded_assets_html(
+    html: &str,
+    owner: &str,
+    repo: &str,
+    tag: &str,
+) -> Vec<ReleaseAsset> {
+    let mut assets = Vec::new();
+    let prefix = format!("/{owner}/{repo}/releases/download/{tag}/");
+    for part in html.split('"') {
+        if let Some(rest) = part.strip_prefix(&prefix) {
+            let file_name = rest.split(['?', '#', '/', '&']).next().unwrap_or("").trim();
+            if !file_name.is_empty() && !assets.iter().any(|a: &ReleaseAsset| a.name == file_name) {
+                let download_url = format!("https://github.com{prefix}{file_name}");
+                assets.push(ReleaseAsset {
+                    name: file_name.to_string(),
+                    browser_download_url: download_url,
+                    size: 0,
+                });
+            }
+        }
+    }
+    assets
+}
+
 /// Fallback update check querying GitHub Releases Web endpoint (bypasses GitHub REST API 60 req/hr rate limit).
 pub fn check_latest_tag_via_web(
     owner: &str,
@@ -269,12 +294,53 @@ pub fn check_latest_tag_via_web(
         let clean_version = tag.trim_start_matches(['v', 'V']).to_string();
         let os = std::env::consts::OS;
         let arch = std::env::consts::ARCH;
-        let (file_name, _) = default_asset_name_for(os, arch, &clean_version);
-        let download_url =
-            format!("https://github.com/{owner}/{repo}/releases/download/{tag}/{file_name}");
-        let sha256_url = Some(format!(
-            "https://github.com/{owner}/{repo}/releases/download/{tag}/SHA256SUMS"
-        ));
+
+        // Try querying expanded_assets to get exact assets list bypassing API limit
+        let expanded_url =
+            format!("https://github.com/{owner}/{repo}/releases/expanded_assets/{tag}");
+        let client_follow = reqwest::blocking::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .user_agent(format!("Jiyue-App/{}", current_version))
+            .build()
+            .map_err(|e| format!("创建网络客户端失败: {e}"))?;
+
+        let assets = if let Ok(exp_resp) = client_follow.get(&expanded_url).send()
+            && exp_resp.status().is_success()
+            && let Ok(html) = exp_resp.text()
+        {
+            parse_expanded_assets_html(&html, owner, repo, tag)
+        } else {
+            Vec::new()
+        };
+
+        let (download_url, file_name, mut file_size, sha256_url) = if let Some(asset) =
+            pick_asset(&assets, os, arch)
+        {
+            let sha256_url = find_checksums_asset(&assets).map(|a| a.browser_download_url.clone());
+            (
+                asset.browser_download_url.clone(),
+                asset.name.clone(),
+                asset.size,
+                sha256_url,
+            )
+        } else {
+            let (file_name, _) = default_asset_name_for(os, arch, &clean_version);
+            let download_url =
+                format!("https://github.com/{owner}/{repo}/releases/download/{tag}/{file_name}");
+            let sha256_url = Some(format!(
+                "https://github.com/{owner}/{repo}/releases/download/{tag}/SHA256SUMS"
+            ));
+            (download_url, file_name, 0, sha256_url)
+        };
+
+        // If file_size is 0, probe via a fast HEAD request to get real Content-Length
+        if file_size == 0 {
+            if let Ok(head_resp) = client_follow.head(&download_url).send() {
+                if let Some(len) = head_resp.content_length() {
+                    file_size = len;
+                }
+            }
+        }
 
         return Ok(Some(UpdateInfo {
             version: clean_version,
@@ -284,7 +350,7 @@ pub fn check_latest_tag_via_web(
             published_at: None,
             download_url,
             file_name,
-            file_size: 0,
+            file_size,
             sha256_url,
         }));
     }
@@ -298,12 +364,13 @@ pub fn check_latest_tag_via_web(
 /// Default asset filename and package format for a target platform.
 pub fn default_asset_name_for(os: &str, arch: &str, version: &str) -> (String, &'static str) {
     match (os, arch) {
-        ("windows", "x86_64") => (format!("jiyue-{version}-x64-setup.msi"), "msi"),
-        ("windows", "aarch64") => (format!("jiyue-{version}-arm64-setup.msi"), "msi"),
-        ("macos", "aarch64") => (format!("jiyue-{version}-arm64.dmg"), "dmg"),
-        ("macos", "x86_64") => (format!("jiyue-{version}-x64.dmg"), "dmg"),
-        ("linux", "x86_64") => (format!("jiyue_{version}_amd64.AppImage"), "appimage"),
-        _ => (format!("jiyue-{version}-{os}-{arch}.zip"), "zip"),
+        ("windows", "x86_64") => (format!("Jiyue-{version}-x64.msi"), "msi"),
+        ("windows", "aarch64") => (format!("Jiyue-{version}-arm64.msi"), "msi"),
+        ("macos", "aarch64") => (format!("Jiyue_{version}_aarch64.dmg"), "dmg"),
+        ("macos", "x86_64") => (format!("Jiyue_{version}_x64.dmg"), "dmg"),
+        ("linux", "x86_64") => (format!("jiyue_{version}_x86_64.AppImage"), "appimage"),
+        ("linux", "aarch64") => (format!("jiyue_{version}_aarch64.AppImage"), "appimage"),
+        _ => (format!("Jiyue-{version}-{os}-{arch}.zip"), "zip"),
     }
 }
 
@@ -578,9 +645,47 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *Jiyue-0.1.2-aa
     }
 
     #[test]
+    fn parse_expanded_assets_html_extracts_links() {
+        let html = r#"
+            <a href="/limitcool/jiyue/releases/download/v0.3.0/Jiyue-0.3.0-x64.msi">x64</a>
+            <a href="/limitcool/jiyue/releases/download/v0.3.0/Jiyue-0.3.0-arm64.msi">arm64</a>
+            <a href="/limitcool/jiyue/releases/download/v0.3.0/SHA256SUMS">sums</a>
+        "#;
+        let assets = parse_expanded_assets_html(html, "limitcool", "jiyue", "v0.3.0");
+        assert_eq!(assets.len(), 3);
+        assert_eq!(assets[0].name, "Jiyue-0.3.0-x64.msi");
+        assert_eq!(
+            assets[0].browser_download_url,
+            "https://github.com/limitcool/jiyue/releases/download/v0.3.0/Jiyue-0.3.0-x64.msi"
+        );
+        assert_eq!(assets[1].name, "Jiyue-0.3.0-arm64.msi");
+        assert_eq!(assets[2].name, "SHA256SUMS");
+    }
+
+    #[test]
     fn online_check_with_rate_limit_fallback() {
         // Even when GitHub REST API returns 403 rate limit, web fallback succeeds and finds current version is up to date
         let res = check_for_update("limitcool", "jiyue", env!("CARGO_PKG_VERSION"));
         assert!(matches!(res, Ok(None)), "Got result: {:?}", res);
+    }
+
+    #[test]
+    fn online_check_finds_update_and_resolves_asset() {
+        let res = check_for_update("limitcool", "jiyue", "0.2.0").expect("check update");
+        let info = res.expect("found update info");
+        assert_eq!(info.version, "0.3.0");
+        assert!(
+            info.file_size > 0,
+            "file_size must be probed from HEAD or API"
+        );
+        assert!(
+            info.download_url.contains("Jiyue-0.3.0"),
+            "url: {}",
+            info.download_url
+        );
+        assert!(
+            !info.download_url.contains("-setup"),
+            "must not contain -setup"
+        );
     }
 }

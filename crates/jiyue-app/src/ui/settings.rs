@@ -1181,6 +1181,11 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 }),
             );
             let mb = (info.file_size as f64) / (1024.0 * 1024.0);
+            let size_text = if info.file_size > 0 {
+                format!("({:.1} MB)", mb)
+            } else {
+                String::new()
+            };
             let mut col = div().flex().flex_col().gap(px(8.0));
             col = col.child(
                 div()
@@ -1203,12 +1208,14 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                                         info.version
                                     ))),
                             )
-                            .child(
-                                div()
-                                    .text_size(px(12.0))
-                                    .text_color(t.tx3)
-                                    .child(SharedString::from(format!("({:.1} MB)", mb))),
-                            ),
+                            .when(!size_text.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .text_size(px(12.0))
+                                        .text_color(t.tx3)
+                                        .child(SharedString::from(size_text)),
+                                )
+                            }),
                     )
                     .child(dl_btn),
             );
