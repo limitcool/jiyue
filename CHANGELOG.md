@@ -15,10 +15,10 @@ Versions follow [Semantic Versioning](https://semver.org/). Every entry is writt
   - 今日日记联动（Daily Notes Digest）：面板工具栏提供一键归档按钮，将今日的所有闪念与待办格式化追加到今日日记末尾。
   - 一键插入笔记：卡片支持一键将微记正文直接插入到当前光标所在笔记。
   - 安全凭据隔离：设置面板提供专用 Memos 实例与 Access Token 配置，密钥独立保存在本机的 `credentials.toml` 中，保障隐私安全。
-- **Android APK 自动化直出工作流**：
-  - 新增 GitHub Actions 流水线 `.github/workflows/build-apk.yml`，基于 `subosito/flutter-action@v2` 与双重缓存策略构建。
-  - 打包产物直接作为独立 `.apk` 文件发布到 GitHub Releases，免解压缩，安卓手机或浏览器直接一键下载安装。
-  - 支持代码推送自动构建与 GitHub 网页端手动一键点击打包（`workflow_dispatch`）。
+- **Android APK 自动化构建与发布**：
+  - 将移动端 Android APK 打包无缝整合至主发布工作流（`.github/workflows/release.yml`），由 `v*` 标签或手动触发。
+  - 构建产物直接作为独立的 `Jiyue-0.3.0-android.apk` 安装包并入 GitHub Releases，免解压缩，安卓手机或浏览器直接一键下载安装。
+  - 环境采用与工程完全匹配的 Flutter 3.29.2 与 Java 17，并在 CI 环境中自动直连官方源保障构建稳定性。
 
 ---
 
@@ -32,10 +32,10 @@ Versions follow [Semantic Versioning](https://semver.org/). Every entry is writt
   - Daily Notes integration: One-click action to format and append today's memos and tasks into the active daily note.
   - Insert to note: One-click action to insert memo markdown content directly into the active editor at the cursor.
   - Secure credentials isolation: Dedicated Memos settings page; access tokens are safely stored in local `credentials.toml`, preventing accidental git leaks.
-- **Android APK Direct Release CI/CD Workflow**:
-  - Added `.github/workflows/build-apk.yml` using `subosito/flutter-action@v2` with SDK and Gradle double-caching.
-  - Direct release delivery: Releases uncompressed `.apk` binaries directly to GitHub Releases assets for instant one-click download on Android devices.
-  - Supports both automatic tag/push triggers and manual one-click web dispatch (`workflow_dispatch`).
+- **Android APK Build & Unified Release Workflow**:
+  - Integrated Android APK packaging directly into the main release workflow (`.github/workflows/release.yml`), triggered alongside desktop releases on tags.
+  - Releases uncompressed `Jiyue-0.3.0-android.apk` binary alongside desktop packages on GitHub Releases for fast, direct downloading on mobile devices.
+  - Pinned Flutter 3.29.2 and Java 17 with CI official Maven/Google repository connectivity for reliable unattended builds.
 
 ## [0.2.0] - 2026-11-07
 

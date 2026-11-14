@@ -309,14 +309,56 @@ jobs:
             dist/*.AppImage
           if-no-files-found: error
 
+  android:
+    name: Android APK
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: mobile
+        env:
+          CI: 'true'
+        run: flutter build apk --release
+
+      - name: Prepare APK Asset
+        run: |
+          mkdir -p dist
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk dist/Jiyue-${{ needs.prepare.outputs.version }}-android.apk
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-android
+          path: dist/*.apk
+          if-no-files-found: error
+
   publish:
     name: Publish the GitHub Release
-    needs: [prepare, checks, windows, macos, linux]
+    needs: [prepare, checks, windows, macos, linux, android]
     # The tests gate the release: checks must succeed, or be skipped by a manual run with skip_checks.
     # If checks failed or was cancelled, nothing is published (the packages stay as workflow artifacts).
     # Otherwise publish whatever was built, even when one platform failed, so a release is never empty
     # because of one broken job. A release with a failed platform is marked as a pre-release.
-    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.checks.result == 'success' || (needs.checks.result == 'skipped' && inputs.skip_checks)) && (needs.windows.result == 'success' || needs.macos.result == 'success' || needs.linux.result == 'success') }}
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.checks.result == 'success' || (needs.checks.result == 'skipped' && inputs.skip_checks)) && (needs.windows.result == 'success' || needs.macos.result == 'success' || needs.linux.result == 'success' || needs.android.result == 'success') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -347,11 +389,13 @@ jobs:
           WINDOWS: ${{ needs.windows.result }}
           MACOS: ${{ needs.macos.result }}
           LINUX: ${{ needs.linux.result }}
+          ANDROID: ${{ needs.android.result }}
         run: |
           failed=""
           [ "$WINDOWS" = "success" ] || failed="$failed Windows"
           [ "$MACOS" = "success" ] || failed="$failed macOS"
           [ "$LINUX" = "success" ] || failed="$failed Linux"
+          [ "$ANDROID" = "success" ] || failed="$failed Android"
           # The notes of this version come from CHANGELOG.md (the section "## [<version>]").
           awk -v v="$VERSION" '/^## \[/ { p = (index($0, "## [" v "]") == 1) } p' CHANGELOG.md > changelog-section.md
           {
