@@ -1,11 +1,13 @@
 # Release builds of Jiyue, attached to a GitHub Release. One workflow run per tag:
 #   checks    the workflow ci.yml, called as a reusable workflow (fmt, clippy, tests on every OS)
-#   packages  Windows, macOS (arm64 and x64), Linux: they run in parallel with checks
+#   packages  Windows, macOS (arm64 and x64), Linux, Android: they run in parallel with checks
 #   publish   runs only when checks succeeded; a failed or cancelled check blocks the release
-# Cut a release with: git tag v0.1.0 && git push origin v0.1.0   (the tag must equal v + the version in
+# Cut a release with: git tag v0.3.0 && git push origin v0.3.0   (the tag must equal v + the version in
 # crates/jiyue-app/Cargo.toml). Or run the workflow by hand with a tag name (creates a draft release).
-# Windows: installer/ (WiX 6, MSI per user, zh-CN), built by installer/build.ps1. Artifacts: .msi, .dmg, .deb, .AppImage.
+# Windows: installer/ (WiX 6, MSI per user, zh-CN), built by installer/build.ps1.
 # macOS and Linux: cargo-packager 0.11.8 (metadata in crates/jiyue-app/Cargo.toml).
+# Android: Flutter 3.29.2 in mobile/ -> Jiyue-<version>-android.apk.
+# Artifacts: .msi, .dmg, .deb, .AppImage, .apk, SHA256SUMS.
 # Details, secrets and the unverified parts: docs/ci.md.
 
 name: Release
