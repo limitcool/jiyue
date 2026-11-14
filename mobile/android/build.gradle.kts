@@ -1,10 +1,16 @@
 allprojects {
     repositories {
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
-        maven { url = uri("https://maven.aliyun.com/repository/central") }
-        maven { url = uri("https://maven.aliyun.com/repository/public") }
-        google()
-        mavenCentral()
+        val isCi = System.getenv("CI") == "true" || System.getenv("GITHUB_ACTIONS") == "true"
+        if (isCi) {
+            google()
+            mavenCentral()
+        } else {
+            maven { url = uri("https://maven.aliyun.com/repository/google") }
+            maven { url = uri("https://maven.aliyun.com/repository/central") }
+            maven { url = uri("https://maven.aliyun.com/repository/public") }
+            google()
+            mavenCentral()
+        }
     }
 }
 
