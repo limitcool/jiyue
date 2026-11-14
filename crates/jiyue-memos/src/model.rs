@@ -52,10 +52,7 @@ impl Memo {
         visibility: Option<String>,
         pinned: bool,
     ) -> Self {
-        let id = name
-            .strip_prefix("memos/")
-            .unwrap_or(&name)
-            .to_string();
+        let id = name.strip_prefix("memos/").unwrap_or(&name).to_string();
         let tags = extract_tags(&content);
         let todos = extract_todos(&content);
 
@@ -93,7 +90,8 @@ pub fn extract_tags(content: &str) -> Vec<String> {
     let mut tags = Vec::new();
     for word in content.split_whitespace() {
         if let Some(tag) = word.strip_prefix('#') {
-            let clean = tag.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '_' && c != '-');
+            let clean = tag
+                .trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '_' && c != '-');
             if !clean.is_empty() && !tags.contains(&clean.to_string()) {
                 tags.push(clean.to_string());
             }
@@ -113,7 +111,10 @@ pub fn extract_todos(content: &str) -> Vec<TodoItem> {
                 text: rest.trim().to_string(),
                 done: false,
             });
-        } else if let Some(rest) = trimmed.strip_prefix("- [x] ").or_else(|| trimmed.strip_prefix("- [X] ")) {
+        } else if let Some(rest) = trimmed
+            .strip_prefix("- [x] ")
+            .or_else(|| trimmed.strip_prefix("- [X] "))
+        {
             todos.push(TodoItem {
                 line_index: idx,
                 text: rest.trim().to_string(),
@@ -138,10 +139,11 @@ pub fn toggle_markdown_todo(content: &str, target_line: usize) -> Option<String>
 
     let new_line = if let Some(rest) = trimmed.strip_prefix("- [ ] ") {
         format!("{}- [x] {}", prefix_spaces, rest)
-    } else if let Some(rest) = trimmed.strip_prefix("- [x] ").or_else(|| trimmed.strip_prefix("- [X] ")) {
-        format!("{}- [ ] {}", prefix_spaces, rest)
     } else {
-        return None;
+        let rest = trimmed
+            .strip_prefix("- [x] ")
+            .or_else(|| trimmed.strip_prefix("- [X] "))?;
+        format!("{}- [ ] {}", prefix_spaces, rest)
     };
 
     let mut result = String::with_capacity(content.len() + 8);
@@ -170,16 +172,22 @@ mod tests {
 
         let todos = extract_todos(text);
         assert_eq!(todos.len(), 2);
-        assert_eq!(todos[0], TodoItem {
-            line_index: 2,
-            text: "First task".to_string(),
-            done: false,
-        });
-        assert_eq!(todos[1], TodoItem {
-            line_index: 3,
-            text: "Done task".to_string(),
-            done: true,
-        });
+        assert_eq!(
+            todos[0],
+            TodoItem {
+                line_index: 2,
+                text: "First task".to_string(),
+                done: false,
+            }
+        );
+        assert_eq!(
+            todos[1],
+            TodoItem {
+                line_index: 3,
+                text: "Done task".to_string(),
+                done: true,
+            }
+        );
     }
 
     #[test]

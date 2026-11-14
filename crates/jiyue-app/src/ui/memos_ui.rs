@@ -6,18 +6,17 @@
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Context, Entity, FontWeight, IntoElement, MouseButton,
-    div, prelude::*, px,
+    AnyElement, Context, Entity, FontWeight, IntoElement, MouseButton, div, prelude::*, px,
 };
 use jiyue_core::config::credentials::{self, MEMOS_TABLE};
 use jiyue_memos::{Memo, MemosClient, MemosConfig};
 
+use crate::RustdianApp;
 use crate::theme::{RADIUS_M, RADIUS_S};
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
 use crate::ui::widgets::form_row;
 use crate::ui::widgets::line_input::LineInput;
-use crate::RustdianApp;
 
 /// Which tab is active in the Memos sidebar panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -123,14 +122,7 @@ pub fn load_token() -> Option<String> {
 /// Writes the Memos token to `credentials.toml`.
 pub fn save_token(token: &str) -> Result<(), String> {
     let path = credentials::path();
-    credentials::write_field(
-        &path,
-        MEMOS_TABLE,
-        "default",
-        "token",
-        Some(token),
-    )
-    .map(|_| ())
+    credentials::write_field(&path, MEMOS_TABLE, "default", "token", Some(token)).map(|_| ())
 }
 
 /// Creates a MemosClient from vault config and credentials.
@@ -149,10 +141,7 @@ pub fn refresh(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     let client = match create_client(&vault_root) {
         Some(c) => c,
         None => {
-            app.toast(
-                ToastKind::Warn,
-                crate::t!("memos-not-configured"),
-            );
+            app.toast(ToastKind::Warn, crate::t!("memos-not-configured"));
             return;
         }
     };
@@ -225,10 +214,7 @@ pub fn submit_new_memo(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     app.toast(ToastKind::Info, crate::t!("memos-toast-created"));
                 }
                 Err(e) => {
-                    app.toast(
-                        ToastKind::Error,
-                        format!("创建失败: {}", e),
-                    );
+                    app.toast(ToastKind::Error, format!("创建失败: {}", e));
                 }
             }
             cx.notify();
@@ -277,10 +263,7 @@ pub fn toggle_todo(
         let result = client.update_memo_content(&memo_name, &new_content).await;
         let _ = this.update(cx, |app, cx| {
             if let Err(e) = result {
-                app.toast(
-                    ToastKind::Error,
-                    format!("更新待办失败: {}", e),
-                );
+                app.toast(ToastKind::Error, format!("更新待办失败: {}", e));
                 // Re-fetch on error to restore consistency
                 refresh(app, cx);
             }
@@ -301,7 +284,7 @@ pub fn append_today_memos_to_daily(app: &mut RustdianApp, cx: &mut Context<Rustd
 
     // Collect today's memos or pending todos
     let mut lines = Vec::new();
-    lines.push(format!("\n\n## Memos 闪念与待办\n"));
+    lines.push("\n\n## Memos 闪念与待办\n".to_string());
     for memo in &app.ext.memos.memos {
         for line in memo.content.lines() {
             lines.push(line.to_string());
@@ -321,7 +304,11 @@ pub fn append_today_memos_to_daily(app: &mut RustdianApp, cx: &mut Context<Rustd
 }
 
 /// Inserts a memo's content into the active editor at the current cursor position.
-pub fn insert_memo_to_active(app: &mut RustdianApp, memo_content: &str, cx: &mut Context<RustdianApp>) {
+pub fn insert_memo_to_active(
+    app: &mut RustdianApp,
+    memo_content: &str,
+    cx: &mut Context<RustdianApp>,
+) {
     let path = match app.active_path() {
         Some(p) => p.to_string(),
         None => return,
@@ -388,9 +375,12 @@ pub fn render_sidebar_section(
                         .rounded(px(RADIUS_S))
                         .hover(|d| d.bg(t.active))
                         .child(icon("calendar-event", 12.0, t.tx3))
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                            append_today_memos_to_daily(this, cx);
-                        })),
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                append_today_memos_to_daily(this, cx);
+                            }),
+                        ),
                 )
                 // Refresh button
                 .child(
@@ -403,9 +393,12 @@ pub fn render_sidebar_section(
                         .rounded(px(RADIUS_S))
                         .hover(|d| d.bg(t.active))
                         .child(icon("arrows-sort", 12.0, t.tx3))
-                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                            refresh(this, cx);
-                        })),
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                refresh(this, cx);
+                            }),
+                        ),
                 )
                 // Toggle fold
                 .child(
@@ -449,7 +442,9 @@ pub fn render_sidebar_section(
                 .text_size(px(11.0))
                 .cursor_pointer()
                 .when(tab == Tab::Todos, |d| {
-                    d.bg(t.active).text_color(t.tx).font_weight(FontWeight::MEDIUM)
+                    d.bg(t.active)
+                        .text_color(t.tx)
+                        .font_weight(FontWeight::MEDIUM)
                 })
                 .when(tab != Tab::Todos, |d| {
                     d.text_color(t.tx3).hover(|h| h.text_color(t.tx))
@@ -471,7 +466,9 @@ pub fn render_sidebar_section(
                 .text_size(px(11.0))
                 .cursor_pointer()
                 .when(tab == Tab::All, |d| {
-                    d.bg(t.active).text_color(t.tx).font_weight(FontWeight::MEDIUM)
+                    d.bg(t.active)
+                        .text_color(t.tx)
+                        .font_weight(FontWeight::MEDIUM)
                 })
                 .when(tab != Tab::All, |d| {
                     d.text_color(t.tx3).hover(|h| h.text_color(t.tx))
@@ -523,9 +520,12 @@ pub fn render_sidebar_section(
                     .justify_center()
                     .cursor_pointer()
                     .child(crate::t!("memos-btn-send"))
-                    .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
-                        submit_new_memo(this, cx);
-                    })),
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            submit_new_memo(this, cx);
+                        }),
+                    ),
             )
     } else {
         div().h(px(0.0))
@@ -574,9 +574,12 @@ pub fn render_sidebar_section(
                                 13.0,
                                 if is_done { t.tx3 } else { t.ac },
                             ))
-                            .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                                toggle_todo(this, &mid, l_idx, cx);
-                            })),
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| {
+                                    toggle_todo(this, &mid, l_idx, cx);
+                                }),
+                            ),
                     )
                     .child(
                         div()
@@ -608,22 +611,20 @@ pub fn render_sidebar_section(
                         .child(memo.content.clone()),
                 )
                 .child(
-                    div()
-                        .flex()
-                        .justify_end()
-                        .gap(px(4.0))
-                        .mt(px(4.0))
-                        .child(
-                            div()
-                                .text_size(px(10.0))
-                                .text_color(t.tx3)
-                                .cursor_pointer()
-                                .hover(|d| d.text_color(t.ac))
-                                .child(crate::t!("memos-insert-note"))
-                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                    div().flex().justify_end().gap(px(4.0)).mt(px(4.0)).child(
+                        div()
+                            .text_size(px(10.0))
+                            .text_color(t.tx3)
+                            .cursor_pointer()
+                            .hover(|d| d.text_color(t.ac))
+                            .child(crate::t!("memos-insert-note"))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| {
                                     insert_memo_to_active(this, &m_content, cx);
-                                })),
-                        ),
+                                }),
+                            ),
+                    ),
                 );
             card_container = card_container.child(card);
         }
@@ -649,10 +650,7 @@ pub fn render_sidebar_section(
 }
 
 /// Renders the Memos settings panel in the Settings dialog.
-pub fn render_settings_section(
-    app: &RustdianApp,
-    cx: &mut Context<RustdianApp>,
-) -> AnyElement {
+pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     let t = app.theme;
     let vault_root = app.vault.root_dir.clone();
     let cfg = load_config(&vault_root);
@@ -667,10 +665,7 @@ pub fn render_settings_section(
         inp.update(cx, |i, cx| i.set_theme(t, cx));
     }
 
-    let mut body = div()
-        .flex()
-        .flex_col()
-        .mt(px(4.0));
+    let mut body = div().flex().flex_col().mt(px(4.0));
 
     // 1. Enable Toggle Row
     let toggle_btn = div()
@@ -682,14 +677,21 @@ pub fn render_settings_section(
         .border_1()
         .border_color(if cfg.enabled { t.ac } else { t.line })
         .cursor_pointer()
-        .child(if cfg.enabled { "已启用 / Enabled" } else { "已禁用 / Disabled" })
-        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-            let root = this.vault.root_dir.clone();
-            let mut c = load_config(&root);
-            c.enabled = !c.enabled;
-            let _ = save_config(&root, &c);
-            cx.notify();
-        }));
+        .child(if cfg.enabled {
+            "已启用 / Enabled"
+        } else {
+            "已禁用 / Disabled"
+        })
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _, _, cx| {
+                let root = this.vault.root_dir.clone();
+                let mut c = load_config(&root);
+                c.enabled = !c.enabled;
+                let _ = save_config(&root, &c);
+                cx.notify();
+            }),
+        );
 
     body = body.child(form_row(
         &t,
@@ -722,23 +724,21 @@ pub fn render_settings_section(
     }
 
     // 4. Save Button
-    let save_btn = div()
-        .flex()
-        .justify_end()
-        .mt(px(16.0))
-        .child(
-            div()
-                .px(px(16.0))
-                .py(px(7.0))
-                .bg(t.ac)
-                .hover(|h| h.opacity(0.9))
-                .text_color(t.ac_on)
-                .text_size(px(13.0))
-                .font_weight(FontWeight::MEDIUM)
-                .rounded(px(RADIUS_M))
-                .cursor_pointer()
-                .child("保存并连接 / Save & Connect")
-                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+    let save_btn = div().flex().justify_end().mt(px(16.0)).child(
+        div()
+            .px(px(16.0))
+            .py(px(7.0))
+            .bg(t.ac)
+            .hover(|h| h.opacity(0.9))
+            .text_color(t.ac_on)
+            .text_size(px(13.0))
+            .font_weight(FontWeight::MEDIUM)
+            .rounded(px(RADIUS_M))
+            .cursor_pointer()
+            .child("保存并连接 / Save & Connect")
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
                     let root = this.vault.root_dir.clone();
                     let mut c = load_config(&root);
                     if let Some(inp) = &this.ext.memos.settings_url_input {
@@ -754,8 +754,9 @@ pub fn render_settings_section(
                     this.toast(ToastKind::Info, "已保存 Memos 设置");
                     refresh(this, cx);
                     cx.notify();
-                })),
-        );
+                }),
+            ),
+    );
 
     body = body.child(save_btn);
     body.into_any_element()

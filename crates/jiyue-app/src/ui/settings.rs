@@ -121,7 +121,10 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
                     this.update_daily(|d| d.folder = trimmed.to_string());
-                    this.toast(crate::ui::ext::ToastKind::Info, format!("日记目录已设为: {trimmed}"));
+                    this.toast(
+                        crate::ui::ext::ToastKind::Info,
+                        format!("日记目录已设为: {trimmed}"),
+                    );
                     cx.notify();
                 }
             }
@@ -145,7 +148,10 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     let mut rules = jiyue_export::TemplateRules::load(&root);
                     rules.templates_folder = trimmed.to_string();
                     let _ = rules.save(&root);
-                    this.toast(crate::ui::ext::ToastKind::Info, format!("模板目录已设为: {trimmed}"));
+                    this.toast(
+                        crate::ui::ext::ToastKind::Info,
+                        format!("模板目录已设为: {trimmed}"),
+                    );
                     cx.notify();
                 }
             }
@@ -954,12 +960,7 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .gap(px(8.0))
         .child(folder)
         .when_some(app.settings.daily_folder_input.clone(), |d, inp| {
-            d.child(
-                div()
-                    .w(px(140.0))
-                    .h(px(30.0))
-                    .child(inp)
-            )
+            d.child(div().w(px(140.0)).h(px(30.0)).child(inp))
         });
 
     let format_button = div()

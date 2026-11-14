@@ -1,9 +1,9 @@
 //! HTTP client for Memos REST API v1.
 
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
-use serde::{Deserialize, Serialize};
 
 use crate::model::Memo;
 
@@ -21,7 +21,9 @@ impl fmt::Display for MemosError {
         match self {
             Self::Http(e) => write!(f, "HTTP request error: {}", e),
             Self::InvalidUrl(s) => write!(f, "Invalid base URL: {}", s),
-            Self::Api { status, message } => write!(f, "API error (status {}): {}", status, message),
+            Self::Api { status, message } => {
+                write!(f, "API error (status {}): {}", status, message)
+            }
             Self::Serde(e) => write!(f, "Serialization/Deserialization error: {}", e),
         }
     }
@@ -120,7 +122,11 @@ impl MemosClient {
     }
 
     /// Fetches a list of recent memos.
-    pub async fn list_memos(&self, page_size: usize, page_token: Option<&str>) -> Result<(Vec<Memo>, Option<String>), MemosError> {
+    pub async fn list_memos(
+        &self,
+        page_size: usize,
+        page_token: Option<&str>,
+    ) -> Result<(Vec<Memo>, Option<String>), MemosError> {
         let mut url = format!("{}/api/v1/memos?pageSize={}", self.base_url, page_size);
         if let Some(token) = page_token {
             url.push_str("&pageToken=");
@@ -141,14 +147,27 @@ impl MemosClient {
         let memos = resp
             .memos
             .into_iter()
-            .map(|raw| Memo::from_raw(raw.name, raw.content, raw.create_time, raw.update_time, raw.visibility, raw.pinned))
+            .map(|raw| {
+                Memo::from_raw(
+                    raw.name,
+                    raw.content,
+                    raw.create_time,
+                    raw.update_time,
+                    raw.visibility,
+                    raw.pinned,
+                )
+            })
             .collect();
 
         Ok((memos, resp.next_page_token))
     }
 
     /// Creates a new memo with the given Markdown content.
-    pub async fn create_memo(&self, content: &str, visibility: Option<&str>) -> Result<Memo, MemosError> {
+    pub async fn create_memo(
+        &self,
+        content: &str,
+        visibility: Option<&str>,
+    ) -> Result<Memo, MemosError> {
         let url = format!("{}/api/v1/memos", self.base_url);
         let req_body = CreateMemoRequest {
             content: content.to_string(),
@@ -166,11 +185,22 @@ impl MemosClient {
         }
 
         let raw: RawMemo = res.json().await?;
-        Ok(Memo::from_raw(raw.name, raw.content, raw.create_time, raw.update_time, raw.visibility, raw.pinned))
+        Ok(Memo::from_raw(
+            raw.name,
+            raw.content,
+            raw.create_time,
+            raw.update_time,
+            raw.visibility,
+            raw.pinned,
+        ))
     }
 
     /// Updates the content of a memo (e.g. for checking off a todo item).
-    pub async fn update_memo_content(&self, memo_name: &str, new_content: &str) -> Result<Memo, MemosError> {
+    pub async fn update_memo_content(
+        &self,
+        memo_name: &str,
+        new_content: &str,
+    ) -> Result<Memo, MemosError> {
         let name = memo_name.trim_start_matches('/');
         let url = format!("{}/api/v1/{}?updateMask=content", self.base_url, name);
         let req_body = UpdateMemoRequest {
@@ -188,7 +218,14 @@ impl MemosClient {
         }
 
         let raw: RawMemo = res.json().await?;
-        Ok(Memo::from_raw(raw.name, raw.content, raw.create_time, raw.update_time, raw.visibility, raw.pinned))
+        Ok(Memo::from_raw(
+            raw.name,
+            raw.content,
+            raw.create_time,
+            raw.update_time,
+            raw.visibility,
+            raw.pinned,
+        ))
     }
 
     /// Deletes a memo.

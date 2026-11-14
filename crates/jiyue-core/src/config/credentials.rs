@@ -282,7 +282,9 @@ mod tests {
         let file = CredentialsFile {
             ai: [("openai".to_string(), cred.clone())].into_iter().collect(),
             sync: [("v1".to_string(), sync.clone())].into_iter().collect(),
-            memos: [("default".to_string(), memo.clone())].into_iter().collect(),
+            memos: [("default".to_string(), memo.clone())]
+                .into_iter()
+                .collect(),
         };
         for text in [
             format!("{cred:?}"),

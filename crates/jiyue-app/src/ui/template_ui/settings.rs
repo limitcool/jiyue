@@ -55,12 +55,7 @@ pub fn folder_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .gap(px(8.0))
         .child(control)
         .when_some(app.settings.template_folder_input.clone(), |d, inp| {
-            d.child(
-                div()
-                    .w(px(140.0))
-                    .h(px(30.0))
-                    .child(inp),
-            )
+            d.child(div().w(px(140.0)).h(px(30.0)).child(inp))
         });
     setting_row(
         &t,
