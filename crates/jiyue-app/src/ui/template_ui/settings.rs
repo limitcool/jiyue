@@ -12,7 +12,7 @@ use crate::ui::settings::setting_row;
 pub fn folder_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
     let current = TemplateRules::load(&app.vault.root_dir).templates_folder;
-    let options = [pure::DEFAULT_FOLDER, pure::ENGLISH_FOLDER];
+    let options = [pure::DEFAULT_FOLDER, pure::CHINESE_FOLDER];
     let mut control = div()
         .flex()
         .h(px(30.0))
@@ -41,16 +41,32 @@ pub fn folder_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                         let mut rules = TemplateRules::load(&root);
                         rules.templates_folder = name.to_owned();
                         let _ = rules.save(&root);
+                        if let Some(inp) = &this.settings.template_folder_input {
+                            inp.update(cx, |i, cx| i.set_text(name, cx));
+                        }
                         cx.notify();
                     }),
                 ),
         );
     }
+    let control_with_input = div()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .child(control)
+        .when_some(app.settings.template_folder_input.clone(), |d, inp| {
+            d.child(
+                div()
+                    .w(px(140.0))
+                    .h(px(30.0))
+                    .child(inp),
+            )
+        });
     setting_row(
         &t,
         &crate::t!("settings-template-folder"),
         &crate::t!("settings-template-folder-desc"),
-        control,
+        control_with_input,
         false,
     )
 }

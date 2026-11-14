@@ -351,6 +351,7 @@ impl RustdianApp {
         ui::palette::install(&mut app, cx);
         ui::keymap_ui::install(&mut app, cx);
         ui::graph::install(&mut app, cx);
+        ui::settings::install(&mut app, cx);
         let user_dir = jiyue_core::config::user_dir();
         app.configs.open(&user_dir, Some(&app.vault.root_dir));
         // The interface preferences of the last run (the theme comes from `--theme` or the saved

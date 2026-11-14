@@ -78,6 +78,8 @@ pub struct SettingsState {
     pub daily_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
     /// Input entity for custom template folder.
     pub template_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
+    pub _daily_sub: Option<gpui::Subscription>,
+    pub _tmpl_sub: Option<gpui::Subscription>,
 }
 
 impl Default for SettingsState {
@@ -91,8 +93,69 @@ impl Default for SettingsState {
             update: crate::update::UpdateState::Idle,
             daily_folder_input: None,
             template_folder_input: None,
+            _daily_sub: None,
+            _tmpl_sub: None,
         }
     }
+}
+
+/// Initializes the settings inputs for custom folders.
+pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    let t = app.theme;
+    let daily = app
+        .settings
+        .daily
+        .clone()
+        .unwrap_or_else(|| app.vault.daily_settings());
+    let initial_daily_folder = daily.folder.clone();
+    let daily_input = cx.new(|cx| {
+        let mut input = crate::ui::widgets::LineInput::new(cx, "自定义目录");
+        input.set_theme(t, cx);
+        input.set_text(&initial_daily_folder, cx);
+        input
+    });
+    let sub_daily = cx.subscribe(
+        &daily_input,
+        |this: &mut RustdianApp, _, ev: &crate::ui::widgets::LineInputEvent, cx| {
+            if let crate::ui::widgets::LineInputEvent::Submit(text) = ev {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    this.update_daily(|d| d.folder = trimmed.to_string());
+                    this.toast(crate::ui::ext::ToastKind::Info, format!("日记目录已设为: {trimmed}"));
+                    cx.notify();
+                }
+            }
+        },
+    );
+
+    let current_tmpl = jiyue_export::TemplateRules::load(&app.vault.root_dir).templates_folder;
+    let template_input = cx.new(|cx| {
+        let mut input = crate::ui::widgets::LineInput::new(cx, "自定义模板目录");
+        input.set_theme(t, cx);
+        input.set_text(&current_tmpl, cx);
+        input
+    });
+    let sub_tmpl = cx.subscribe(
+        &template_input,
+        |this: &mut RustdianApp, _, ev: &crate::ui::widgets::LineInputEvent, cx| {
+            if let crate::ui::widgets::LineInputEvent::Submit(text) = ev {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    let root = this.vault.root_dir.clone();
+                    let mut rules = jiyue_export::TemplateRules::load(&root);
+                    rules.templates_folder = trimmed.to_string();
+                    let _ = rules.save(&root);
+                    this.toast(crate::ui::ext::ToastKind::Info, format!("模板目录已设为: {trimmed}"));
+                    cx.notify();
+                }
+            }
+        },
+    );
+
+    app.settings.daily_folder_input = Some(daily_input);
+    app.settings.template_folder_input = Some(template_input);
+    app.settings._daily_sub = Some(sub_daily);
+    app.settings._tmpl_sub = Some(sub_tmpl);
 }
 
 /// Keyboard handling while the dialog is open. Return true when the key was consumed.
@@ -704,6 +767,9 @@ fn segmented(
             MouseButton::Left,
             cx.listener(move |this, _, _, cx| {
                 this.update_daily(|d| apply(d, name));
+                if let Some(inp) = &this.settings.daily_folder_input {
+                    inp.update(cx, |i, cx| i.set_text(name, cx));
+                }
                 cx.notify();
             }),
         );
@@ -871,9 +937,30 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .clone()
         .unwrap_or_else(|| app.vault.daily_settings());
 
+    if let Some(inp) = &app.settings.daily_folder_input {
+        inp.update(cx, |i, cx| i.set_theme(t, cx));
+    }
+    if let Some(inp) = &app.settings.template_folder_input {
+        inp.update(cx, |i, cx| i.set_theme(t, cx));
+    }
+
     let folder = segmented(&t, &FOLDER_PRESETS, &daily.folder, cx, |d, name| {
         d.folder = name.to_string()
     });
+
+    let folder_control = div()
+        .flex()
+        .items_center()
+        .gap(px(8.0))
+        .child(folder)
+        .when_some(app.settings.daily_folder_input.clone(), |d, inp| {
+            d.child(
+                div()
+                    .w(px(140.0))
+                    .h(px(30.0))
+                    .child(inp)
+            )
+        });
 
     let format_button = div()
         .flex()
@@ -926,7 +1013,7 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             &t,
             &crate::t!("settings-daily-folder"),
             &crate::t!("settings-daily-folder-desc"),
-            folder,
+            folder_control,
             false,
         ))
         .child(setting_row(
