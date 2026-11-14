@@ -701,11 +701,17 @@ Jiyue 的文本缓冲借鉴了 **Zed** 编辑器的设计，界面由 **GPUI** �
 
     /// Get currently active note
     pub fn active_note(&self) -> Option<&Note> {
+        if self.open_tabs.is_empty() {
+            return None;
+        }
         self.notes.get(self.active_note_index)
     }
 
     /// Get mutable active note
     pub fn active_note_mut(&mut self) -> Option<&mut Note> {
+        if self.open_tabs.is_empty() {
+            return None;
+        }
         self.notes.get_mut(self.active_note_index)
     }
 
@@ -816,7 +822,6 @@ Jiyue 的文本缓冲借鉴了 **Zed** 编辑器的设计，界面由 **GPUI** �
         if tab_pos < self.open_tabs.len() {
             self.open_tabs.remove(tab_pos);
             if self.open_tabs.is_empty() {
-                self.open_tabs.push(0);
                 self.active_tab_index = 0;
                 self.active_note_index = 0;
             } else if self.active_tab_index >= self.open_tabs.len() {

@@ -56,7 +56,7 @@ pub fn category_label(idx: usize) -> String {
 }
 
 /// Daily folder presets, shown as a segmented control.
-const FOLDER_PRESETS: [&str; 3] = ["日记", "Daily", "笔记/日记"];
+const FOLDER_PRESETS: [&str; 3] = ["Daily", "Journal", "Notes/Daily"];
 /// Daily date format presets, cycled by clicking the format button.
 const DATE_FORMAT_PRESETS: [&str; 3] = ["YYYY-MM-DD", "YYYY年M月D日", "YYYYMMDD"];
 
@@ -74,6 +74,10 @@ pub struct SettingsState {
     pub fonts: crate::ui::fonts_ui::FontUi,
     /// Auto update state.
     pub update: crate::update::UpdateState,
+    /// Input entity for custom daily folder.
+    pub daily_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
+    /// Input entity for custom template folder.
+    pub template_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
 }
 
 impl Default for SettingsState {
@@ -85,6 +89,8 @@ impl Default for SettingsState {
             scroll: ScrollHandle::default(),
             fonts: Default::default(),
             update: crate::update::UpdateState::Idle,
+            daily_folder_input: None,
+            template_folder_input: None,
         }
     }
 }
@@ -312,94 +318,6 @@ impl RustdianApp {
             let label = category_label(idx);
             nav = nav.child(nav_row(&t, idx, &label, ic, idx == category, cx));
         }
-
-        let cur_loc = crate::i18n::configured_locale();
-        let lang_bottom = div()
-            .mt_auto()
-            .pt(px(10.0))
-            .border_t_1()
-            .border_color(t.line_soft)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px(px(6.0))
-                    .py(px(4.0))
-                    .rounded(px(6.0))
-                    .bg(t.raised)
-                    .border_1()
-                    .border_color(t.line)
-                    .child(
-                        div()
-                            .text_size(px(11.5))
-                            .text_color(t.tx2)
-                            .child(SharedString::from(match cur_loc.as_str() {
-                                "zh-CN" => "简体中文",
-                                "en-US" => "English",
-                                _ => "Auto",
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(3.0))
-                            .child(
-                                div()
-                                    .px(px(6.0))
-                                    .py(px(2.0))
-                                    .rounded(px(4.0))
-                                    .cursor_pointer()
-                                    .text_size(px(11.0))
-                                    .bg(if cur_loc == "zh-CN" {
-                                        t.active
-                                    } else {
-                                        t.sheet
-                                    })
-                                    .text_color(if cur_loc == "zh-CN" { t.tx } else { t.tx3 })
-                                    .border_1()
-                                    .border_color(if cur_loc == "zh-CN" { t.ac } else { t.line })
-                                    .hover(|s| s.bg(t.hover))
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(|this, _, _, cx| {
-                                            crate::i18n::set_locale("zh-CN");
-                                            crate::config_store::sync_ui(this);
-                                            cx.notify();
-                                        }),
-                                    )
-                                    .child("中"),
-                            )
-                            .child(
-                                div()
-                                    .px(px(6.0))
-                                    .py(px(2.0))
-                                    .rounded(px(4.0))
-                                    .cursor_pointer()
-                                    .text_size(px(11.0))
-                                    .bg(if cur_loc == "en-US" {
-                                        t.active
-                                    } else {
-                                        t.sheet
-                                    })
-                                    .text_color(if cur_loc == "en-US" { t.tx } else { t.tx3 })
-                                    .border_1()
-                                    .border_color(if cur_loc == "en-US" { t.ac } else { t.line })
-                                    .hover(|s| s.bg(t.hover))
-                                    .on_mouse_down(
-                                        MouseButton::Left,
-                                        cx.listener(|this, _, _, cx| {
-                                            crate::i18n::set_locale("en-US");
-                                            crate::config_store::sync_ui(this);
-                                            cx.notify();
-                                        }),
-                                    )
-                                    .child("EN"),
-                            ),
-                    ),
-            );
-        nav = nav.child(lang_bottom);
 
         let body: AnyElement = match category {
             0 => editor_section(self, cx).into_any_element(),

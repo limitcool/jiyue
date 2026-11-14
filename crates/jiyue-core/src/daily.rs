@@ -444,7 +444,7 @@ pub struct DailySettings {
 impl Default for DailySettings {
     fn default() -> Self {
         Self {
-            folder: "日记".to_string(),
+            folder: "Daily".to_string(),
             date_format: "YYYY-MM-DD".to_string(),
             template_path: String::new(),
         }

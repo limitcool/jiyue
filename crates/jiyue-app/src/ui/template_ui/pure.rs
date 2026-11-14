@@ -6,9 +6,10 @@ use jiyue_export::{Moment, TemplateInfo};
 use crate::ui::history_ui::pure::local_parts;
 
 /// Folder used when the settings do not name one.
-pub const DEFAULT_FOLDER: &str = "模板";
+pub const DEFAULT_FOLDER: &str = "Templates";
 /// Folder used when the vault has this one and not the default.
 pub const ENGLISH_FOLDER: &str = "Templates";
+pub const CHINESE_FOLDER: &str = "模板";
 /// Title of a note created from a template before it is renamed.
 pub const NEW_NOTE_TITLE: &str = "无标题";
 
@@ -25,8 +26,8 @@ pub fn choose_folder(configured: &str, exists: impl Fn(&str) -> bool) -> String 
     if exists(configured) {
         return configured.to_owned();
     }
-    if configured == DEFAULT_FOLDER && exists(ENGLISH_FOLDER) {
-        return ENGLISH_FOLDER.to_owned();
+    if configured == DEFAULT_FOLDER && exists(CHINESE_FOLDER) {
+        return CHINESE_FOLDER.to_owned();
     }
     configured.to_owned()
 }
