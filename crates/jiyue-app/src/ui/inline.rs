@@ -6,7 +6,7 @@ use std::ops::Range;
 use gpui::{
     AnyElement, ClickEvent, Context, ElementId, FontWeight, Hsla, IntoElement, MouseButton,
     MouseDownEvent, Pixels, Point, Rgba, SharedString, StrikethroughStyle, StyledText, TextLayout,
-    TextRun, div, font, prelude::*, px,
+    TextRun, UnderlineStyle, div, font, prelude::*, px,
 };
 
 use super::MONO_FONT;
@@ -359,6 +359,20 @@ pub fn build(
     mark: Option<&str>,
     strike: bool,
 ) -> Rich {
+    build_with_resolver(src, t, color, family, mark, strike, |_| true)
+}
+
+/// Builds the text, runs and link ranges for `src`, using `is_existing` to distinguish existing
+/// notes from uncreated (ghost) notes.
+pub fn build_with_resolver(
+    src: &str,
+    t: &ActiveTheme,
+    color: Rgba,
+    family: &str,
+    mark: Option<&str>,
+    strike: bool,
+    is_existing: impl Fn(&str) -> bool,
+) -> Rich {
     let mut segs = parse(src);
     if let Some(needle) = mark {
         segs = apply_mark(segs, needle);
@@ -386,14 +400,35 @@ pub fn build(
                 Some(t.hover),
                 strike,
             ),
-            Style::Chip => run(
-                len,
-                family,
-                FontWeight::MEDIUM,
-                t.ac,
-                Some(t.ac_soft),
-                false,
-            ),
+            Style::Chip => {
+                let target_title = seg.target.as_deref().unwrap_or("");
+                let exists = is_existing(target_title);
+                if exists {
+                    run(
+                        len,
+                        family,
+                        FontWeight::MEDIUM,
+                        t.ac,
+                        Some(t.ac_soft),
+                        false,
+                    )
+                } else {
+                    let mut ghost = run(
+                        len,
+                        family,
+                        FontWeight::NORMAL,
+                        t.tx2,
+                        Some(t.hover),
+                        false,
+                    );
+                    ghost.underline = Some(UnderlineStyle {
+                        color: Some(hsla(t.tx3)),
+                        thickness: px(1.0),
+                        wavy: false,
+                    });
+                    ghost
+                }
+            }
             Style::Mark => run(
                 len,
                 family,
@@ -448,7 +483,11 @@ pub fn rich_text_geo(
     key: u64,
     cx: &mut Context<RustdianApp>,
 ) -> (AnyElement, TextLayout) {
-    let rich = build(src, t, color, family, mark, strike);
+    let app = cx.entity().read(cx);
+    let rich = build_with_resolver(src, t, color, family, mark, strike, |target| {
+        let title = wikilink_target(target);
+        app.vault.note_index_by_title(title).is_some()
+    });
     let styled = StyledText::new(SharedString::from(rich.text)).with_runs(rich.runs);
     let layout = styled.layout().clone();
     if rich.links.is_empty() {
@@ -465,9 +504,34 @@ pub fn rich_text_geo(
     // A plain div with a click handler, not InteractiveText: the press and the release are both
     // hit-tested against the chip ranges here, so a link is opened on the same click that
     // presses it, with no paint-time state in between.
-    let element = div()
+    let mut element = div()
         .id(ElementId::NamedInteger(SharedString::from("rich"), key))
-        .child(styled)
+        .child(styled);
+
+    // Provide preview tooltip for wikilinks in this block
+    if let Some(first_target) = targets.first() {
+        let clean_title = wikilink_target(first_target);
+        let tip_str = if let Some(idx) = app.vault.note_index_by_title(clean_title) {
+            let note = &app.vault.notes[idx];
+            let snippet: Vec<&str> = note
+                .content()
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .take(3)
+                .collect();
+            if snippet.is_empty() {
+                format!("[[{}]]\n(空笔记)", clean_title)
+            } else {
+                format!("[[{}]]\n{}", clean_title, snippet.join("\n"))
+            }
+        } else {
+            format!("未创建笔记: [[{}]] · 点击立即新建", clean_title)
+        };
+        element = element.tooltip(crate::ui::widgets::overlay::tooltip(*t, tip_str));
+    }
+
+    let element = element
         .on_mouse_down(
             MouseButton::Left,
             move |ev: &MouseDownEvent, _window, cx| {
@@ -631,5 +695,30 @@ mod tests {
         assert_eq!(chips[0].1, Some("A"));
         assert!(chips[1].0.contains("B#章节"));
         assert_eq!(chips[1].1, Some("B"));
+    }
+
+    #[test]
+    fn build_with_resolver_marks_ghost_links_with_underline() {
+        let t = ActiveTheme::light();
+        let src = "已有 [[已存在笔记]] 与未创建 [[幽灵笔记]]";
+        let rich = build_with_resolver(
+            src,
+            &t,
+            t.tx,
+            "sans",
+            None,
+            false,
+            |target| target == "已存在笔记",
+        );
+        let chip_runs: Vec<&TextRun> = rich
+            .runs
+            .iter()
+            .filter(|r| r.background_color.is_some())
+            .collect();
+        assert_eq!(chip_runs.len(), 2);
+        // The first link exists -> no underline
+        assert!(chip_runs[0].underline.is_none());
+        // The second link is a ghost -> has underline style
+        assert!(chip_runs[1].underline.is_some());
     }
 }

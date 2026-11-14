@@ -8,6 +8,7 @@ use gpui::{
     prelude::*, px,
 };
 
+use crate::daily::{Date, weekday_name_zh};
 use crate::theme::ActiveTheme;
 use crate::ui::display_family;
 use crate::ui::icons::icon;
@@ -95,6 +96,84 @@ pub fn render_welcome_page(
 }
 
 fn render_left_column(app: &RustdianApp, t: &ActiveTheme, cx: &mut Context<RustdianApp>) -> Div {
+    // 0. Today Daily Note Card
+    let today_date = Date::today();
+    let weekday_str = weekday_name_zh(today_date);
+    let daily_settings = app.vault.daily_settings();
+    let today_title = crate::daily::format_date(today_date, &daily_settings.date_format);
+    let today_exists = app.vault.notes.iter().any(|n| n.title == today_title);
+
+    let today_card = div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .p(px(10.0))
+        .rounded(px(8.0))
+        .bg(t.raised)
+        .border_1()
+        .border_color(t.line_soft)
+        .cursor_pointer()
+        .hover(|s| s.bg(t.hover).border_color(t.ac))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.0))
+                .min_w_0()
+                .child(
+                    div()
+                        .size(px(34.0))
+                        .rounded(px(6.0))
+                        .bg(t.ac_soft)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(icon("calendar-event", 18.0, t.ac)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.0))
+                        .min_w_0()
+                        .child(
+                            div()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_size(px(13.5))
+                                .text_color(t.tx)
+                                .child(format!("{} · {}", today_title, weekday_str)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(11.5))
+                                .text_color(t.tx3)
+                                .child(if today_exists {
+                                    "已记录 · 点击查看今日日记"
+                                } else {
+                                    "今日待记录 · 点击开始写作"
+                                }),
+                        ),
+                ),
+        )
+        .child(
+            div()
+                .px(px(10.0))
+                .py(px(4.0))
+                .rounded(px(4.0))
+                .bg(if today_exists { t.sheet } else { t.ac })
+                .text_color(if today_exists { t.tx2 } else { t.ac_on })
+                .text_size(px(11.5))
+                .font_weight(FontWeight::MEDIUM)
+                .child(if today_exists { "查看" } else { "开启今日" }),
+        )
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, _, cx| {
+                this.open_today();
+                cx.notify();
+            }),
+        );
+
     // 1. Start actions
     let start_title = section_title(t, &t!("welcome-start"));
     let action_new = action_button(
@@ -197,6 +276,8 @@ fn render_left_column(app: &RustdianApp, t: &ActiveTheme, cx: &mut Context<Rustd
         .flex_col()
         .gap(px(12.0))
         .w(px(380.0))
+        .child(today_card)
+        .child(div().h(px(4.0)))
         .child(start_title)
         .child(
             div()

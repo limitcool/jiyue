@@ -451,8 +451,8 @@ mod tests {
     fn daily_note_reports_absence_and_reads_presence() {
         let (dir, mut app) = vault_with("daily-read", &[]);
         let missing = get_daily_note(&mut app, &json!({"date": "2026-11-04"})).expect("daily");
-        assert!(missing.starts_with("No daily note for 2026-11-04 at 日记/2026-11-04.md"));
-        write_file(dir.path(), "日记/2026-11-04.md", "# day\nhello\n");
+        assert!(missing.starts_with("No daily note for 2026-11-04 at Daily/2026-11-04.md"));
+        write_file(dir.path(), "Daily/2026-11-04.md", "# day\nhello\n");
         let present = get_daily_note(&mut app, &json!({"date": "2026-11-04"})).expect("daily");
         assert!(present.contains("hello"));
         assert!(get_daily_note(&mut app, &json!({"date": "tomorrow"})).is_err());

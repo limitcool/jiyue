@@ -271,7 +271,7 @@ fn full_read_write_session_follows_the_protocol() {
     assert!(fresh.contains("born today\nmore\n"), "got {fresh:?}");
     assert!(fresh.contains("done: true"), "got {fresh:?}");
     assert!(!is_error(&responses, 24));
-    assert!(vault.path.join("日记/2026-11-04.md").exists());
+    assert!(vault.path.join("Daily/2026-11-04.md").exists());
     assert!(tool_text(&responses, 25).contains("wrote tests"));
 
     // Delete is disabled without --allow-delete, and nothing is removed.

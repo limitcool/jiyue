@@ -226,7 +226,7 @@ mod tests {
         let settings = DailySettings::default();
         assert_eq!(
             daily_rel(&settings, date).expect("rel"),
-            "日记/2026-11-04.md"
+            "Daily/2026-11-04.md"
         );
         let flat = DailySettings {
             folder: String::new(),

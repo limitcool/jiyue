@@ -34,6 +34,10 @@ pub struct State {
     pub tab: Tab,
     /// Locally cached list of memos.
     pub memos: Vec<Memo>,
+    /// Currently selected tag filter, if any.
+    pub selected_tag: Option<String>,
+    /// Whether fast input auto-prefixes `- [ ] ` to capture as a todo.
+    pub as_todo: bool,
     /// Whether a network sync is in flight.
     pub loading: bool,
     /// Last error message, if any.
@@ -54,6 +58,8 @@ impl Default for State {
             open: true,
             tab: Tab::Todos,
             memos: Vec::new(),
+            selected_tag: None,
+            as_todo: false,
             loading: false,
             error: None,
             input: None,
@@ -91,6 +97,30 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     });
     app.ext.memos.settings_url_input = Some(url_input);
     app.ext.memos.settings_token_input = Some(token_input);
+
+    // Initial silent refresh if enabled
+    if cfg.enabled && !cfg.base_url.trim().is_empty() {
+        refresh_silent(app, cx);
+    }
+
+    // Background periodic silent sync (every 3 minutes)
+    cx.spawn(async move |this, cx| {
+        loop {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(180))
+                .await;
+            let ok = this.update(cx, |app, cx| {
+                let cfg = load_config(&app.vault.root_dir);
+                if cfg.enabled && !cfg.base_url.trim().is_empty() {
+                    refresh_silent(app, cx);
+                }
+            });
+            if ok.is_err() {
+                break;
+            }
+        }
+    })
+    .detach();
 }
 
 /// Loads the `[memos]` section from `<vault>/.jiyue/config.toml`.
@@ -135,6 +165,28 @@ pub fn create_client(vault_root: &std::path::Path) -> Option<MemosClient> {
     MemosClient::new(&cfg.base_url, token.as_deref()).ok()
 }
 
+/// Triggers a silent refresh of memos without showing error toast.
+pub fn refresh_silent(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    let vault_root = app.vault.root_dir.clone();
+    let client = match create_client(&vault_root) {
+        Some(c) => c,
+        None => return,
+    };
+
+    cx.spawn(async move |this, cx| {
+        let result = client.list_memos(50, None).await;
+        let _ = this.update(cx, |app, cx| {
+            if let Ok((memos, _)) = result {
+                app.ext.memos.memos = memos;
+                app.ext.memos.last_sync = Some(Instant::now());
+                app.ext.memos.error = None;
+                cx.notify();
+            }
+        });
+    })
+    .detach();
+}
+
 /// Triggers a refresh of memos.
 pub fn refresh(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     let vault_root = app.vault.root_dir.clone();
@@ -175,9 +227,43 @@ pub fn refresh(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     .detach();
 }
 
+/// Deletes a memo by resource name with optimistic removal from local cache.
+pub fn delete_memo(app: &mut RustdianApp, memo_name: &str, cx: &mut Context<RustdianApp>) {
+    let vault_root = app.vault.root_dir.clone();
+    let client = match create_client(&vault_root) {
+        Some(c) => c,
+        None => {
+            app.toast(ToastKind::Warn, crate::t!("memos-not-configured"));
+            return;
+        }
+    };
+
+    let name = memo_name.to_string();
+    let original_memos = app.ext.memos.memos.clone();
+    app.ext.memos.memos.retain(|m| m.name != name);
+    cx.notify();
+
+    cx.spawn(async move |this, cx| {
+        let result = client.delete_memo(&name).await;
+        let _ = this.update(cx, |app, cx| {
+            match result {
+                Ok(()) => {
+                    app.toast(ToastKind::Info, "已删除微记");
+                }
+                Err(e) => {
+                    app.ext.memos.memos = original_memos;
+                    app.toast(ToastKind::Error, format!("删除失败: {}", e));
+                }
+            }
+            cx.notify();
+        });
+    })
+    .detach();
+}
+
 /// Creates a new memo from sidebar fast input.
 pub fn submit_new_memo(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
-    let text = if let Some(i) = &app.ext.memos.input {
+    let mut text = if let Some(i) = &app.ext.memos.input {
         i.read(cx).text().trim().to_string()
     } else {
         return;
@@ -185,6 +271,10 @@ pub fn submit_new_memo(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
 
     if text.is_empty() {
         return;
+    }
+
+    if app.ext.memos.as_todo && !text.starts_with("- [ ] ") && !text.starts_with("- [x] ") {
+        text = format!("- [ ] {}", text);
     }
 
     let vault_root = app.vault.root_dir.clone();
@@ -485,7 +575,88 @@ pub fn render_sidebar_section(
 
     section = section.child(tab_bar);
 
-    // Fast Input Box
+    // Tags pill filter bar
+    let mut all_tags: Vec<String> = Vec::new();
+    for memo in &app.ext.memos.memos {
+        for tag in &memo.tags {
+            if !all_tags.contains(tag) {
+                all_tags.push(tag.clone());
+            }
+        }
+    }
+    all_tags.sort();
+
+    if !all_tags.is_empty() {
+        let is_all_sel = app.ext.memos.selected_tag.is_none();
+        let mut tag_bar = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(4.0))
+            .px(px(4.0))
+            .py(px(2.0))
+            .child(
+                div()
+                    .px(px(6.0))
+                    .py(px(1.5))
+                    .rounded(px(RADIUS_S))
+                    .text_size(px(10.5))
+                    .cursor_pointer()
+                    .when(is_all_sel, |d| {
+                        d.bg(t.ac_soft)
+                            .text_color(t.ac)
+                            .font_weight(FontWeight::MEDIUM)
+                    })
+                    .when(!is_all_sel, |d| {
+                        d.text_color(t.tx3).hover(|h| h.text_color(t.tx))
+                    })
+                    .child(crate::t!("memos-tab-all"))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.ext.memos.selected_tag = None;
+                            cx.notify();
+                        }),
+                    ),
+            );
+
+        for tag in all_tags {
+            let is_sel = app.ext.memos.selected_tag.as_deref() == Some(&tag);
+            let t_clone = tag.clone();
+            tag_bar = tag_bar.child(
+                div()
+                    .px(px(6.0))
+                    .py(px(1.5))
+                    .rounded(px(RADIUS_S))
+                    .text_size(px(10.5))
+                    .cursor_pointer()
+                    .when(is_sel, |d| {
+                        d.bg(t.ac_soft)
+                            .text_color(t.ac)
+                            .font_weight(FontWeight::MEDIUM)
+                    })
+                    .when(!is_sel, |d| {
+                        d.bg(t.hover).text_color(t.tx2).hover(|h| h.text_color(t.tx))
+                    })
+                    .child(format!("#{}", tag))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            if this.ext.memos.selected_tag.as_deref() == Some(&t_clone) {
+                                this.ext.memos.selected_tag = None;
+                            } else {
+                                this.ext.memos.selected_tag = Some(t_clone.clone());
+                            }
+                            cx.notify();
+                        }),
+                    ),
+            );
+        }
+        section = section.child(tag_bar);
+    }
+
+    // Fast Input Box with Todo-mode Toggle
+    let as_todo = app.ext.memos.as_todo;
     let input_el = if let Some(inp) = &app.ext.memos.input {
         inp.update(cx, |i, cx| i.set_theme(t, cx));
         div()
@@ -493,6 +664,30 @@ pub fn render_sidebar_section(
             .items_center()
             .px(px(4.0))
             .py(px(4.0))
+            .child(
+                div()
+                    .mr(px(4.0))
+                    .size(px(26.0))
+                    .rounded(px(RADIUS_S))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .when(as_todo, |d| d.bg(t.ac_soft))
+                    .when(!as_todo, |d| d.hover(|h| h.bg(t.hover)))
+                    .child(icon(
+                        if as_todo { "checkbox" } else { "check" },
+                        13.0,
+                        if as_todo { t.ac } else { t.tx3 },
+                    ))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.ext.memos.as_todo = !this.ext.memos.as_todo;
+                            cx.notify();
+                        }),
+                    ),
+            )
             .child(
                 div()
                     .flex_1()
@@ -547,6 +742,14 @@ pub fn render_sidebar_section(
 
     let mut displayed_count = 0;
     for memo in &memos_list {
+        // Filter by selected tag if any
+        if let Some(ref sel_tag) = app.ext.memos.selected_tag {
+            if !memo.tags.contains(sel_tag) {
+                continue;
+            }
+        }
+
+        let m_name = memo.name.clone();
         if tab == Tab::Todos {
             if !memo.has_todos() {
                 continue;
@@ -557,37 +760,64 @@ pub fn render_sidebar_section(
                 let mid = memo.id.clone();
                 let l_idx = todo.line_index;
                 let is_done = todo.done;
+                let m_del_name = m_name.clone();
 
                 let row = div()
                     .flex()
                     .items_start()
+                    .justify_between()
                     .gap(px(6.0))
                     .p(px(4.0))
                     .rounded(px(RADIUS_S))
                     .hover(|d| d.bg(t.hover))
                     .child(
                         div()
-                            .mt(px(2.0))
-                            .cursor_pointer()
-                            .child(icon(
-                                if is_done { "checkbox" } else { "check" },
-                                13.0,
-                                if is_done { t.tx3 } else { t.ac },
-                            ))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |this, _, _, cx| {
-                                    toggle_todo(this, &mid, l_idx, cx);
-                                }),
+                            .flex()
+                            .items_start()
+                            .gap(px(6.0))
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .mt(px(2.0))
+                                    .cursor_pointer()
+                                    .child(icon(
+                                        if is_done { "checkbox" } else { "check" },
+                                        13.0,
+                                        if is_done { t.tx3 } else { t.ac },
+                                    ))
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(move |this, _, _, cx| {
+                                            toggle_todo(this, &mid, l_idx, cx);
+                                        }),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .text_size(px(12.0))
+                                    .text_color(if is_done { t.tx3 } else { t.tx })
+                                    .when(is_done, |d| d.line_through())
+                                    .child(todo.text.clone()),
                             ),
                     )
                     .child(
                         div()
-                            .flex_1()
-                            .text_size(px(12.0))
-                            .text_color(if is_done { t.tx3 } else { t.tx })
-                            .when(is_done, |d| d.line_through())
-                            .child(todo.text.clone()),
+                            .size(px(16.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(RADIUS_S))
+                            .cursor_pointer()
+                            .hover(|d| d.bg(t.active))
+                            .child(icon("trash", 10.0, t.tx3))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, _, cx| {
+                                    delete_memo(this, &m_del_name, cx);
+                                }),
+                            ),
                     );
                 card_container = card_container.child(row);
             }
@@ -595,6 +825,7 @@ pub fn render_sidebar_section(
             // Render plain memo card
             displayed_count += 1;
             let m_content = memo.content.clone();
+            let m_del_name = m_name.clone();
             let card = div()
                 .flex()
                 .flex_col()
@@ -611,20 +842,60 @@ pub fn render_sidebar_section(
                         .child(memo.content.clone()),
                 )
                 .child(
-                    div().flex().justify_end().gap(px(4.0)).mt(px(4.0)).child(
-                        div()
-                            .text_size(px(10.0))
-                            .text_color(t.tx3)
-                            .cursor_pointer()
-                            .hover(|d| d.text_color(t.ac))
-                            .child(crate::t!("memos-insert-note"))
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |this, _, _, cx| {
-                                    insert_memo_to_active(this, &m_content, cx);
-                                }),
-                            ),
-                    ),
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .mt(px(4.0))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(4.0))
+                                .children(memo.tags.iter().map(|tag| {
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(t.tx3)
+                                        .child(format!("#{}", tag))
+                                })),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.0))
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(t.tx3)
+                                        .cursor_pointer()
+                                        .hover(|d| d.text_color(t.ac))
+                                        .child(crate::t!("memos-insert-note"))
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(move |this, _, _, cx| {
+                                                insert_memo_to_active(this, &m_content, cx);
+                                            }),
+                                        ),
+                                )
+                                .child(
+                                    div()
+                                        .size(px(16.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded(px(RADIUS_S))
+                                        .cursor_pointer()
+                                        .hover(|d| d.bg(t.hover))
+                                        .child(icon("trash", 10.5, t.tx3))
+                                        .on_mouse_down(
+                                            MouseButton::Left,
+                                            cx.listener(move |this, _, _, cx| {
+                                                delete_memo(this, &m_del_name, cx);
+                                            }),
+                                        ),
+                                ),
+                        ),
                 );
             card_container = card_container.child(card);
         }

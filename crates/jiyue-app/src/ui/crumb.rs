@@ -490,27 +490,44 @@ fn dots_button(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     )
 }
 
-/// Previous / today / next controls for a daily note. Previous and next are disabled
-/// (dimmed, no hover) when no other daily note exists in that direction.
+/// Previous / today / next controls for a daily note.
+/// If an adjacent note exists, switches to it; otherwise smoothly creates that day's note.
 fn daily_nav(app: &RustdianApp, cx: &mut Context<RustdianApp>, date: Date) -> Div {
     let t = app.theme;
-    let has_prev = app.vault.daily_adjacent_existing(date, false).is_some();
-    let has_next = app.vault.daily_adjacent_existing(date, true).is_some();
+    let prev_existing = app.vault.daily_adjacent_existing(date, false);
+    let next_existing = app.vault.daily_adjacent_existing(date, true);
 
-    let prev = nav_button(&t, "chevron-left", has_prev);
-    let prev = if has_prev {
-        prev.on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|this, _, _, cx| {
-                this.run_command(AppCommand::DailyPrev);
-                cx.notify();
-            }),
-        )
+    let prev_d = date.add_days(-1);
+    let next_d = date.add_days(1);
+
+    let prev_tip = if let Some(d) = prev_existing {
+        format!("上一篇日记 ({}-{:02}-{:02})", d.year, d.month, d.day)
     } else {
-        prev
+        format!("新建前一天日记 ({}-{:02}-{:02})", prev_d.year, prev_d.month, prev_d.day)
     };
 
+    let next_tip = if let Some(d) = next_existing {
+        format!("下一篇日记 ({}-{:02}-{:02})", d.year, d.month, d.day)
+    } else {
+        format!("新建后一天日记 ({}-{:02}-{:02})", next_d.year, next_d.month, next_d.day)
+    };
+
+    let prev = nav_button(&t, "daily_nav_prev", "chevron-left", true)
+        .tooltip(super::widgets::overlay::tooltip(t, prev_tip))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _, _, cx| {
+                if prev_existing.is_some() {
+                    this.run_command(AppCommand::DailyPrev);
+                } else if let Ok(idx) = this.vault.open_or_create_daily(prev_d) {
+                    this.open_note_by_index(idx);
+                }
+                cx.notify();
+            }),
+        );
+
     let today = div()
+        .id("daily_nav_today")
         .flex()
         .items_center()
         .px(px(7.0))
@@ -520,6 +537,7 @@ fn daily_nav(app: &RustdianApp, cx: &mut Context<RustdianApp>, date: Date) -> Di
         .text_color(t.tx2)
         .cursor_pointer()
         .hover(|s| s.bg(t.hover).text_color(t.tx))
+        .tooltip(super::widgets::overlay::tooltip(t, "返回今天日记"))
         .child("今天")
         .on_mouse_down(
             MouseButton::Left,
@@ -530,18 +548,19 @@ fn daily_nav(app: &RustdianApp, cx: &mut Context<RustdianApp>, date: Date) -> Di
             }),
         );
 
-    let next = nav_button(&t, "chevron-right", has_next);
-    let next = if has_next {
-        next.on_mouse_down(
+    let next = nav_button(&t, "daily_nav_next", "chevron-right", true)
+        .tooltip(super::widgets::overlay::tooltip(t, next_tip))
+        .on_mouse_down(
             MouseButton::Left,
-            cx.listener(|this, _, _, cx| {
-                this.run_command(AppCommand::DailyNext);
+            cx.listener(move |this, _, _, cx| {
+                if next_existing.is_some() {
+                    this.run_command(AppCommand::DailyNext);
+                } else if let Ok(idx) = this.vault.open_or_create_daily(next_d) {
+                    this.open_note_by_index(idx);
+                }
                 cx.notify();
             }),
-        )
-    } else {
-        next
-    };
+        );
 
     div()
         .flex()
@@ -554,12 +573,13 @@ fn daily_nav(app: &RustdianApp, cx: &mut Context<RustdianApp>, date: Date) -> Di
 }
 
 /// A 26px icon button; disabled buttons are drawn faint and have no hover.
-fn nav_button(t: &ActiveTheme, name: &'static str, enabled: bool) -> Div {
+fn nav_button(t: &ActiveTheme, id: &'static str, name: &'static str, enabled: bool) -> gpui::Stateful<Div> {
     let mut color = t.tx2;
     if !enabled {
         color.a = 0.3;
     }
     let el = div()
+        .id(id)
         .flex()
         .items_center()
         .justify_center()
