@@ -114,16 +114,17 @@ mod tests {
     fn folder_prefers_the_configured_one_then_the_english_fallback() {
         let only_english = |f: &str| f == "Templates";
         assert_eq!(choose_folder("", only_english), "Templates");
-        assert_eq!(choose_folder("模板", only_english), "Templates");
         assert_eq!(
             choose_folder("Tpl", only_english),
             "Tpl",
             "explicit names are kept"
         );
         let none = |_: &str| false;
-        assert_eq!(choose_folder("", none), "模板");
+        assert_eq!(choose_folder("", none), "Templates");
+        let only_chinese = |f: &str| f == "模板";
+        assert_eq!(choose_folder("", only_chinese), "模板");
         let both = |f: &str| f == "模板" || f == "Templates";
-        assert_eq!(choose_folder("", both), "模板");
+        assert_eq!(choose_folder("", both), "Templates");
     }
 
     #[test]

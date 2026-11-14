@@ -12,9 +12,10 @@ use gpui::{
 use jiyue_core::config::credentials::{self, MEMOS_TABLE};
 use jiyue_memos::{Memo, MemosClient, MemosConfig};
 
-use crate::theme::RADIUS_S;
+use crate::theme::{RADIUS_M, RADIUS_S};
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
+use crate::ui::widgets::form_row;
 use crate::ui::widgets::line_input::LineInput;
 use crate::RustdianApp;
 
@@ -66,13 +67,29 @@ impl Default for State {
 
 /// Initializes the Memos extension.
 pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
-    let input = cx.new(|cx| LineInput::new(cx, crate::t!("memos-placeholder")));
+    let t = app.theme;
+    let input = cx.new(|cx| {
+        let mut inp = LineInput::new(cx, crate::t!("memos-placeholder"));
+        inp.set_theme(t, cx);
+        inp
+    });
     app.ext.memos.input = Some(input);
 
     let cfg = load_config(&app.vault.root_dir);
     let token = load_token().unwrap_or_default();
-    let url_input = cx.new(|cx| LineInput::new(cx, &cfg.base_url));
-    let token_input = cx.new(|cx| LineInput::new(cx, &token));
+    let url_input = cx.new(|cx| {
+        let mut inp = LineInput::new(cx, "http://localhost:5230");
+        inp.set_theme(t, cx);
+        inp.set_text(&cfg.base_url, cx);
+        inp
+    });
+    let token_input = cx.new(|cx| {
+        let mut inp = LineInput::new(cx, "Access Token");
+        inp.set_theme(t, cx);
+        inp.set_password(true, cx);
+        inp.set_text(&token, cx);
+        inp
+    });
     app.ext.memos.settings_url_input = Some(url_input);
     app.ext.memos.settings_token_input = Some(token_input);
 }
@@ -473,20 +490,16 @@ pub fn render_sidebar_section(
 
     // Fast Input Box
     let input_el = if let Some(inp) = &app.ext.memos.input {
+        inp.update(cx, |i, cx| i.set_theme(t, cx));
         div()
             .flex()
             .items_center()
             .px(px(4.0))
-            .py(px(2.0))
+            .py(px(4.0))
             .child(
                 div()
                     .flex_1()
-                    .h(px(28.0))
-                    .bg(t.sheet)
-                    .border_1()
-                    .border_color(t.line)
-                    .rounded(px(RADIUS_S))
-                    .px(px(6.0))
+                    .min_w_0()
                     .child(inp.clone())
                     .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _, cx| {
                         if ev.keystroke.key == "enter" {
@@ -496,13 +509,15 @@ pub fn render_sidebar_section(
             )
             .child(
                 div()
-                    .ml(px(4.0))
-                    .px(px(8.0))
-                    .h(px(28.0))
+                    .ml(px(6.0))
+                    .px(px(10.0))
+                    .h(px(32.0))
                     .bg(t.ac)
+                    .hover(|h| h.opacity(0.9))
                     .text_color(t.ac_on)
-                    .text_size(px(11.0))
-                    .rounded(px(RADIUS_S))
+                    .text_size(px(12.0))
+                    .font_weight(FontWeight::MEDIUM)
+                    .rounded(px(RADIUS_M))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -645,147 +660,103 @@ pub fn render_settings_section(
     let url_input = app.ext.memos.settings_url_input.clone();
     let token_input = app.ext.memos.settings_token_input.clone();
 
-    div()
+    if let Some(inp) = &url_input {
+        inp.update(cx, |i, cx| i.set_theme(t, cx));
+    }
+    if let Some(inp) = &token_input {
+        inp.update(cx, |i, cx| i.set_theme(t, cx));
+    }
+
+    let mut body = div()
         .flex()
         .flex_col()
-        .gap(px(14.0))
+        .mt(px(4.0));
+
+    // 1. Enable Toggle Row
+    let toggle_btn = div()
+        .px(px(12.0))
+        .py(px(4.0))
+        .rounded(px(RADIUS_S))
+        .bg(if cfg.enabled { t.ac } else { t.sheet })
+        .text_color(if cfg.enabled { t.ac_on } else { t.tx3 })
+        .border_1()
+        .border_color(if cfg.enabled { t.ac } else { t.line })
+        .cursor_pointer()
+        .child(if cfg.enabled { "已启用 / Enabled" } else { "已禁用 / Disabled" })
+        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+            let root = this.vault.root_dir.clone();
+            let mut c = load_config(&root);
+            c.enabled = !c.enabled;
+            let _ = save_config(&root, &c);
+            cx.notify();
+        }));
+
+    body = body.child(form_row(
+        &t,
+        &crate::t!("settings-memos-enabled"),
+        &crate::t!("settings-memos-desc"),
+        toggle_btn,
+        false,
+    ));
+
+    // 2. Base URL Row
+    if let Some(inp) = url_input {
+        body = body.child(form_row(
+            &t,
+            &crate::t!("settings-memos-url"),
+            "自建 Memos 服务的 Web/API 地址，如 http://192.168.1.10:5230",
+            div().w(px(320.0)).flex_none().child(inp),
+            false,
+        ));
+    }
+
+    // 3. Token Row
+    if let Some(inp) = token_input {
+        body = body.child(form_row(
+            &t,
+            &crate::t!("settings-memos-token"),
+            "在 Memos 个人设置 -> 访问令牌 (Access Token) 中获取",
+            div().w(px(320.0)).flex_none().child(inp),
+            false,
+        ));
+    }
+
+    // 4. Save Button
+    let save_btn = div()
+        .flex()
+        .justify_end()
+        .mt(px(16.0))
         .child(
             div()
-                .font_weight(FontWeight::BOLD)
-                .text_size(px(16.0))
-                .text_color(t.tx)
-                .child(crate::t!("settings-memos-title")),
-        )
-        .child(
-            div()
+                .px(px(16.0))
+                .py(px(7.0))
+                .bg(t.ac)
+                .hover(|h| h.opacity(0.9))
+                .text_color(t.ac_on)
                 .text_size(px(13.0))
-                .text_color(t.tx2)
-                .child(crate::t!("settings-memos-desc")),
-        )
-        // Enable toggle
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .py(px(8.0))
-                .border_b_1()
-                .border_color(t.line_soft)
-                .child(
-                    div()
-                        .text_size(px(13.0))
-                        .text_color(t.tx)
-                        .child(crate::t!("settings-memos-enabled")),
-                )
-                .child(
-                    div()
-                        .px(px(8.0))
-                        .py(px(4.0))
-                        .rounded(px(RADIUS_S))
-                        .bg(if cfg.enabled { t.ac } else { t.sheet })
-                        .text_color(if cfg.enabled { t.ac_on } else { t.tx3 })
-                        .cursor_pointer()
-                        .child(if cfg.enabled { "已启用 / Enabled" } else { "已禁用 / Disabled" })
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                            let root = this.vault.root_dir.clone();
-                            let mut c = load_config(&root);
-                            c.enabled = !c.enabled;
-                            let _ = save_config(&root, &c);
-                            cx.notify();
-                        })),
-                ),
-        )
-        // URL Input
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.0))
-                .child(
-                    div()
-                        .text_size(px(13.0))
-                        .text_color(t.tx)
-                        .child(crate::t!("settings-memos-url")),
-                )
-                .child({
-                    let el = div()
-                        .h(px(32.0))
-                        .px(px(8.0))
-                        .bg(t.sheet)
-                        .border_1()
-                        .border_color(t.line)
-                        .rounded(px(RADIUS_S))
-                        .flex()
-                        .items_center();
-                    if let Some(inp) = url_input {
-                        el.child(inp)
-                    } else {
-                        el
+                .font_weight(FontWeight::MEDIUM)
+                .rounded(px(RADIUS_M))
+                .cursor_pointer()
+                .child("保存并连接 / Save & Connect")
+                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
+                    let root = this.vault.root_dir.clone();
+                    let mut c = load_config(&root);
+                    if let Some(inp) = &this.ext.memos.settings_url_input {
+                        c.base_url = inp.read(cx).text().trim().to_string();
                     }
-                }),
-        )
-        // Token Input
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.0))
-                .child(
-                    div()
-                        .text_size(px(13.0))
-                        .text_color(t.tx)
-                        .child(crate::t!("settings-memos-token")),
-                )
-                .child({
-                    let el = div()
-                        .h(px(32.0))
-                        .px(px(8.0))
-                        .bg(t.sheet)
-                        .border_1()
-                        .border_color(t.line)
-                        .rounded(px(RADIUS_S))
-                        .flex()
-                        .items_center();
-                    if let Some(inp) = token_input {
-                        el.child(inp)
-                    } else {
-                        el
+                    let _ = save_config(&root, &c);
+
+                    if let Some(inp) = &this.ext.memos.settings_token_input {
+                        let tok = inp.read(cx).text().trim().to_string();
+                        let _ = save_token(&tok);
                     }
-                }),
-        )
-        // Save Button
-        .child(
-            div()
-                .flex()
-                .justify_end()
-                .mt(px(8.0))
-                .child(
-                    div()
-                        .px(px(14.0))
-                        .py(px(6.0))
-                        .bg(t.ac)
-                        .text_color(t.ac_on)
-                        .rounded(px(RADIUS_S))
-                        .cursor_pointer()
-                        .child("保存并连接 / Save & Connect")
-                        .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| {
-                            let root = this.vault.root_dir.clone();
-                            let mut c = load_config(&root);
-                            if let Some(inp) = &this.ext.memos.settings_url_input {
-                                c.base_url = inp.read(cx).text().trim().to_string();
-                            }
-                            let _ = save_config(&root, &c);
 
-                            if let Some(inp) = &this.ext.memos.settings_token_input {
-                                let tok = inp.read(cx).text().trim().to_string();
-                                let _ = save_token(&tok);
-                            }
+                    this.toast(ToastKind::Info, "已保存 Memos 设置");
+                    refresh(this, cx);
+                    cx.notify();
+                })),
+        );
 
-                            this.toast(ToastKind::Info, "已保存 Memos 设置");
-                            refresh(this, cx);
-                            cx.notify();
-                        })),
-                ),
-        )
-        .into_any_element()
+    body = body.child(save_btn);
+    body.into_any_element()
 }

@@ -3,7 +3,7 @@
 
 use futures_util::StreamExt;
 use gpui::{
-    AnyElement, Context, Div, FontWeight, IntoElement, KeyDownEvent, MouseButton, Rgba,
+    AnyElement, Context, Div, Entity, FontWeight, IntoElement, KeyDownEvent, MouseButton, Rgba,
     ScrollHandle, SharedString, div, img, prelude::*, px,
 };
 

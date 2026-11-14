@@ -825,7 +825,7 @@ mod tests {
         let mut vault = Vault::open_or_create(&dir);
         let date = d(2026, 11, 4);
         let path = vault.daily_path(date);
-        assert!(path.ends_with(PathBuf::from("日记").join("2026-11-04.md")));
+        assert!(path.ends_with(PathBuf::from("Daily").join("2026-11-04.md")));
         assert!(!path.exists());
 
         let idx = vault.open_or_create_daily(date).unwrap();

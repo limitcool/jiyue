@@ -85,7 +85,7 @@ auto_name_from_heading = true
 
 [daily]
 # 日记所在的文件夹（相对笔记库根目录）。
-folder = "日记"
+folder = "Daily"
 # 日记标题和文件名的日期格式，如 YYYY-MM-DD。
 date_format = "YYYY-MM-DD"
 # 新建日记使用的模板文件（相对笔记库根目录）。留空 = 不使用模板。
@@ -93,7 +93,7 @@ template_path = ""
 
 [templates]
 # 模板所在的文件夹。
-templates_folder = "模板"
+templates_folder = "Templates"
 # 按文件夹指定新建笔记时使用的模板。键为文件夹（"" 表示整个笔记库），值为模板文件路径。
 # 例如：projects = "模板/项目.md"
 [templates.folder_templates]

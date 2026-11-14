@@ -23,7 +23,7 @@ use jiyue_core::daily::{Date, days_in_month, weekday_name_zh};
 use serde::{Deserialize, Serialize};
 
 /// Default templates folder, relative to the vault root.
-pub const DEFAULT_TEMPLATE_FOLDER: &str = "模板";
+pub const DEFAULT_TEMPLATE_FOLDER: &str = "Templates";
 
 /// Language used for weekday names and locale-dependent output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -778,16 +778,16 @@ mod tests {
     #[test]
     fn list_templates_reads_only_markdown_in_folder() {
         let root = crate::test_util::temp_root("list");
-        fs::create_dir_all(root.join("模板/子目录")).unwrap();
-        fs::write(root.join("模板/日记.md"), "x").unwrap();
-        fs::write(root.join("模板/周报.md"), "y").unwrap();
-        fs::write(root.join("模板/图.png"), "z").unwrap();
-        fs::write(root.join("模板/.hidden.md"), "h").unwrap();
-        fs::write(root.join("模板/子目录/深.md"), "d").unwrap();
+        fs::create_dir_all(root.join("Templates/子目录")).unwrap();
+        fs::write(root.join("Templates/日记.md"), "x").unwrap();
+        fs::write(root.join("Templates/周报.md"), "y").unwrap();
+        fs::write(root.join("Templates/图.png"), "z").unwrap();
+        fs::write(root.join("Templates/.hidden.md"), "h").unwrap();
+        fs::write(root.join("Templates/子目录/深.md"), "d").unwrap();
         let list = list_templates(&root, "");
         let names: Vec<&str> = list.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, vec!["周报", "日记"]);
-        assert_eq!(list[0].path, "模板/周报.md");
+        assert_eq!(list[0].path, "Templates/周报.md");
         crate::test_util::cleanup(&root);
     }
 
