@@ -483,11 +483,7 @@ pub fn rich_text_geo(
     key: u64,
     cx: &mut Context<RustdianApp>,
 ) -> (AnyElement, TextLayout) {
-    let app = cx.entity().read(cx);
-    let rich = build_with_resolver(src, t, color, family, mark, strike, |target| {
-        let title = wikilink_target(target);
-        app.vault.note_index_by_title(title).is_some()
-    });
+    let rich = build(src, t, color, family, mark, strike);
     let styled = StyledText::new(SharedString::from(rich.text)).with_runs(rich.runs);
     let layout = styled.layout().clone();
     if rich.links.is_empty() {
@@ -508,27 +504,30 @@ pub fn rich_text_geo(
         .id(ElementId::NamedInteger(SharedString::from("rich"), key))
         .child(styled);
 
-    // Provide preview tooltip for wikilinks in this block
+    // Provide lazy preview tooltip for wikilinks when hovered, avoiding re-entrancy during render
     if let Some(first_target) = targets.first() {
-        let clean_title = wikilink_target(first_target);
-        let tip_str = if let Some(idx) = app.vault.note_index_by_title(clean_title) {
-            let note = &app.vault.notes[idx];
-            let snippet: Vec<&str> = note
-                .content()
-                .lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                .take(3)
-                .collect();
-            if snippet.is_empty() {
-                format!("[[{}]]\n(空笔记)", clean_title)
+        let clean_title = wikilink_target(first_target).to_string();
+        let entity_clone = entity.clone();
+        element = element.tooltip(crate::ui::widgets::overlay::dynamic_tooltip(*t, move |cx| {
+            let app = entity_clone.read(cx);
+            if let Some(idx) = app.vault.note_index_by_title(&clean_title) {
+                let note = &app.vault.notes[idx];
+                let snippet: Vec<&str> = note
+                    .content()
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .take(3)
+                    .collect();
+                if snippet.is_empty() {
+                    format!("[[{}]]\n(空笔记)", clean_title)
+                } else {
+                    format!("[[{}]]\n{}", clean_title, snippet.join("\n"))
+                }
             } else {
-                format!("[[{}]]\n{}", clean_title, snippet.join("\n"))
+                format!("未创建笔记: [[{}]] · 点击立即新建", clean_title)
             }
-        } else {
-            format!("未创建笔记: [[{}]] · 点击立即新建", clean_title)
-        };
-        element = element.tooltip(crate::ui::widgets::overlay::tooltip(*t, tip_str));
+        }));
     }
 
     let element = element

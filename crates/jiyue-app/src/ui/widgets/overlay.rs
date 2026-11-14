@@ -452,6 +452,21 @@ pub fn tooltip(
     }
 }
 
+/// Dynamically computed text bubble for `div().tooltip(...)`.
+pub fn dynamic_tooltip(
+    t: ActiveTheme,
+    f: impl Fn(&App) -> String + 'static,
+) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    move |_, cx| {
+        let text = f(cx);
+        cx.new(|_| TooltipView {
+            theme: t,
+            text: text.into(),
+        })
+        .into()
+    }
+}
+
 struct TooltipView {
     theme: ActiveTheme,
     text: SharedString,
