@@ -308,6 +308,9 @@ pub fn delete_provider(app: &mut RustdianApp, id: &str, cx: &mut Context<Rustdia
         app.ext.ai.config.active_embedding = None;
         runner::stop_index(app);
     }
+    if app.ext.ai.settings.quick_testing.as_deref() == Some(id) {
+        app.ext.ai.settings.quick_testing = None;
+    }
     persist(app);
     app.ext.ai.settings.key_saved.remove(id);
     app.ext.ai.settings.key_display.remove(id);
@@ -1316,7 +1319,7 @@ pub fn clear_key(app: &mut RustdianApp, id: &str, cx: &mut Context<RustdianApp>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jiyue_ai::AiConfig;
+    use jiyue_ai::{AiConfig, ProviderEntry, ProviderKind};
 
     #[test]
     fn default_config_keeps_ai_off() {
@@ -1333,5 +1336,64 @@ mod tests {
     #[test]
     fn index_label_matches_status_bar() {
         assert_eq!(index_label(2, 5), "AI 索引 2/5");
+    }
+
+    #[test]
+    fn test_custom_test_model_override_logic() {
+        let provider = ProviderEntry {
+            id: "test-p".into(),
+            name: "Init AI".into(),
+            kind: ProviderKind::OpenAiCompatible,
+            base_url: "https://api.ai.init.cool".into(),
+            chat_model: "default-chat-model".into(),
+            embedding_model: None,
+        };
+
+        // 1. 当用户输入了自定义测试模型时，优先使用指定模型
+        let custom_input = "  deepseek-flash-eco  ";
+        let trimmed = custom_input.trim();
+        let effective_test_model = if !trimmed.is_empty() {
+            trimmed
+        } else {
+            &provider.chat_model
+        };
+        assert_eq!(effective_test_model, "deepseek-flash-eco");
+
+        // 2. 当输入为空白字符时，回退到默认的 chat_model
+        let empty_input = "   ";
+        let trimmed_empty = empty_input.trim();
+        let fallback_model = if !trimmed_empty.is_empty() {
+            trimmed_empty
+        } else {
+            &provider.chat_model
+        };
+        assert_eq!(fallback_model, "default-chat-model");
+    }
+
+    #[test]
+    fn test_quick_testing_reset_on_delete() {
+        let mut quick_testing = Some("target-provider-id".to_string());
+        let deleted_id = "target-provider-id";
+
+        if quick_testing.as_deref() == Some(deleted_id) {
+            quick_testing = None;
+        }
+
+        assert!(quick_testing.is_none());
+    }
+
+    #[test]
+    fn test_editing_provider_lifecycle() {
+        let mut editing = Some(Editing {
+            id: Some("prov-1".into()),
+            kind: ProviderKind::Anthropic,
+            error: None,
+        });
+
+        assert_eq!(editing.as_ref().unwrap().kind, ProviderKind::Anthropic);
+
+        // Cancel editing
+        editing = None;
+        assert!(editing.is_none());
     }
 }

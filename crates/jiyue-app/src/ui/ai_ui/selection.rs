@@ -570,7 +570,7 @@ pub fn render_card(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEleme
                 .flex()
                 .items_center()
                 .gap(px(8.0))
-                .child(icon("bulb", 15.0, t.ac))
+                .child(icon("sparkles", 15.0, t.ac))
                 .child(
                     div()
                         .font_weight(FontWeight::SEMIBOLD)
@@ -756,6 +756,41 @@ mod tests {
         for (r, kind) in &runs {
             assert!(r.end <= text.len());
             assert_ne!(*kind, SegKind::Same);
+        }
+    }
+
+    #[test]
+    fn test_menu_entries_structure_and_icons() {
+        let mut action_count = 0;
+        let mut sep_count = 0;
+        for entry in MENU_ENTRIES {
+            match entry {
+                MenuEntry::Item(act) => {
+                    action_count += 1;
+                    assert!(!act.label().is_empty());
+                    assert!(!act.icon().is_empty());
+                }
+                MenuEntry::Sep => {
+                    sep_count += 1;
+                }
+            }
+        }
+        assert_eq!(action_count, 12);
+        assert_eq!(sep_count, 2);
+    }
+
+    #[test]
+    fn test_all_actions_produce_valid_prompts() {
+        let sample_text = "这是一段用于测试改写和分析的样本文本。";
+        for act in MENU_ITEMS {
+            let prompt = build_prompt(act, sample_text, Some("测试补充指令"));
+            assert!(!prompt.messages.is_empty());
+            let user = prompt
+                .messages
+                .iter()
+                .find(|m| m.role == jiyue_ai::ChatRole::User)
+                .expect("user message required");
+            assert!(user.content.contains(sample_text));
         }
     }
 }

@@ -84,6 +84,7 @@ pub struct SettingsState {
     pub export_qr_open: bool,
     pub export_include_sync: bool,
     pub export_include_ai: bool,
+    pub export_include_memos: bool,
 }
 
 impl Default for SettingsState {
@@ -102,6 +103,7 @@ impl Default for SettingsState {
             export_qr_open: false,
             export_include_sync: true,
             export_include_ai: true,
+            export_include_memos: true,
         }
     }
 }

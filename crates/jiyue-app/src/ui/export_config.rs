@@ -89,6 +89,7 @@ pub fn collect_export_config(
     vault_root: Option<&Path>,
     include_sync: bool,
     include_ai: bool,
+    include_memos: bool,
 ) -> ExportedConfig {
     let sync = if include_sync {
         vault_root.and_then(|root| {
@@ -174,34 +175,38 @@ pub fn collect_export_config(
         None
     };
 
-    let memos = vault_root.and_then(|root| {
-        let loaded: jiyue_core::config::Loaded<jiyue_memos::MemosConfig> =
-            jiyue_core::config::load_section(
-                &jiyue_core::config::vault_file(root, jiyue_core::config::VAULT_CONFIG_FILE),
-                "memos",
-            );
-        let creds = jiyue_core::config::credentials::load();
-        let token = creds
-            .value
-            .memos
-            .get("default")
-            .or_else(|| creds.value.memos.values().next())
-            .map(|c| c.token.clone())
-            .and_then(|raw| {
-                jiyue_core::config::secret::resolve_secret(&raw)
-                    .ok()
-                    .map(|s| s.expose().to_string())
-            })
-            .unwrap_or_default();
-        if !loaded.value.base_url.is_empty() || !token.is_empty() {
-            Some(ExportedMemosConfig {
-                endpoint: loaded.value.base_url,
-                token,
-            })
-        } else {
-            None
-        }
-    });
+    let memos = if include_memos {
+        vault_root.and_then(|root| {
+            let loaded: jiyue_core::config::Loaded<jiyue_memos::MemosConfig> =
+                jiyue_core::config::load_section(
+                    &jiyue_core::config::vault_file(root, jiyue_core::config::VAULT_CONFIG_FILE),
+                    "memos",
+                );
+            let creds = jiyue_core::config::credentials::load();
+            let token = creds
+                .value
+                .memos
+                .get("default")
+                .or_else(|| creds.value.memos.values().next())
+                .map(|c| c.token.clone())
+                .and_then(|raw| {
+                    jiyue_core::config::secret::resolve_secret(&raw)
+                        .ok()
+                        .map(|s| s.expose().to_string())
+                })
+                .unwrap_or_default();
+            if !loaded.value.base_url.is_empty() || !token.is_empty() {
+                Some(ExportedMemosConfig {
+                    endpoint: loaded.value.base_url,
+                    token,
+                })
+            } else {
+                None
+            }
+        })
+    } else {
+        None
+    };
 
     ExportedConfig {
         jiyue: "config_export".into(),
@@ -251,8 +256,9 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElem
     let vault_root = app.vault.root_dir.as_path();
     let include_sync = app.settings.export_include_sync;
     let include_ai = app.settings.export_include_ai;
+    let include_memos = app.settings.export_include_memos;
 
-    let payload = collect_export_config(Some(vault_root), include_sync, include_ai);
+    let payload = collect_export_config(Some(vault_root), include_sync, include_ai, include_memos);
     let json_text = serde_json::to_string(&payload).unwrap_or_default();
     let qr_matrix = generate_qr_matrix(&json_text);
 
@@ -331,12 +337,25 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElem
                         .flex()
                         .items_center()
                         .gap(px(6.0))
-                        .child(icon("check", 16.0, t.ac))
+                        .cursor_pointer()
+                        .child(icon(
+                            if include_memos { "check" } else { "circle" },
+                            16.0,
+                            if include_memos { t.ac } else { t.tx2 },
+                        ))
                         .child(
                             div()
                                 .text_size(px(12.0))
-                                .text_color(t.tx)
+                                .text_color(if include_memos { t.tx } else { t.tx2 })
                                 .child("Memos 备忘录"),
+                        )
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.settings.export_include_memos =
+                                    !this.settings.export_include_memos;
+                                cx.notify();
+                            }),
                         ),
                 ),
         )
@@ -417,9 +436,14 @@ mod tests {
 
     #[test]
     fn test_collect_export_config_structure() {
-        let export = collect_export_config(None, true, true);
+        let export = collect_export_config(None, true, true, true);
         assert_eq!(export.jiyue, "config_export");
         assert_eq!(export.version, 1);
         assert_eq!(export.timestamp, 0);
+
+        let export_disabled = collect_export_config(None, false, false, false);
+        assert!(export_disabled.sync.is_none());
+        assert!(export_disabled.ai.is_none());
+        assert!(export_disabled.memos.is_none());
     }
 }

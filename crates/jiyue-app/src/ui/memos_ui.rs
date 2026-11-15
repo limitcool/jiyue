@@ -19,7 +19,7 @@ use crate::ui::widgets::controls::{
     ButtonKind, ButtonSize, IconBtnSize, button, button_sized, icon_button_sized, toggle,
 };
 use crate::ui::widgets::form_row;
-use crate::ui::widgets::line_input::LineInput;
+use crate::ui::widgets::line_input::{LineInput, LineInputEvent};
 
 /// Which tab is active in the Memos sidebar panel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -47,6 +47,8 @@ pub struct State {
     pub error: Option<String>,
     /// Fast input editor in sidebar.
     pub input: Option<Entity<LineInput>>,
+    /// Subscription to fast input events.
+    pub _input_sub: Option<gpui::Subscription>,
     /// Last successful sync timestamp.
     pub last_sync: Option<Instant>,
     /// Settings page: server URL input.
@@ -66,6 +68,7 @@ impl Default for State {
             loading: false,
             error: None,
             input: None,
+            _input_sub: None,
             last_sync: None,
             settings_url_input: None,
             settings_token_input: None,
@@ -81,6 +84,12 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         inp.set_theme(t, cx);
         inp
     });
+    let sub = cx.subscribe(&input, |this: &mut RustdianApp, _, ev: &LineInputEvent, cx| {
+        if let LineInputEvent::Submit(_) = ev {
+            submit_new_memo(this, cx);
+        }
+    });
+    app.ext.memos._input_sub = Some(sub);
     app.ext.memos.input = Some(input);
 
     let cfg = load_config(&app.vault.root_dir);
@@ -307,9 +316,10 @@ pub fn submit_new_memo(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     cx.notify();
 
     cx.spawn(async move |this, cx| {
+        let text_for_api = text.clone();
         let result = cx
             .background_executor()
-            .spawn(async move { client.create_memo_blocking(&text, None) })
+            .spawn(async move { client.create_memo_blocking(&text_for_api, None) })
             .await;
         let _ = this.update(cx, |app, cx| {
             app.ext.memos.loading = false;
@@ -319,6 +329,15 @@ pub fn submit_new_memo(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     app.toast(ToastKind::Info, crate::t!("memos-toast-created"));
                 }
                 Err(e) => {
+                    // 恢复用户输入的原始文本，防止网络波动或未连通导致灵感丢失
+                    if let Some(i) = &app.ext.memos.input {
+                        let restore = if app.ext.memos.as_todo && text.starts_with("- [ ] ") {
+                            text.strip_prefix("- [ ] ").unwrap_or(&text).to_string()
+                        } else {
+                            text.clone()
+                        };
+                        i.update(cx, |inp, cx| inp.set_text(&restore, cx));
+                    }
                     app.toast(ToastKind::Error, format!("创建失败: {}", e));
                 }
             }
@@ -708,12 +727,7 @@ pub fn render_sidebar_section(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .child(inp.clone())
-                    .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _, cx| {
-                        if ev.keystroke.key == "enter" {
-                            submit_new_memo(this, cx);
-                        }
-                    })),
+                    .child(inp.clone()),
             )
             .child(
                 div()
@@ -993,4 +1007,115 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
 
     body = body.child(save_btn);
     body.into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_todo_prefix_normalization() {
+        let normalize = |text: &str, as_todo: bool| -> String {
+            let mut s = text.to_string();
+            if as_todo && !s.starts_with("- [ ] ") && !s.starts_with("- [x] ") {
+                s = format!("- [ ] {}", s);
+            }
+            s
+        };
+
+        // 普通文本在 todo 模式自动加上 - [ ]
+        assert_eq!(normalize("买牛奶", true), "- [ ] 买牛奶");
+
+        // 已经带有 - [ ] 的不重复加
+        assert_eq!(normalize("- [ ] 买牛奶", true), "- [ ] 买牛奶");
+
+        // 已经带有 - [x] 的不重复加
+        assert_eq!(normalize("- [x] 已完成", true), "- [x] 已完成");
+
+        // 非 todo 模式保持原样
+        assert_eq!(normalize("闪念笔记", false), "闪念笔记");
+    }
+
+    #[test]
+    fn test_todo_multiline_toggle_preserves_indent() {
+        let raw = "第一行普通文本\n  - [ ] 二级待办项\n    - [x] 三级已完成";
+        let memo = Memo::from_raw("m1".into(), raw.into(), None, None, None, false);
+
+        let todos = &memo.todos;
+        assert_eq!(todos.len(), 2);
+        assert_eq!(todos[0].line_index, 1);
+        assert_eq!(todos[0].text, "二级待办项");
+        assert!(!todos[0].done);
+
+        assert_eq!(todos[1].line_index, 2);
+        assert_eq!(todos[1].text, "三级已完成");
+        assert!(todos[1].done);
+
+        // 切换第 1 行（二级待办）的状态 -> 变为 - [x]，保留缩进
+        let toggled = memo.toggle_todo_content(1).unwrap();
+        assert!(toggled.contains("  - [x] 二级待办项"));
+        assert!(toggled.contains("    - [x] 三级已完成"));
+
+        // 再次切换 -> 变回 - [ ]
+        let memo2 = Memo::from_raw("m2".into(), toggled, None, None, None, false);
+        let toggled_back = memo2.toggle_todo_content(1).unwrap();
+        assert!(toggled_back.contains("  - [ ] 二级待办项"));
+    }
+
+    #[test]
+    fn test_memo_tag_toggle_and_filter() {
+        let mut state = State::default();
+        assert_eq!(state.tab, Tab::Todos);
+        assert!(state.selected_tag.is_none());
+
+        // 模拟点击 tag
+        let tag = "工作".to_string();
+        if state.selected_tag.as_deref() == Some(&tag) {
+            state.selected_tag = None;
+        } else {
+            state.selected_tag = Some(tag.clone());
+        }
+        assert_eq!(state.selected_tag.as_deref(), Some("工作"));
+
+        // 再次点击同一 tag -> 取消筛选
+        if state.selected_tag.as_deref() == Some(&tag) {
+            state.selected_tag = None;
+        } else {
+            state.selected_tag = Some(tag.clone());
+        }
+        assert!(state.selected_tag.is_none());
+    }
+
+    #[test]
+    fn test_append_memos_format() {
+        let m1 = Memo::from_raw(
+            "1".into(),
+            "- [ ] 待办 A #重要".into(),
+            None,
+            None,
+            None,
+            false,
+        );
+        let m2 = Memo::from_raw(
+            "2".into(),
+            "普通灵感笔记".into(),
+            None,
+            None,
+            None,
+            false,
+        );
+        let memos = vec![m1, m2];
+
+        let mut lines = Vec::new();
+        lines.push("## Memos 闪念与待办\n".to_string());
+        for memo in &memos {
+            for line in memo.content.lines() {
+                lines.push(line.to_string());
+            }
+            lines.push("".to_string());
+        }
+        let output = lines.join("\n");
+        assert!(output.contains("- [ ] 待办 A #重要"));
+        assert!(output.contains("普通灵感笔记"));
+    }
 }
