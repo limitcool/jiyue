@@ -44,6 +44,7 @@ futures-util = "0.3"
 futures-channel = "0.3"
 fluent-bundle = "0.15"
 unic-langid = "0.9"
+qrcode = { version = "0.14.1", default-features = false }
 
 # Windows only: embeds assets/logo/jiyue.ico and the version info into jiyue.exe (build.rs).
 [target.'cfg(windows)'.build-dependencies]

@@ -80,6 +80,10 @@ pub struct SettingsState {
     pub template_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
     pub _daily_sub: Option<gpui::Subscription>,
     pub _tmpl_sub: Option<gpui::Subscription>,
+    /// State of mobile config export QR modal.
+    pub export_qr_open: bool,
+    pub export_include_sync: bool,
+    pub export_include_ai: bool,
 }
 
 impl Default for SettingsState {
@@ -95,6 +99,9 @@ impl Default for SettingsState {
             template_folder_input: None,
             _daily_sub: None,
             _tmpl_sub: None,
+            export_qr_open: false,
+            export_include_sync: true,
+            export_include_ai: true,
         }
     }
 }
@@ -401,6 +408,41 @@ impl RustdianApp {
         };
         let title = category_label(category);
 
+        let export_btn = div()
+            .flex()
+            .items_center()
+            .gap(px(5.0))
+            .px(px(9.0))
+            .h(px(26.0))
+            .rounded(px(6.0))
+            .border_1()
+            .border_color(t.line)
+            .bg(t.sheet)
+            .hover(|s| s.bg(t.hover))
+            .cursor_pointer()
+            .child(icon("link", 13.0, t.ac))
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(t.tx)
+                    .child("📱 手机扫码同步"),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.settings.export_qr_open = true;
+                    cx.notify();
+                }),
+            );
+
+        let heading_row = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .pr(px(36.0))
+            .child(heading(&t, &title))
+            .child(export_btn);
+
         let close = div()
             .absolute()
             .right(px(14.0))
@@ -443,7 +485,7 @@ impl RustdianApp {
             .flex_col()
             .overflow_hidden()
             .children(crate::ui::config_ui::banner(self, cx))
-            .child(heading(&t, &title))
+            .child(heading_row)
             .child(scroll_body)
             .child(close);
 
@@ -482,6 +524,9 @@ impl RustdianApp {
                 }),
             )
             .child(dialog)
+            .when(self.settings.export_qr_open, |d| {
+                d.child(crate::ui::export_config::render_modal(self, cx))
+            })
             .into_any_element()
     }
 }

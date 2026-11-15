@@ -3,7 +3,10 @@ import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/note.dart';
+import '../models/sync_config.dart';
+import '../models/exported_config.dart';
 
 // FFI Typedefs
 typedef COpen = ffi.Pointer<ffi.Void> Function(ffi.Pointer<Utf8> rootPath);
@@ -55,6 +58,12 @@ class VaultService {
   DartDailyAppend? _fnDailyAppend;
   DartFree? _fnFree;
 
+  S3Config? _s3Config;
+  ExportedAiConfig? _aiConfig;
+
+  S3Config? get s3Config => _s3Config;
+  ExportedAiConfig? get aiConfig => _aiConfig;
+
   String get vaultPath => _vaultDir?.path ?? '';
   String get vaultName => _vaultDir?.uri.pathSegments.where((s) => s.isNotEmpty).lastOrNull ?? '霁月';
 
@@ -76,6 +85,44 @@ class VaultService {
 
     // Attempt to link Rust Dynamic Library
     _tryInitFfi();
+
+    await loadConfig();
+  }
+
+  Future<void> loadConfig() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final s3Json = prefs.getString('jiyue_s3_config');
+      if (s3Json != null) {
+        final map = jsonDecode(s3Json) as Map<String, dynamic>;
+        _s3Config = S3Config(
+          endpoint: map['endpoint'] as String? ?? '',
+          region: map['region'] as String? ?? 'us-east-1',
+          bucket: map['bucket'] as String? ?? '',
+          accessKeyId: map['access_key_id'] as String? ?? '',
+          secretAccessKey: map['secret_access_key'] as String? ?? '',
+          sessionToken: map['session_token'] as String?,
+          rootPrefix: map['root_prefix'] as String? ?? '',
+          forcePathStyle: map['force_path_style'] as bool? ?? true,
+        );
+      }
+      final aiJson = prefs.getString('jiyue_ai_config');
+      if (aiJson != null) {
+        _aiConfig = ExportedAiConfig.fromJson(jsonDecode(aiJson) as Map<String, dynamic>);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> saveS3Config(S3Config config) async {
+    _s3Config = config;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('jiyue_s3_config', jsonEncode(config.toJson()));
+  }
+
+  Future<void> saveAiConfig(ExportedAiConfig config) async {
+    _aiConfig = config;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('jiyue_ai_config', jsonEncode(config.toJson()));
   }
 
   void _tryInitFfi() {

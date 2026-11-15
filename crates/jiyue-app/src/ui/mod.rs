@@ -9,6 +9,7 @@ pub mod calendar;
 pub mod config_ui;
 pub mod crumb;
 pub mod editor;
+pub mod export_config;
 pub mod export_ui;
 pub mod ext;
 pub mod files_ui;

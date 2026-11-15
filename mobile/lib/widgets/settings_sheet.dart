@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../bridge/vault_service.dart';
+import '../models/exported_config.dart';
 import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
+import '../views/qr_scan_page.dart';
 import 'jiyue_icon.dart';
 
 class SettingsModalSheet extends StatefulWidget {
@@ -23,6 +26,199 @@ class SettingsModalSheet extends StatefulWidget {
 
 class _SettingsModalSheetState extends State<SettingsModalSheet> {
   bool _s3Enabled = true;
+
+  Future<void> _handleScanQr() async {
+    final result = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => QrScanPage(colors: widget.themeProvider.colors),
+      ),
+    );
+    if (result != null && mounted) {
+      _processConfigPayload(result);
+    }
+  }
+
+  Future<void> _handlePasteJson() async {
+    final clip = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = clip?.text?.trim();
+    if (text == null || text.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('剪贴板中没有文本内容')),
+        );
+      }
+      return;
+    }
+    _processConfigPayload(text);
+  }
+
+  void _processConfigPayload(String raw) {
+    try {
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      if (json['jiyue'] != 'config_export') {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('未识别到有效的霁月配置代码')),
+        );
+        return;
+      }
+      final config = ExportedConfig.fromJson(json);
+      _showImportPreview(config);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('配置代码解析失败: $e')),
+      );
+    }
+  }
+
+  void _showImportPreview(ExportedConfig config) {
+    final colors = widget.themeProvider.colors;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: colors.sheet,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    JiyueIcon('check', color: colors.accent, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      '确认导入 PC 端配置',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (config.s3 != null) ...[
+                  Text('☁️ S3 云端存储配置', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary)),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colors.raised,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: colors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('存储桶: ${config.s3!.bucket}', style: TextStyle(fontSize: 12, color: colors.textPrimary)),
+                        const SizedBox(height: 3),
+                        Text('端点: ${config.s3!.endpoint}', style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+                        if (config.s3!.rootPrefix.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text('路径前缀: ${config.s3!.rootPrefix}', style: TextStyle(fontSize: 11, color: colors.textMuted)),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (config.ai != null) ...[
+                  Text('🤖 AI 助手配置 (${config.ai!.providers.length} 个服务商)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary)),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colors.raised,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: colors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: config.ai!.providers.map((p) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text('• ${p.name} (${p.chatModel})', style: TextStyle(fontSize: 12, color: colors.textPrimary)),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: colors.textSecondary,
+                          side: BorderSide(color: colors.border),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('取消'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: colors.accent,
+                          foregroundColor: colors.onAccent,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () async {
+                          if (config.s3 != null) {
+                            await widget.vaultService.saveS3Config(config.s3!);
+                          }
+                          if (config.ai != null) {
+                            await widget.vaultService.saveAiConfig(config.ai!);
+                          }
+                          if (ctx.mounted) {
+                            Navigator.of(ctx).pop();
+                          }
+                          if (mounted) {
+                            setState(() {});
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('🎉 已成功导入 PC 端配置，已保存生效！'),
+                                backgroundColor: Color(0xFF2E7D32),
+                              ),
+                            );
+                          }
+                        },
+                        child: const Text('确认导入并应用', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -268,7 +464,98 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
 
               const SizedBox(height: 18),
 
-              // 三、S3 / WebDAV 云同步设置 (Sync)
+              // 三、跨端快捷配置导入 (从 PC 扫码或粘贴)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '跨端配置导入 (PC 导入)',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: colors.accent.withAlpha(35),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '免手动输入',
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: colors.accent),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colors.raised,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: colors.border),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '扫描 PC 端设置弹窗中「📱 手机扫码同步」展示的二维码，一键导入 S3 存储桶凭据与 AI 助手配置。',
+                      style: TextStyle(fontSize: 11, color: colors.textSecondary, height: 1.4),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: colors.accent,
+                              foregroundColor: colors.onAccent,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.qr_code_scanner, size: 16),
+                            label: const Text('扫码导入', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            onPressed: _handleScanQr,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: colors.textPrimary,
+                              side: BorderSide(color: colors.border),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: JiyueIcon('copy', color: colors.textSecondary, size: 14),
+                            label: const Text('粘贴代码', style: TextStyle(fontSize: 12)),
+                            onPressed: _handlePasteJson,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (widget.vaultService.s3Config != null || widget.vaultService.aiConfig != null) ...[
+                      const Divider(height: 20),
+                      Row(
+                        children: [
+                          Icon(Icons.check_circle_outline, color: colors.accent, size: 14),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '已绑定: ${widget.vaultService.s3Config != null ? "S3[${widget.vaultService.s3Config!.bucket}] " : ""}${widget.vaultService.aiConfig != null ? "AI[${widget.vaultService.aiConfig!.providers.length}模型]" : ""}',
+                              style: TextStyle(fontSize: 11, color: colors.accent),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              // 四、S3 / WebDAV 云同步设置 (Sync)
               Text(
                 '云端同步配置 (Sync)',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),
@@ -307,15 +594,22 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('协议类型: S3 (Cloudflare R2 / MinIO)',
-                            style: TextStyle(fontSize: 11, color: colors.textSecondary)),
+                        Text(
+                          widget.vaultService.s3Config != null
+                              ? '存储桶: ${widget.vaultService.s3Config!.bucket} (${widget.vaultService.s3Config!.region})'
+                              : '协议类型: S3 (Cloudflare R2 / MinIO)',
+                          style: TextStyle(fontSize: 11, color: colors.textSecondary),
+                        ),
                         TextButton(
                           onPressed: () {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('与 PC 端共享相同存储桶配置')),
+                              const SnackBar(content: Text('已与 PC 端共享相同存储桶配置')),
                             );
                           },
-                          child: Text('修改配置', style: TextStyle(fontSize: 11, color: colors.accent)),
+                          child: Text(
+                            widget.vaultService.s3Config != null ? '已导入' : '修改配置',
+                            style: TextStyle(fontSize: 11, color: colors.accent),
+                          ),
                         ),
                       ],
                     ),
