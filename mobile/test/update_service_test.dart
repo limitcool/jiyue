@@ -77,10 +77,10 @@ void main() {
     });
 
     test('isNewer returns true only for newer semvers', () {
-      expect(UpdateService.isNewer('v0.3.2', '0.3.1'), isTrue);
+      expect(UpdateService.isNewer('v0.3.3', '0.3.2'), isTrue);
       expect(UpdateService.isNewer('v1.0.0', '0.9.9'), isTrue);
-      expect(UpdateService.isNewer('v0.3.1', '0.3.1'), isFalse);
-      expect(UpdateService.isNewer('v0.3.0', '0.3.1'), isFalse);
+      expect(UpdateService.isNewer('v0.3.2', '0.3.2'), isFalse);
+      expect(UpdateService.isNewer('v0.3.1', '0.3.2'), isFalse);
     });
 
     test('pickMobileAsset selects correct Android APK', () {
@@ -107,15 +107,15 @@ void main() {
   group('UpdateService GitHub API Mock', () {
     test('parses release info and detects available update', () async {
       final mockData = {
-        'tag_name': 'v0.3.2',
-        'name': 'Jiyue v0.3.2 Release',
+        'tag_name': 'v0.3.3',
+        'name': 'Jiyue v0.3.3 Release',
         'body': '## What\'s new\n- AI polish support\n- Better sync',
         'published_at': '2026-11-15T03:00:00Z',
-        'html_url': 'https://github.com/limitcool/jiyue/releases/tag/v0.3.2',
+        'html_url': 'https://github.com/limitcool/jiyue/releases/tag/v0.3.3',
         'assets': [
           {
             'name': 'jiyue-android-arm64.apk',
-            'browser_download_url': 'https://github.com/limitcool/jiyue/releases/download/v0.3.2/jiyue-android-arm64.apk',
+            'browser_download_url': 'https://github.com/limitcool/jiyue/releases/download/v0.3.3/jiyue-android-arm64.apk',
             'size': 25000000,
           }
         ]
@@ -123,12 +123,12 @@ void main() {
 
       final client = _MockUpdateHttpClient(responseJson: mockData, statusCode: 200);
       final result = await UpdateService.checkUpdate(
-        currentVersion: '0.3.1',
+        currentVersion: '0.3.2',
         client: client,
       );
 
       expect(result.hasUpdate, isTrue);
-      expect(result.latestVersion, equals('0.3.2'));
+      expect(result.latestVersion, equals('0.3.3'));
       expect(result.releaseNotes, contains('AI polish support'));
       expect(result.apkAsset, isNotNull);
       expect(result.apkAsset!.name, equals('jiyue-android-arm64.apk'));

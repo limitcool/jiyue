@@ -3,6 +3,42 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.3.2] - 2026-11-15
+
+### 中文
+
+**新增**
+- **跨端配置一键导出与手机扫码同步**：
+  - PC 端设置新增「📱 手机扫码同步」面板，原生渲染高精度配置二维码，并支持一键导出剪贴板加密/脱敏配置载荷（覆盖 S3 云同步、Memos 及 AI 服务）。
+  - 移动端引入扫码镜头与剪贴板识别器，扫码或读取剪贴板即可一键预览并持久化双端配置，彻底告别移动端繁琐手动录入。
+- **全端 AI 智能润色与速记工具箱**：
+  - PC 端编辑器：文本选区上方自动浮现呼吸态快捷胶囊（`✨ AI 润色 / 助手`），支持全局快捷键 `Ctrl+J` 唤起。
+  - PC 端 AI 侧边栏：新增「当前笔记快捷工具箱」，提供智能润色、提炼摘要、提取核心标签、智能命名建议与一键内容替换。
+  - 移动端：实现统一的 `AiPolishSheet` 润色交互面板，预置智能润色、学术专业、生动通俗、提炼摘要四种专业风格，完美融入系统长按选区上下文菜单（`contextMenuBuilder`）与阅读态顶栏入口。
+  - 适配 Anthropic Messages 协议与 DeepSeek 思考模型，实现思考链（thinking）与回答内容的高效解耦分离。
+- **移动端应用内版本自更新 (In-App Updates)**：
+  - 移动端实现自动对接 GitHub Releases 最新发布接口，智能挑选适配当前移动端架构的 APK 安装包（优先识别 arm64-v8a）。
+  - 精美自更新弹窗：支持 Markdown 格式更新日志原生渲染、版本对照徽章、安装包体积显示与一键唤起系统下载。
+  - 侧边栏设置新增「软件版本与自更新」模块，带动态加载状态与友好限流容错。
+
+---
+
+### English
+
+**Added**
+- **Cross-device config export & mobile QR scanner sync**:
+  - Added "📱 Mobile QR Sync" panel on desktop with native QR matrix rendering and clipboard JSON export for S3, Memos, and AI configurations.
+  - Implemented mobile QR camera scanner and clipboard reader for instant configuration preview and persistence across devices.
+- **Cross-platform AI smart polish & note assistant toolbox**:
+  - Desktop editor: Floating selection pill (`✨ AI Polish / Assistant`) and `Ctrl+J` shortcut trigger for instantaneous context actions.
+  - Desktop AI side panel: Dedicated "Current Note Toolbox" featuring smart polish, executive summary, tag extraction, title generation, and in-place replacement.
+  - Mobile app: Complete `AiPolishSheet` modal supporting Smart, Academic, Casual, and Summary modes, seamlessly integrated into Android native text selection context menus and reader view.
+  - Full support for Anthropic Messages API and DeepSeek reasoning models with thinking/answer block separation.
+- **Mobile In-App update checker**:
+  - Implemented automatic GitHub Releases update check with semantic version comparison and mobile APK asset matching (prioritizing arm64-v8a).
+  - Rich update dialog featuring native Markdown changelog rendering, version badge diffs, download sizes, and one-tap external browser download triggers.
+  - Added dedicated "Updates & About" card in mobile settings with animated loading indicators.
+
 ## [0.3.1] - 2026-11-15
 
 ### 中文

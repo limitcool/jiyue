@@ -3,7 +3,7 @@ import 'dart:io';
 
 const String defaultRepoOwner = 'limitcool';
 const String defaultRepoName = 'jiyue';
-const String currentAppVersion = '0.3.1';
+const String currentAppVersion = '0.3.2';
 
 class ReleaseAsset {
   final String name;
