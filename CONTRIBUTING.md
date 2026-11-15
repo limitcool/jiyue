@@ -39,7 +39,6 @@ dependency, commit the updated `Cargo.lock` in the same change and say why the d
 | --- | --- |
 | `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml` | The Cargo workspace (members are in `crates/`). |
 | `crates/` | `jiyue-app` (the desktop app, package `jiyue`), `jiyue-mcp` (MCP server), and library crates: core, md, search, sync, ai, export, history, math, diagram, query. |
-| `demo-vault/` | A sample vault for trying the app. Copy it before changing anything; tests and helpers must not modify it. |
 | `design/` | The final logo and icon set (`design/logo/final/`). |
 | `docs/` | User documentation. `docs/dev/` holds contributor notes (the roadmap and the rules for parallel work). |
 | `installer/` | The Windows installer (WiX). See [installer/README.md](installer/README.md). |

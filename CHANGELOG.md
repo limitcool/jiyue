@@ -3,6 +3,36 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.3.1] - 2026-11-15
+
+### 中文
+
+**优化与变更**
+- **默认启动进入纯净欢迎页并剥离 demo-vault**：
+  - 彻底移除以往打开空笔记库时自动在磁盘注入的 5 篇示例笔记及写死的默认打开标签页，避免污染用户文件夹。
+  - 从源码仓库中完全清理移除 `demo-vault` 目录。
+  - 启动应用且上次未保留打开笔记时，主工作区直接呈现精美欢迎页（Welcome Page），并新增“切换笔记库”快捷操作。
+- **Android 移动端应用体验升级**：
+  - 应用名称正式更新为“霁月”，告别默认工程名。
+  - 全面配置高清官方自适应与圆形桌面启动图标（支持 Android 8.0+ Adaptive Icons 及各类启动器规范）。
+- **Release 构建流智能增量复用**：
+  - 优化 GitHub Actions 发布流水线，在移动端代码无变更时自动复用已发布的 Android APK，大幅缩减发布打包耗时；同时支持手动强制重构选项。
+
+---
+
+### English
+
+**Improvements & Changes**
+- **Default to clean Welcome Page & remove demo-vault**:
+  - Completely removed automatic sample note injection into empty vaults and hardcoded restore tabs, ensuring user directories remain untainted.
+  - Fully removed the `demo-vault` directory from the repository.
+  - When starting the app without open tabs, the central workspace directly displays the clean Welcome Page, complete with a new "Switch Vault" quick action.
+- **Android mobile experience enhancement**:
+  - Standardized application display label to "霁月 (Jiyue)".
+  - Added official high-resolution standard and circular adaptive launcher icons across all mipmap densities (Android 8.0+ adaptive icon support).
+- **Smart Release workflow asset caching**:
+  - Optimized the GitHub Actions release workflow to automatically detect changes and reuse previous Android APK assets when mobile sources are untouched, dramatically reducing build times while retaining manual force-rebuild capabilities.
+
 ## [0.3.0] - 2026-11-14
 
 ### 中文
