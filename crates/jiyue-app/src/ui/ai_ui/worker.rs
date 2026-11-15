@@ -293,26 +293,34 @@ fn open_index(dir: &Path, embed: Option<&(ProviderEntry, Option<TestEnv>)>) -> O
 }
 
 /// Sends a tiny chat request to check the settings. `key` is the key typed in the form when
-/// there is one; otherwise the stored key is used.
+/// there is one; otherwise the stored key is used. `override_model` allows testing a specific
+/// model instead of the default chat_model.
 pub fn test_connection(
     entry: &ProviderEntry,
     key: Option<String>,
     test: Option<&TestEnv>,
-) -> Result<(), AiError> {
+    override_model: Option<&str>,
+) -> Result<(std::time::Duration, String), AiError> {
     let key = match key {
         Some(k) => Some(k),
         None => api_key(&entry.id, test)?,
     };
+    let model = match override_model {
+        Some(m) if !m.trim().is_empty() => m.trim().to_string(),
+        _ => entry.chat_model.clone(),
+    };
     let provider = Provider::new(entry.chat_config(), key)?;
     let req = ChatRequest::new(
-        entry.chat_model.clone(),
+        model.clone(),
         vec![ChatMessage {
             role: jiyue_ai::ChatRole::User,
             content: "ping".into(),
         }],
     );
+    let start = std::time::Instant::now();
     // No output limit: a reasoning model would spend a tiny budget on reasoning and never answer.
-    provider.chat_stream(&req, &mut |_: &str| {}).map(|_| ())
+    provider.chat_stream(&req, &mut |_: &str| {})?;
+    Ok((start.elapsed(), model))
 }
 
 /// Starts `work` on a new thread and returns its receiver.

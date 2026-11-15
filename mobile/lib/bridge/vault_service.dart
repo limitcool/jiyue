@@ -60,9 +60,11 @@ class VaultService {
 
   S3Config? _s3Config;
   ExportedAiConfig? _aiConfig;
+  ExportedMemosConfig? _memosConfig;
 
   S3Config? get s3Config => _s3Config;
   ExportedAiConfig? get aiConfig => _aiConfig;
+  ExportedMemosConfig? get memosConfig => _memosConfig;
 
   String get vaultPath => _vaultDir?.path ?? '';
   String get vaultName => _vaultDir?.uri.pathSegments.where((s) => s.isNotEmpty).lastOrNull ?? '霁月';
@@ -110,6 +112,10 @@ class VaultService {
       if (aiJson != null) {
         _aiConfig = ExportedAiConfig.fromJson(jsonDecode(aiJson) as Map<String, dynamic>);
       }
+      final memosJson = prefs.getString('jiyue_memos_config');
+      if (memosJson != null) {
+        _memosConfig = ExportedMemosConfig.fromJson(jsonDecode(memosJson) as Map<String, dynamic>);
+      }
     } catch (_) {}
   }
 
@@ -123,6 +129,12 @@ class VaultService {
     _aiConfig = config;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('jiyue_ai_config', jsonEncode(config.toJson()));
+  }
+
+  Future<void> saveMemosConfig(ExportedMemosConfig config) async {
+    _memosConfig = config;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('jiyue_memos_config', jsonEncode(config.toJson()));
   }
 
   void _tryInitFfi() {

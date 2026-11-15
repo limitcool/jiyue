@@ -88,6 +88,7 @@ pub struct Inputs {
     pub chat_model: Option<Entity<LineInput>>,
     pub embed_model: Option<Entity<LineInput>>,
     pub api_key: Option<Entity<LineInput>>,
+    pub test_model: Option<Entity<LineInput>>,
     pub folder: Option<Entity<LineInput>>,
     pub tag: Option<Entity<LineInput>>,
 }
@@ -103,6 +104,7 @@ impl Inputs {
             &self.chat_model,
             &self.embed_model,
             &self.api_key,
+            &self.test_model,
             &self.folder,
             &self.tag,
         ]
@@ -231,6 +233,7 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         chat_model: Some(new_input(cx, theme, "对话模型，例如 gpt-4o-mini")),
         embed_model: Some(new_input(cx, theme, "嵌入模型（可留空）")),
         api_key: Some(new_input(cx, theme, "API 密钥（保存后不再显示）")),
+        test_model: Some(new_input(cx, theme, "指定测试模型（可选，留空使用上方模型）")),
         folder: Some(new_input(cx, theme, "文件夹，例如 私人/日记")),
         tag: Some(new_input(cx, theme, "标签，例如 secret")),
     };

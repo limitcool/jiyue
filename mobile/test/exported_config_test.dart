@@ -79,6 +79,10 @@ void main() {
           "secret_access_key": "r2-secret",
           "root_prefix": "",
           "force_path_style": true
+        },
+        "memos": {
+          "endpoint": "https://memo.init.cool",
+          "token": "memos_pat_test123"
         }
       }
       ''';
@@ -89,6 +93,9 @@ void main() {
       expect(config.s3, isNotNull);
       expect(config.s3!.bucket, 'r2-bucket');
       expect(config.ai, isNull);
+      expect(config.memos, isNotNull);
+      expect(config.memos!.endpoint, 'https://memo.init.cool');
+      expect(config.memos!.token, 'memos_pat_test123');
     });
   });
 }

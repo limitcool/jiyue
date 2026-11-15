@@ -40,6 +40,26 @@ class ExportedAiProvider {
     'embedding_model': embeddingModel,
     'api_key': apiKey,
   };
+
+  ExportedAiProvider copyWith({
+    String? id,
+    String? name,
+    String? kind,
+    String? baseUrl,
+    String? chatModel,
+    String? embeddingModel,
+    String? apiKey,
+  }) {
+    return ExportedAiProvider(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      kind: kind ?? this.kind,
+      baseUrl: baseUrl ?? this.baseUrl,
+      chatModel: chatModel ?? this.chatModel,
+      embeddingModel: embeddingModel ?? this.embeddingModel,
+      apiKey: apiKey ?? this.apiKey,
+    );
+  }
 }
 
 class ExportedAiConfig {
@@ -52,6 +72,18 @@ class ExportedAiConfig {
     this.activeChat,
     required this.providers,
   });
+
+  ExportedAiConfig copyWith({
+    bool? enabled,
+    String? activeChat,
+    List<ExportedAiProvider>? providers,
+  }) {
+    return ExportedAiConfig(
+      enabled: enabled ?? this.enabled,
+      activeChat: activeChat ?? this.activeChat,
+      providers: providers ?? this.providers,
+    );
+  }
 
   factory ExportedAiConfig.fromJson(Map<String, dynamic> json) {
     final rawProviders = json['providers'] as List<dynamic>? ?? [];
@@ -73,6 +105,28 @@ class ExportedAiConfig {
   };
 }
 
+class ExportedMemosConfig {
+  final String endpoint;
+  final String token;
+
+  ExportedMemosConfig({
+    required this.endpoint,
+    required this.token,
+  });
+
+  factory ExportedMemosConfig.fromJson(Map<String, dynamic> json) {
+    return ExportedMemosConfig(
+      endpoint: json['endpoint'] as String? ?? '',
+      token: json['token'] as String? ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'endpoint': endpoint,
+    'token': token,
+  };
+}
+
 class ExportedConfig {
   final String jiyue;
   final int version;
@@ -80,6 +134,7 @@ class ExportedConfig {
   final S3Config? s3;
   final WebDavConfig? webdav;
   final ExportedAiConfig? ai;
+  final ExportedMemosConfig? memos;
 
   ExportedConfig({
     required this.jiyue,
@@ -88,6 +143,7 @@ class ExportedConfig {
     this.s3,
     this.webdav,
     this.ai,
+    this.memos,
   });
 
   factory ExportedConfig.fromJson(Map<String, dynamic> json) {
@@ -120,6 +176,9 @@ class ExportedConfig {
     final aiMap = json['ai'] as Map<String, dynamic>?;
     final ai = aiMap != null ? ExportedAiConfig.fromJson(aiMap) : null;
 
+    final memosMap = json['memos'] as Map<String, dynamic>?;
+    final memos = memosMap != null ? ExportedMemosConfig.fromJson(memosMap) : null;
+
     return ExportedConfig(
       jiyue: json['jiyue'] as String? ?? '',
       version: json['version'] as int? ?? 1,
@@ -127,6 +186,7 @@ class ExportedConfig {
       s3: s3,
       webdav: webdav,
       ai: ai,
+      memos: memos,
     );
   }
 }

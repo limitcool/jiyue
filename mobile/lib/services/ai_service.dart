@@ -107,4 +107,70 @@ class AiService {
       }
     }
   }
+
+  static Future<Map<String, dynamic>> testConnection({
+    required ExportedAiProvider provider,
+    String? customModel,
+    HttpClient? client,
+  }) async {
+    final baseUrl = provider.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+    final isAnthropic = provider.kind.toLowerCase() == 'anthropic';
+    final targetModel = (customModel != null && customModel.trim().isNotEmpty)
+        ? customModel.trim()
+        : provider.chatModel;
+
+    final uri = isAnthropic
+        ? Uri.parse('$baseUrl/v1/messages')
+        : (baseUrl.endsWith('/v1')
+            ? Uri.parse('$baseUrl/chat/completions')
+            : Uri.parse('$baseUrl/v1/chat/completions'));
+
+    final ioClient = client ?? HttpClient();
+    final stopwatch = Stopwatch()..start();
+    try {
+      final request = await ioClient.postUrl(uri);
+      request.headers.set('content-type', 'application/json; charset=utf-8');
+
+      if (isAnthropic) {
+        request.headers.set('x-api-key', provider.apiKey);
+        request.headers.set('anthropic-version', '2023-06-01');
+        final payload = jsonEncode({
+          'model': targetModel,
+          'max_tokens': 16,
+          'messages': [
+            {'role': 'user', 'content': 'ping'}
+          ],
+        });
+        request.write(payload);
+      } else {
+        request.headers.set('Authorization', 'Bearer ${provider.apiKey}');
+        final payload = jsonEncode({
+          'model': targetModel,
+          'max_tokens': 16,
+          'messages': [
+            {'role': 'user', 'content': 'ping'}
+          ],
+        });
+        request.write(payload);
+      }
+
+      final response = await request.close();
+      final respBody = await response.transform(utf8.decoder).join();
+      stopwatch.stop();
+
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}: $respBody');
+      }
+
+      return {
+        'success': true,
+        'latency_ms': stopwatch.elapsedMilliseconds,
+        'model': targetModel,
+      };
+    } finally {
+      if (client == null) {
+        ioClient.close();
+      }
+    }
+  }
 }

@@ -35,7 +35,10 @@ pub enum TestState {
     #[default]
     Idle,
     Running,
-    Ok,
+    Ok {
+        latency_ms: u64,
+        model: String,
+    },
     Failed(String),
 }
 
@@ -53,6 +56,8 @@ pub struct Editing {
 pub struct Ui {
     pub editing: Option<Editing>,
     pub test: TestState,
+    /// Provider id currently undergoing quick connection test from its card.
+    pub quick_testing: Option<String>,
     /// Whether a key is stored, per provider id (read from the credential store off the UI thread).
     pub key_saved: HashMap<String, bool>,
     /// How the stored key of each provider is given (literal, `env:`, `cmd:`); never the value.
@@ -174,6 +179,7 @@ pub fn begin_edit(app: &mut RustdianApp, id: Option<String>, cx: &mut Context<Ru
         (&inputs.chat_model, chat_model),
         (&inputs.embed_model, embed_model),
         (&inputs.api_key, String::new()),
+        (&inputs.test_model, String::new()),
     ] {
         if let Some(i) = input {
             i.update(cx, |i, cx| i.set_text(&text, cx));
@@ -193,6 +199,7 @@ pub fn cancel_edit(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     app.ext.ai.settings.editing = None;
     app.ext.ai.settings.test = TestState::Idle;
     input_clear(&app.ext.ai.inputs.api_key, cx);
+    input_clear(&app.ext.ai.inputs.test_model, cx);
     cx.notify();
 }
 
@@ -249,6 +256,7 @@ pub fn save_edit(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     app.ext.ai.settings.editing = None;
     app.ext.ai.settings.test = TestState::Idle;
     input_clear(&app.ext.ai.inputs.api_key, cx);
+    input_clear(&app.ext.ai.inputs.test_model, cx);
     if !persist(app) {
         cx.notify();
         return;
@@ -432,19 +440,71 @@ pub fn test_connection(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         .trim()
         .to_string();
     let key = if typed.is_empty() { None } else { Some(typed) };
+    let custom_model = input_text(&app.ext.ai.inputs.test_model, cx)
+        .trim()
+        .to_string();
+    let override_model = if custom_model.is_empty() {
+        None
+    } else {
+        Some(custom_model)
+    };
     let test = app.ext.ai.test.clone();
     app.ext.ai.settings.test = TestState::Running;
     cx.notify();
     runner::once(
         cx,
         move || {
-            worker::test_connection(&entry, key, test.as_ref()).map_err(|e| errors::describe(&e))
+            worker::test_connection(&entry, key, test.as_ref(), override_model.as_deref())
+                .map_err(|e| errors::describe(&e))
         },
         |app, result, cx| {
             app.ext.ai.settings.test = match result {
-                Ok(()) => TestState::Ok,
+                Ok((duration, model)) => TestState::Ok {
+                    latency_ms: duration.as_millis() as u64,
+                    model,
+                },
                 Err(m) => TestState::Failed(m),
             };
+            cx.notify();
+        },
+    );
+}
+
+/// 快速测试现有服务商连接性（在列表卡片上直接点击）
+pub fn quick_test_provider(
+    app: &mut RustdianApp,
+    provider: ProviderEntry,
+    cx: &mut Context<RustdianApp>,
+) {
+    let p_id = provider.id.clone();
+    let p_name = provider.name.clone();
+    let test = app.ext.ai.test.clone();
+    app.ext.ai.settings.quick_testing = Some(p_id.clone());
+    cx.notify();
+    runner::once(
+        cx,
+        move || {
+            worker::test_connection(&provider, None, test.as_ref(), None)
+                .map_err(|e| errors::describe(&e))
+        },
+        move |app, result, cx| {
+            app.ext.ai.settings.quick_testing = None;
+            match result {
+                Ok((duration, model)) => {
+                    app.toast(
+                        ToastKind::Success,
+                        format!(
+                            "✓ 服务「{}」连接成功 ({}ms) · 模型 {}",
+                            p_name,
+                            duration.as_millis(),
+                            model
+                        ),
+                    );
+                }
+                Err(e) => {
+                    app.toast(ToastKind::Error, format!("✕ 服务「{}」测试失败：{}", p_name, e));
+                }
+            }
             cx.notify();
         },
     );
@@ -734,66 +794,163 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
 
 fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
-    let key_text = match app.ext.ai.settings.key_saved.get(&p.id) {
-        Some(true) => crate::t!("ai-key-saved"),
-        Some(false) => crate::t!("ai-key-unset"),
-        None => crate::t!("ai-key-reading"),
+    let is_active_chat = app.ext.ai.config.active_chat.as_deref() == Some(&p.id);
+    let is_active_embed = app.ext.ai.config.active_embedding.as_deref() == Some(&p.id);
+    let key_saved = app.ext.ai.settings.key_saved.get(&p.id).copied().unwrap_or(false);
+    let is_quick_testing = app.ext.ai.settings.quick_testing.as_deref() == Some(&p.id);
+
+    let (kind_label, kind_bg, kind_fg) = match p.kind {
+        ProviderKind::OpenAiCompatible => ("OpenAI", gpui::rgba(0x10b98125), gpui::rgb(0x10b981)),
+        ProviderKind::Anthropic => ("Anthropic", gpui::rgba(0x9d4edd25), gpui::rgb(0x9d4edd)),
     };
-    let kind = match p.kind {
-        ProviderKind::OpenAiCompatible => "OpenAI Compatible",
-        ProviderKind::Anthropic => "Anthropic",
-    };
+
     let edit_id = p.id.clone();
     let delete_id = p.id.clone();
+    let test_provider = p.clone();
+
     div()
         .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(12.0))
-        .py(px(8.0))
-        .border_b_1()
-        .border_color(t.line_soft)
+        .flex_col()
+        .gap(px(6.0))
+        .p(px(12.0))
+        .mb(px(8.0))
+        .rounded(px(10.0))
+        .bg(t.raised)
+        .border_1()
+        .border_color(if is_active_chat { t.ac } else { t.line })
         .child(
+            // Header: 名称 + 协议徽章 + 激活状态 + 右侧快捷按钮
             div()
                 .flex()
-                .flex_col()
-                .min_w_0()
-                .gap(px(2.0))
-                .child(div().font_weight(FontWeight::MEDIUM).child(p.name.clone()))
-                .child(div().text_size(px(11.5)).text_color(t.tx3).child(format!(
-                    "{kind} · {} · {}",
-                    host_of(&p.base_url),
-                    p.chat_model
-                )))
+                .items_center()
+                .justify_between()
                 .child(
                     div()
-                        .text_size(px(11.5))
-                        .text_color(t.tx3)
-                        .child(SharedString::from(key_text)),
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::BOLD)
+                                .text_size(px(13.5))
+                                .text_color(t.tx)
+                                .child(p.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .px(px(6.0))
+                                .py(px(1.5))
+                                .rounded(px(4.0))
+                                .bg(kind_bg)
+                                .text_size(px(10.5))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(kind_fg)
+                                .child(kind_label),
+                        )
+                        .when(is_active_chat, |el| {
+                            el.child(
+                                div()
+                                    .px(px(6.0))
+                                    .py(px(1.5))
+                                    .rounded(px(4.0))
+                                    .bg(t.ac_soft)
+                                    .text_size(px(10.5))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(t.ac)
+                                    .child("当前对话"),
+                            )
+                        })
+                        .when(is_active_embed, |el| {
+                            el.child(
+                                div()
+                                    .px(px(6.0))
+                                    .py(px(1.5))
+                                    .rounded(px(4.0))
+                                    .bg(gpui::rgba(0x3b82f625))
+                                    .text_size(px(10.5))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(gpui::rgb(0x3b82f6))
+                                    .child("当前嵌入"),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(button(
+                            &t,
+                            if is_quick_testing { "测试中..." } else { "测试" },
+                            ButtonKind::Secondary,
+                            Some("zap"),
+                            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                quick_test_provider(this, test_provider.clone(), cx);
+                            }),
+                        ))
+                        .child(button(
+                            &t,
+                            &crate::t!("ai-edit-btn"),
+                            ButtonKind::Ghost,
+                            None,
+                            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                begin_edit(this, Some(edit_id.clone()), cx);
+                            }),
+                        ))
+                        .child(icon_button(
+                            &t,
+                            "trash",
+                            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                this.ext.ai.modal = Modal::DeleteProvider(delete_id.clone());
+                                cx.notify();
+                            }),
+                        )),
                 ),
         )
         .child(
+            // Details: 端点 · 模型
             div()
                 .flex()
-                .flex_none()
+                .items_center()
                 .gap(px(6.0))
-                .child(button(
-                    &t,
-                    &crate::t!("ai-edit-btn"),
-                    ButtonKind::Ghost,
-                    None,
-                    cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                        begin_edit(this, Some(edit_id.clone()), cx);
-                    }),
-                ))
-                .child(icon_button(
-                    &t,
-                    "trash",
-                    cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                        this.ext.ai.modal = Modal::DeleteProvider(delete_id.clone());
-                        cx.notify();
-                    }),
-                )),
+                .text_size(px(11.5))
+                .text_color(t.tx2)
+                .child(icon("link", 12.0, t.tx3))
+                .child(host_of(&p.base_url))
+                .child(div().text_color(t.tx3).child("·"))
+                .child(icon("message-square", 12.0, t.tx3))
+                .child(p.chat_model.clone())
+                .when_some(p.embedding_model.as_ref(), |el, embed| {
+                    el.child(div().text_color(t.tx3).child("·"))
+                        .child(icon("layers", 12.0, t.tx3))
+                        .child(embed.clone())
+                }),
+        )
+        .child(
+            // Footer: 凭据保存状态
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .text_size(px(11.0))
+                .child(if key_saved {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.0))
+                        .text_color(t.ok)
+                        .child(icon("check-circle-2", 12.0, t.ok))
+                        .child("API 密钥已安全存储于系统凭据中")
+                } else {
+                    let warn_color = gpui::rgb(0xd97706);
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.0))
+                        .text_color(warn_color)
+                        .child(icon("alert-circle", 12.0, warn_color))
+                        .child("未配置密钥（请编辑以补充 API Key）")
+                }),
         )
 }
 
@@ -834,30 +991,150 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     } else {
         crate::t!("ai-key-hint-unsaved")
     };
-    let test_line = match &s.settings.test {
-        TestState::Idle => None,
-        TestState::Running => Some((crate::t!("ai-testing"), t.tx3)),
-        TestState::Ok => Some((crate::t!("ai-test-ok"), t.ok)),
-        TestState::Failed(m) => Some((m.clone(), gpui::rgb(RED))),
-    };
+
     let form_title = if editing.id.is_some() {
         crate::t!("ai-edit-provider")
     } else {
         crate::t!("ai-add-provider")
     };
+
+    // 快捷常用模型预设
+    let quick_models = ["deepseek-flash-eco", "deepseek-chat", "gpt-4o-mini", "claude-3-5-sonnet"];
+
+    let test_box = div()
+        .flex()
+        .flex_col()
+        .gap(px(8.0))
+        .p(px(10.0))
+        .rounded(px(8.0))
+        .bg(t.raised)
+        .border_1()
+        .border_color(t.line_soft)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(icon("zap", 13.0, t.ac))
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.tx)
+                                .child("连通性与指定模型测试"),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(t.tx3)
+                        .child("支持临时指定不同模型进行握手验证"),
+                ),
+        )
+        .child(text_field(
+            &t,
+            "指定测试模型（可选，留空则默认使用上方对话模型）",
+            inputs.test_model.clone(),
+        ))
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(6.0))
+                .child(div().text_size(px(11.0)).text_color(t.tx3).child("快捷填充:"))
+                .children(quick_models.iter().map(|&model_name| {
+                    let m_str = model_name.to_string();
+                    let t_input = inputs.test_model.clone();
+                    div()
+                        .flex()
+                        .items_center()
+                        .h(px(22.0))
+                        .px(px(8.0))
+                        .rounded(px(11.0))
+                        .bg(t.sheet)
+                        .border_1()
+                        .border_color(t.line_soft)
+                        .text_size(px(11.0))
+                        .text_color(t.tx2)
+                        .cursor_pointer()
+                        .hover(|s| s.bg(t.hover).text_color(t.ac))
+                        .child(model_name)
+                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                            if let Some(ref input) = t_input {
+                                input.update(cx, |i, cx| i.set_text(&m_str, cx));
+                            }
+                        })
+                })),
+        )
+        .when_some(match &s.settings.test {
+            TestState::Idle => None,
+            TestState::Running => Some(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .p(px(8.0))
+                    .rounded(px(6.0))
+                    .bg(t.sheet)
+                    .border_1()
+                    .border_color(t.line_soft)
+                    .text_size(px(12.0))
+                    .text_color(t.tx2)
+                    .child(icon("refresh-cw", 12.0, t.ac))
+                    .child("正在连接端点并测试模型响应..."),
+            ),
+            TestState::Ok { latency_ms, model } => Some(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .p(px(8.0))
+                    .rounded(px(6.0))
+                    .bg(t.ok_soft)
+                    .border_1()
+                    .border_color(t.ok)
+                    .text_size(px(12.0))
+                    .text_color(t.ok)
+                    .child(icon("check-circle-2", 13.0, t.ok))
+                    .child(format!("✓ 握手成功 · 耗时 {}ms · 模型「{}」响应正常", latency_ms, model)),
+            ),
+            TestState::Failed(err) => Some(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .p(px(8.0))
+                    .rounded(px(6.0))
+                    .bg(gpui::rgba(0xe5484d18))
+                    .border_1()
+                    .border_color(gpui::rgb(RED))
+                    .text_size(px(12.0))
+                    .text_color(gpui::rgb(RED))
+                    .child(icon("alert-circle", 13.0, gpui::rgb(RED)))
+                    .child(format!("✕ 测试失败：{err}")),
+            ),
+        }, |el, status_widget| el.child(status_widget));
+
     let mut col = div()
         .flex()
         .flex_col()
         .gap(px(10.0))
         .mt(px(8.0))
-        .p(px(12.0))
-        .rounded(px(10.0))
+        .p(px(14.0))
+        .rounded(px(12.0))
         .bg(t.sheet)
         .border_1()
         .border_color(t.line)
         .child(
             div()
-                .font_weight(FontWeight::SEMIBOLD)
+                .font_weight(FontWeight::BOLD)
+                .text_size(px(14.0))
                 .child(SharedString::from(form_title)),
         )
         .child(text_field(&t, &crate::t!("ai-name"), inputs.name.clone()))
@@ -908,10 +1185,9 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 .text_size(px(11.5))
                 .text_color(t.tx3)
                 .child(SharedString::from(key_hint)),
-        );
-    if let Some((text, color)) = test_line {
-        col = col.child(div().text_size(px(12.5)).text_color(color).child(text));
-    }
+        )
+        .child(test_box);
+
     if let Some(err) = &editing.error {
         col = col.child(
             div()
@@ -926,6 +1202,7 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             .flex_wrap()
             .justify_end()
             .gap(px(8.0))
+            .pt(px(4.0))
             .child(button(
                 &t,
                 &crate::t!("ai-cancel-btn"),
@@ -937,7 +1214,7 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 &t,
                 &crate::t!("ai-test-btn"),
                 ButtonKind::Secondary,
-                Some("link"),
+                Some("zap"),
                 cx.listener(|this, _: &MouseDownEvent, _, cx| test_connection(this, cx)),
             ))
             .child(button(

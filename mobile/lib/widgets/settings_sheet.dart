@@ -8,7 +8,10 @@ import '../services/update_service.dart';
 import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
 import '../views/qr_scan_page.dart';
+import 'ai_config_sheet.dart';
 import 'jiyue_icon.dart';
+import 'memos_config_sheet.dart';
+import 's3_config_sheet.dart';
 import 'update_dialog.dart';
 
 class SettingsModalSheet extends StatefulWidget {
@@ -196,6 +199,30 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                       }).toList(),
                     ),
                   ),
+                  const SizedBox(height: 12),
+                ],
+                if (config.memos != null) ...[
+                  Text('📝 Memos 备忘录配置', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary)),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colors.raised,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: colors.border),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('服务端点: ${config.memos!.endpoint}', style: TextStyle(fontSize: 12, color: colors.textPrimary)),
+                        if (config.memos!.token.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text('访问密钥: •••••••••••• (已包含)', style: TextStyle(fontSize: 11, color: colors.textMuted)),
+                        ],
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 16),
                 ],
                 Row(
@@ -228,6 +255,9 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                           if (config.ai != null) {
                             await widget.vaultService.saveAiConfig(config.ai!);
                           }
+                          if (config.memos != null) {
+                            await widget.vaultService.saveMemosConfig(config.memos!);
+                          }
                           if (ctx.mounted) {
                             Navigator.of(ctx).pop();
                           }
@@ -235,7 +265,7 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                             setState(() {});
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text('🎉 已成功导入 PC 端配置，已保存生效！'),
+                                content: Text('🎉 已成功导入 PC 端配置 (S3/AI/Memos)，已保存生效！'),
                                 backgroundColor: Color(0xFF2E7D32),
                               ),
                             );
@@ -567,7 +597,9 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                         ),
                       ],
                     ),
-                    if (widget.vaultService.s3Config != null || widget.vaultService.aiConfig != null) ...[
+                    if (widget.vaultService.s3Config != null ||
+                        widget.vaultService.aiConfig != null ||
+                        widget.vaultService.memosConfig != null) ...[
                       const Divider(height: 20),
                       Row(
                         children: [
@@ -575,7 +607,7 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              '已绑定: ${widget.vaultService.s3Config != null ? "S3[${widget.vaultService.s3Config!.bucket}] " : ""}${widget.vaultService.aiConfig != null ? "AI[${widget.vaultService.aiConfig!.providers.length}模型]" : ""}',
+                              '已同步: ${widget.vaultService.s3Config != null ? "S3[${widget.vaultService.s3Config!.bucket}] " : ""}${widget.vaultService.aiConfig != null ? "AI[${widget.vaultService.aiConfig!.providers.length}服务商] " : ""}${widget.vaultService.memosConfig != null ? "Memos[已绑定]" : ""}',
                               style: TextStyle(fontSize: 11, color: colors.accent),
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -589,12 +621,119 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
 
               const SizedBox(height: 18),
 
-              // 四、S3 / WebDAV 云同步设置 (Sync)
-              Text(
-                '云端同步配置 (Sync)',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),
+              // 四、AI 助手与服务商管理 (AI Assistant)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'AI 助手配置 (AI Assistant)',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      await AiConfigSheet.show(
+                        context,
+                        vaultService: widget.vaultService,
+                        colors: colors,
+                      );
+                      setState(() {});
+                    },
+                    icon: JiyueIcon('settings', color: colors.accent, size: 12),
+                    label: Text('管理/测试服务商', style: TextStyle(fontSize: 11, color: colors.accent)),
+                  ),
+                ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colors.raised,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: colors.border),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: colors.accent.withAlpha(25),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: JiyueIcon('sparkles', color: colors.accent, size: 18),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.vaultService.aiConfig != null &&
+                                        widget.vaultService.aiConfig!.providers.isNotEmpty
+                                    ? '默认服务: ${widget.vaultService.aiConfig!.providers.firstWhere((p) => p.id == widget.vaultService.aiConfig!.activeChat, orElse: () => widget.vaultService.aiConfig!.providers.first).name}'
+                                    : '未配置 AI 服务商',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.vaultService.aiConfig != null &&
+                                        widget.vaultService.aiConfig!.providers.isNotEmpty
+                                    ? '模型: ${widget.vaultService.aiConfig!.providers.firstWhere((p) => p.id == widget.vaultService.aiConfig!.activeChat, orElse: () => widget.vaultService.aiConfig!.providers.first).chatModel} · 支持指定模型测试'
+                                    : '点击右上角管理以添加 DeepSeek/OpenAI/Anthropic 服务',
+                                style: TextStyle(fontSize: 11, color: colors.textMuted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: colors.accent,
+                            side: BorderSide(color: colors.border),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () async {
+                            await AiConfigSheet.show(
+                              context,
+                              vaultService: widget.vaultService,
+                              colors: colors,
+                            );
+                            setState(() {});
+                          },
+                          child: const Text('管理/测试', style: TextStyle(fontSize: 11)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              // 五、S3 / WebDAV 云同步设置 (Sync)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '云端同步配置 (Sync)',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      await S3ConfigSheet.show(
+                        context,
+                        vaultService: widget.vaultService,
+                        colors: colors,
+                      );
+                      setState(() {});
+                    },
+                    icon: JiyueIcon('settings', color: colors.accent, size: 12),
+                    label: Text('修改/测试配置', style: TextStyle(fontSize: 11, color: colors.accent)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
@@ -628,20 +767,26 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          widget.vaultService.s3Config != null
-                              ? '存储桶: ${widget.vaultService.s3Config!.bucket} (${widget.vaultService.s3Config!.region})'
-                              : '协议类型: S3 (Cloudflare R2 / MinIO)',
-                          style: TextStyle(fontSize: 11, color: colors.textSecondary),
+                        Expanded(
+                          child: Text(
+                            widget.vaultService.s3Config != null
+                                ? '存储桶: ${widget.vaultService.s3Config!.bucket} (${widget.vaultService.s3Config!.endpoint})'
+                                : '协议类型: S3 (Cloudflare R2 / RustFS / MinIO)',
+                            style: TextStyle(fontSize: 11, color: colors.textSecondary),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         TextButton(
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('已与 PC 端共享相同存储桶配置')),
+                          onPressed: () async {
+                            await S3ConfigSheet.show(
+                              context,
+                              vaultService: widget.vaultService,
+                              colors: colors,
                             );
+                            setState(() {});
                           },
                           child: Text(
-                            widget.vaultService.s3Config != null ? '已导入' : '修改配置',
+                            widget.vaultService.s3Config != null ? '已配置 (点击编辑)' : '手动配置',
                             style: TextStyle(fontSize: 11, color: colors.accent),
                           ),
                         ),
@@ -653,7 +798,95 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
 
               const SizedBox(height: 18),
 
-              // 五、软件版本与自更新 (Updates & About)
+              // 六、Memos 备忘录服务
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Memos 备忘录服务 (Memos)',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      await MemosConfigSheet.show(
+                        context,
+                        vaultService: widget.vaultService,
+                        colors: colors,
+                      );
+                      setState(() {});
+                    },
+                    icon: JiyueIcon('settings', color: colors.accent, size: 12),
+                    label: Text('配置 Memos', style: TextStyle(fontSize: 11, color: colors.accent)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colors.raised,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: colors.border),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: colors.accent.withAlpha(25),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: JiyueIcon('calendar', color: colors.accent, size: 18),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.vaultService.memosConfig != null
+                                ? '服务端点: ${widget.vaultService.memosConfig!.endpoint}'
+                                : '未配置 Memos 服务',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            widget.vaultService.memosConfig != null
+                                ? 'Token: •••••••••••• (点击可测试连接与修改)'
+                                : '点击右侧配置以绑定私有或自建 Memos 服务',
+                            style: TextStyle(fontSize: 11, color: colors.textMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: colors.accent,
+                        side: BorderSide(color: colors.border),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onPressed: () async {
+                        await MemosConfigSheet.show(
+                          context,
+                          vaultService: widget.vaultService,
+                          colors: colors,
+                        );
+                        setState(() {});
+                      },
+                      child: Text(
+                        widget.vaultService.memosConfig != null ? '管理/测试' : '配置',
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              // 七、软件版本与自更新 (Updates & About)
               Text(
                 '软件版本与自更新 (Updates & About)',
                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),

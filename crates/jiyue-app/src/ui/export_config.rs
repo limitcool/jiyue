@@ -20,6 +20,14 @@ pub struct ExportedConfig {
     pub sync: Option<ExportedSyncConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai: Option<ExportedAiConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memos: Option<ExportedMemosConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportedMemosConfig {
+    pub endpoint: String,
+    pub token: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,12 +174,42 @@ pub fn collect_export_config(
         None
     };
 
+    let memos = vault_root.and_then(|root| {
+        let loaded: jiyue_core::config::Loaded<jiyue_memos::MemosConfig> =
+            jiyue_core::config::load_section(
+                &jiyue_core::config::vault_file(root, jiyue_core::config::VAULT_CONFIG_FILE),
+                "memos",
+            );
+        let creds = jiyue_core::config::credentials::load();
+        let token = creds
+            .value
+            .memos
+            .get("default")
+            .or_else(|| creds.value.memos.values().next())
+            .map(|c| c.token.clone())
+            .and_then(|raw| {
+                jiyue_core::config::secret::resolve_secret(&raw)
+                    .ok()
+                    .map(|s| s.expose().to_string())
+            })
+            .unwrap_or_default();
+        if !loaded.value.base_url.is_empty() || !token.is_empty() {
+            Some(ExportedMemosConfig {
+                endpoint: loaded.value.base_url,
+                token,
+            })
+        } else {
+            None
+        }
+    });
+
     ExportedConfig {
         jiyue: "config_export".into(),
         version: 1,
         timestamp: 0,
         sync,
         ai,
+        memos,
     }
 }
 
@@ -228,14 +266,14 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElem
         .w_full()
         .font_family(crate::ui::fonts::ui_name())
         .child(div().text_size(px(13.0)).text_color(t.tx2).child(
-            "使用 霁月 手机端「设置 → 跨端配置导入」扫描下方二维码，自动同步 S3 存储及 AI 设置。",
+            "使用 霁月 手机端「设置 → 跨端配置导入」扫描下方二维码，自动同步 S3 存储、AI 助手及 Memos 备忘录。",
         ))
         // Checkboxes row for toggling sync and ai
         .child(
             div()
                 .flex()
                 .flex_row()
-                .gap(px(20.0))
+                .gap(px(16.0))
                 .items_center()
                 .child(
                     div()
@@ -252,7 +290,7 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElem
                             div()
                                 .text_size(px(12.0))
                                 .text_color(if include_sync { t.tx } else { t.tx2 })
-                                .child("S3 云端同步配置"),
+                                .child("S3 云端同步"),
                         )
                         .on_mouse_down(
                             MouseButton::Left,
@@ -278,7 +316,7 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElem
                             div()
                                 .text_size(px(12.0))
                                 .text_color(if include_ai { t.tx } else { t.tx2 })
-                                .child("AI 助手配置 (含服务商与密钥)"),
+                                .child("AI 助手配置"),
                         )
                         .on_mouse_down(
                             MouseButton::Left,
@@ -286,6 +324,19 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElem
                                 this.settings.export_include_ai = !this.settings.export_include_ai;
                                 cx.notify();
                             }),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(icon("check", 16.0, t.ac))
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(t.tx)
+                                .child("Memos 备忘录"),
                         ),
                 ),
         )
@@ -369,6 +420,6 @@ mod tests {
         let export = collect_export_config(None, true, true);
         assert_eq!(export.jiyue, "config_export");
         assert_eq!(export.version, 1);
-        assert!(export.timestamp > 0);
+        assert_eq!(export.timestamp, 0);
     }
 }

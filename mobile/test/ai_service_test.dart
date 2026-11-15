@@ -148,5 +148,38 @@ void main() {
         expect(result, equals('Anthropic 润色完成。'));
       }, createHttpClient: (ctx) => _MockHttpClient(responseJson: mockData, statusCode: 200));
     });
+
+    test('testConnection supports custom model and measures latency', () async {
+      final mockData = {
+        'choices': [
+          {
+            'message': {
+              'role': 'assistant',
+              'content': 'pong',
+            }
+          }
+        ]
+      };
+
+      await HttpOverrides.runZoned(() async {
+        final provider = ExportedAiProvider(
+          id: 'deepseek',
+          name: 'DeepSeek',
+          kind: 'openaicompatible',
+          baseUrl: 'https://api.ai.init.cool',
+          chatModel: 'deepseek-chat',
+          apiKey: 'mock-key',
+        );
+
+        final result = await AiService.testConnection(
+          provider: provider,
+          customModel: 'deepseek-flash-eco',
+        );
+
+        expect(result['success'], isTrue);
+        expect(result['model'], equals('deepseek-flash-eco'));
+        expect(result['latency_ms'], isA<int>());
+      }, createHttpClient: (ctx) => _MockHttpClient(responseJson: mockData, statusCode: 200));
+    });
   });
 }
