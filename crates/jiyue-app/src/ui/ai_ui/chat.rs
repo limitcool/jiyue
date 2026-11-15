@@ -29,6 +29,8 @@ pub enum Kind {
     Tags(Vec<String>),
     /// A summary (in `text`), inserted as a callout on request.
     Summary,
+    /// A polished version of the note (in `text`).
+    Polish,
 }
 
 /// One message in the side panel.

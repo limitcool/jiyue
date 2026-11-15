@@ -267,5 +267,27 @@ fn builders_never_panic_on_empty_input() {
     let _ = rewrite("", "");
     let _ = ask_with_context("", &[], None);
     let _ = suggest_tags("", &[]);
+    let _ = polish("");
+    let _ = professional("");
+    let _ = casual("");
     assert!(parse_tags("").is_err());
+}
+
+#[test]
+fn polish_and_style_prompts_build_valid_structures() {
+    let sample = "这段文字有些不够通畅，需要润色。";
+    let p_polish = polish(sample);
+    assert_eq!(p_polish.messages.len(), 2);
+    assert!(p_polish.messages[0].content.contains("Polish and refine"));
+    assert!(p_polish.messages[1].content.contains(sample));
+
+    let p_prof = professional(sample);
+    assert!(
+        p_prof.messages[0]
+            .content
+            .contains("professional and formal tone")
+    );
+
+    let p_cas = casual(sample);
+    assert!(p_cas.messages[0].content.contains("conversational tone"));
 }

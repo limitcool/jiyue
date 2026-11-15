@@ -550,7 +550,69 @@ pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElem
     if app.ext.ai.modal != Modal::None {
         out.push(modal::render(app, cx));
     }
+    if let Some(capsule) = render_selection_capsule(app, cx) {
+        out.push(capsule);
+    }
     out
+}
+
+/// Renders a floating capsule button near the bottom-right of the editor when text is selected.
+fn render_selection_capsule(
+    app: &RustdianApp,
+    cx: &mut Context<RustdianApp>,
+) -> Option<AnyElement> {
+    if !app.ext.ai.config.enabled || app.settings.open {
+        return None;
+    }
+    if app.ext.ai.menu.is_some() || app.ext.ai.card.is_some() || app.ext.ai.modal != Modal::None {
+        return None;
+    }
+    let target = editing::selection(app, cx)?;
+    if target.text.trim().is_empty() {
+        return None;
+    }
+    let t = app.theme;
+    let right_offset = if app.ext.ai.panel_open { 406.0 } else { 32.0 };
+
+    Some(
+        div()
+            .absolute()
+            .bottom(px(54.0))
+            .right(px(right_offset))
+            .flex()
+            .items_center()
+            .gap(px(6.0))
+            .px(px(12.0))
+            .h(px(32.0))
+            .bg(t.raised)
+            .border_1()
+            .border_color(t.ac)
+            .rounded(px(16.0))
+            .shadow_md()
+            .cursor_pointer()
+            .hover(|s| s.bg(t.hover))
+            .child(icon("bulb", 15.0, t.ac))
+            .child(
+                div()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_size(px(12.0))
+                    .text_color(t.tx)
+                    .child("✨ AI 润色 / 助手"),
+            )
+            .child(
+                div()
+                    .text_size(px(10.5))
+                    .text_color(t.tx3)
+                    .child("(Ctrl+J)"),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &gpui::MouseDownEvent, _, cx| {
+                    selection::open_menu(this, cx);
+                }),
+            )
+            .into_any_element(),
+    )
 }
 
 /// The AI category of the settings dialog.

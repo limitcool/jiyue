@@ -240,6 +240,101 @@ fn composer(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let configured = effective_config(s)
         .chat_provider()
         .map(|p| p.chat_model.clone());
+
+    let quick_actions = div()
+        .flex()
+        .flex_wrap()
+        .gap(px(5.0))
+        .pb(px(4.0))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(3.0))
+                .px(px(7.0))
+                .h(px(22.0))
+                .rounded(px(6.0))
+                .bg(t.sheet)
+                .hover(|s| s.bg(t.hover))
+                .cursor_pointer()
+                .text_size(px(11.0))
+                .text_color(t.tx)
+                .child(icon("bulb", 12.0, t.ac))
+                .child("✨ 润色笔记")
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                        super::notes::polish_note(this, cx);
+                    }),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(3.0))
+                .px(px(7.0))
+                .h(px(22.0))
+                .rounded(px(6.0))
+                .bg(t.sheet)
+                .hover(|s| s.bg(t.hover))
+                .cursor_pointer()
+                .text_size(px(11.0))
+                .text_color(t.tx)
+                .child(icon("file-text", 12.0, t.ac))
+                .child("📝 提炼摘要")
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                        super::notes::ask_summarize(this, cx);
+                    }),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(3.0))
+                .px(px(7.0))
+                .h(px(22.0))
+                .rounded(px(6.0))
+                .bg(t.sheet)
+                .hover(|s| s.bg(t.hover))
+                .cursor_pointer()
+                .text_size(px(11.0))
+                .text_color(t.tx)
+                .child(icon("tag", 12.0, t.ac))
+                .child("🏷️ 建议标签")
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                        super::notes::suggest_tags(this, cx);
+                    }),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(3.0))
+                .px(px(7.0))
+                .h(px(22.0))
+                .rounded(px(6.0))
+                .bg(t.sheet)
+                .hover(|s| s.bg(t.hover))
+                .cursor_pointer()
+                .text_size(px(11.0))
+                .text_color(t.tx)
+                .child(icon("pencil", 12.0, t.ac))
+                .child("📌 建议标题")
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                        super::notes::suggest_title(this, cx);
+                    }),
+                ),
+        );
+
     let mut footer = div()
         .flex()
         .flex_col()
@@ -248,6 +343,7 @@ fn composer(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .py(px(10.0))
         .border_t_1()
         .border_color(t.line_soft)
+        .child(quick_actions)
         .child(chip_row)
         .child(
             div()
@@ -628,6 +724,43 @@ fn render_message(app: &RustdianApp, m: &UiMessage, cx: &mut Context<RustdianApp
                 cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                     if let Some(p) = path.clone() {
                         super::notes::insert_summary(this, &p, &text, cx);
+                    }
+                }),
+            ));
+            col = col.child(row);
+        }
+        Kind::Polish => {
+            col = col.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.0))
+                    .text_size(px(12.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(t.ac)
+                    .child(icon("bulb", 14.0, t.ac))
+                    .child("✨ 智能润色结果"),
+            );
+            col = col.child(render_blocks(app, &m.text, cx));
+            let text = m.text.clone();
+            let path = m.path.clone();
+            let mut row = div().flex().flex_wrap().gap(px(6.0));
+            let copy = text.clone();
+            row = row.child(small_button(
+                &t,
+                "复制",
+                cx.listener(move |_, _: &MouseDownEvent, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                }),
+            ));
+            let replace_text = text.clone();
+            let replace_path = path.clone();
+            row = row.child(small_button(
+                &t,
+                "替换整篇笔记",
+                cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                    if let Some(p) = replace_path.clone() {
+                        super::notes::replace_note_content(this, &p, &replace_text, cx);
                     }
                 }),
             ));

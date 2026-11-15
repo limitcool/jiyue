@@ -47,25 +47,31 @@ pub struct Target {
 /// One item of the selection menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    Rewrite,
+    Polish,
+    FixGrammar,
+    Professional,
+    Casual,
     Shorten,
     Expand,
+    Rewrite,
     TranslateEn,
     TranslateZh,
-    FixGrammar,
     Summarize,
     Continue,
     Explain,
 }
 
 /// Menu order.
-pub const MENU_ITEMS: [Action; 9] = [
-    Action::Rewrite,
+pub const MENU_ITEMS: [Action; 12] = [
+    Action::Polish,
+    Action::FixGrammar,
+    Action::Professional,
+    Action::Casual,
     Action::Shorten,
     Action::Expand,
+    Action::Rewrite,
     Action::TranslateEn,
     Action::TranslateZh,
-    Action::FixGrammar,
     Action::Summarize,
     Action::Continue,
     Action::Explain,
@@ -74,15 +80,18 @@ pub const MENU_ITEMS: [Action; 9] = [
 impl Action {
     pub fn label(self) -> &'static str {
         match self {
-            Action::Rewrite => "改写…",
-            Action::Shorten => "缩写",
-            Action::Expand => "扩写",
+            Action::Polish => "✨ 智能润色",
+            Action::FixGrammar => "修正语法与标点",
+            Action::Professional => "专业学术风格",
+            Action::Casual => "生动通俗风格",
+            Action::Shorten => "精简浓缩",
+            Action::Expand => "丰富扩写",
+            Action::Rewrite => "自定义改写…",
             Action::TranslateEn => "翻译为英文",
             Action::TranslateZh => "翻译为中文",
-            Action::FixGrammar => "修正语法",
-            Action::Summarize => "总结",
-            Action::Continue => "续写",
-            Action::Explain => "解释",
+            Action::Summarize => "总结要点",
+            Action::Continue => "继续写作",
+            Action::Explain => "详细解释",
         }
     }
 
@@ -95,12 +104,15 @@ impl Action {
 /// Builds the prompt for an action. `instruction` is used by 改写 only.
 pub fn build_prompt(action: Action, text: &str, instruction: Option<&str>) -> Prompt {
     match action {
-        Action::Rewrite => prompts::rewrite(text, instruction.unwrap_or("")),
+        Action::Polish => prompts::polish(text),
+        Action::FixGrammar => prompts::fix_grammar(text),
+        Action::Professional => prompts::professional(text),
+        Action::Casual => prompts::casual(text),
         Action::Shorten => prompts::shorten(text),
         Action::Expand => prompts::expand(text),
+        Action::Rewrite => prompts::rewrite(text, instruction.unwrap_or("")),
         Action::TranslateEn => prompts::translate(text, "English"),
         Action::TranslateZh => prompts::translate(text, "简体中文"),
-        Action::FixGrammar => prompts::fix_grammar(text),
         Action::Summarize => prompts::summarize(text),
         Action::Continue => prompts::continue_writing(&last_chars(text, TAIL_CHARS), None),
         Action::Explain => prompts::explain(text),
@@ -662,11 +674,12 @@ mod tests {
     #[test]
     fn menu_marks_selection_actions_and_keeps_continue_and_summary_open() {
         assert!(Action::Shorten.needs_selection());
+        assert!(Action::Polish.needs_selection());
         assert!(!Action::Continue.needs_selection());
         assert!(!Action::Summarize.needs_selection());
-        assert_eq!(MENU_ITEMS.len(), 9);
+        assert_eq!(MENU_ITEMS.len(), 12);
         let labels: Vec<&str> = MENU_ITEMS.iter().map(|a| a.label()).collect();
-        assert_eq!(labels[0], "改写…");
+        assert_eq!(labels[0], "✨ 智能润色");
     }
 
     #[test]

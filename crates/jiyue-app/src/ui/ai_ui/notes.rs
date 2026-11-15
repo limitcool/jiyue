@@ -95,6 +95,63 @@ pub fn confirm_summary(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     cx.notify();
 }
 
+/// Polish the active note and show the candidate in the side panel.
+pub fn polish_note(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    let Some((path, text)) = ready_note(app, cx) else {
+        return;
+    };
+    let (text, _) = cut_chars(&text, MAX_NOTE_CHARS);
+    let prompt = prompts::polish(&text);
+    app.ext.ai.panel_open = true;
+    let target_path = path.clone();
+    chat::oneshot(
+        app,
+        prompt.messages,
+        cx,
+        move |app, result, _cx| match result {
+            Ok(answer) => {
+                let id = chat::push(
+                    app,
+                    Role::Assistant,
+                    Kind::Polish,
+                    prompts::clean_output(&answer),
+                );
+                if let Some(m) = chat::message_mut(app, id) {
+                    m.path = Some(target_path);
+                }
+            }
+            Err(e) => app.toast(ToastKind::Error, super::errors::describe(&e)),
+        },
+    );
+    cx.notify();
+}
+
+/// Replaces the whole body of the note with `polished_text` as one undo step.
+pub fn replace_note_content(
+    app: &mut RustdianApp,
+    path: &str,
+    polished_text: &str,
+    cx: &mut Context<RustdianApp>,
+) {
+    let Some(current) = editing::editor_text(app, path, cx) else {
+        app.toast(ToastKind::Warn, "该笔记没有打开，无法替换");
+        return;
+    };
+    match editing::replace_checked(
+        app,
+        path,
+        0,
+        current.len(),
+        Some(&current),
+        polished_text,
+        cx,
+    ) {
+        Ok(()) => app.toast(ToastKind::Success, "已应用 AI 润色内容"),
+        Err(m) => app.toast(ToastKind::Error, m),
+    }
+    cx.notify();
+}
+
 /// Palette 建议标题: a candidate in the panel, with 复制 and 插入为标题.
 pub fn suggest_title(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     let Some((path, text)) = ready_note(app, cx) else {

@@ -119,6 +119,33 @@ fn simple_transform(text: &str, task: &str, label: &str) -> Prompt {
     build(system, vec![(label.into(), delimited("Text", text))])
 }
 
+/// Polishes and refines the text for clarity, elegance and natural flow while keeping meaning and Markdown intact.
+pub fn polish(text: &str) -> Prompt {
+    simple_transform(
+        text,
+        "Polish and refine the text for better clarity, elegance, and natural flow. Eliminate awkward phrasing and redundancy while strictly preserving the original meaning, structure, Markdown formatting, links, and [[wikilinks]].",
+        "Selected text",
+    )
+}
+
+/// Rewrites the text in a formal, professional or academic tone.
+pub fn professional(text: &str) -> Prompt {
+    simple_transform(
+        text,
+        "Rewrite the text in a rigorous, professional and formal tone suitable for documentation, research, or executive reports. Keep the core facts, Markdown formatting, links, and [[wikilinks]] intact.",
+        "Selected text",
+    )
+}
+
+/// Rewrites the text in a lively, conversational and easy-to-read tone.
+pub fn casual(text: &str) -> Prompt {
+    simple_transform(
+        text,
+        "Rewrite the text in a lively, clear, and conversational tone that is easy to read. Keep the core facts, Markdown formatting, links, and [[wikilinks]] intact.",
+        "Selected text",
+    )
+}
+
 /// Makes the text shorter, keeping its meaning and key facts.
 pub fn shorten(text: &str) -> Prompt {
     simple_transform(
