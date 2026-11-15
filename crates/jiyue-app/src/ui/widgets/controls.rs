@@ -121,6 +121,9 @@ pub fn button_sized(
         el = el.child(icon(name, icon_sz, fg));
     }
     el = el.child(SharedString::from(label.to_string()));
+    if matches!(kind, ButtonKind::Primary | ButtonKind::Secondary) {
+        el = el.shadow_sm();
+    }
     el = match kind {
         ButtonKind::Primary | ButtonKind::Danger => el.hover(|s| s.opacity(0.9)),
         _ => el.hover(move |s| s.bg(hover)),

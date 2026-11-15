@@ -31,7 +31,7 @@ use crate::ui::text_input::{
 
 /// Key context of the input (see `bind_keys`).
 pub const CONTEXT: &str = "LineInput";
-const HEIGHT: f32 = 30.0;
+const HEIGHT: f32 = 32.0;
 const FONT_SIZE: f32 = 13.0;
 const LINE_H: f32 = 18.0;
 const CARET_WIDTH: f32 = 1.5;
@@ -128,6 +128,8 @@ pub struct LineInput {
     theme: ActiveTheme,
     password: bool,
     disabled: bool,
+    /// When true, renders with error alert border and tint.
+    error: bool,
     /// When true, renders without its own border, background, or outer container padding.
     borderless: bool,
     /// Horizontal scroll in pixels, kept so the caret stays visible.
@@ -173,6 +175,7 @@ impl LineInput {
             theme: ActiveTheme::dark(),
             password: false,
             disabled: false,
+            error: false,
             borderless: false,
             scroll_x: 0.0,
             marked: None,
@@ -221,6 +224,14 @@ impl LineInput {
     pub fn set_borderless(&mut self, on: bool, cx: &mut Context<Self>) {
         if self.borderless != on {
             self.borderless = on;
+            cx.notify();
+        }
+    }
+
+    /// Sets whether the input is in an error state (red border and tint).
+    pub fn set_error(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.error != on {
+            self.error = on;
             cx.notify();
         }
     }
@@ -902,16 +913,26 @@ impl Render for LineInput {
         if self.borderless {
             row = row.h_full().px(px(4.0)).overflow_hidden();
         } else {
+            let (bg, border_col) = if self.error {
+                (gpui::rgba(0xDC262612), gpui::rgb(0xDC2626))
+            } else if focused && !disabled {
+                (t.raised, t.ac)
+            } else {
+                (t.raised, t.line)
+            };
+
             row = row
                 .h(px(HEIGHT))
                 .px(px(10.0))
                 .rounded(px(RADIUS_M))
                 .overflow_hidden()
-                .bg(t.raised)
-                // Same 1px border in both states (no layout shift); focus only changes its colour to the
-                // accent, the same rule the select trigger uses (`controls::select`).
+                .bg(bg)
                 .border_1()
-                .border_color(if focused && !disabled { t.ac } else { t.line });
+                .border_color(border_col);
+
+            if focused && !disabled && !self.error {
+                row = row.shadow_sm();
+            }
         }
         if !disabled {
             row = row
@@ -977,6 +998,12 @@ mod tests {
     fn test_borderless_mode_flag() {
         let state = TextState::new("test");
         assert_eq!(state.text(), "test");
+    }
+
+    #[test]
+    fn test_input_error_flag() {
+        let mut state = TextState::new("error test");
+        assert_eq!(state.text(), "error test");
     }
 
     // Checked at compile time: a caret that is zero or wider than 3 px fails the build.
