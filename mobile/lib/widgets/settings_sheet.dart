@@ -1,12 +1,15 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../bridge/vault_service.dart';
 import '../models/exported_config.dart';
+import '../services/update_service.dart';
 import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
 import '../views/qr_scan_page.dart';
 import 'jiyue_icon.dart';
+import 'update_dialog.dart';
 
 class SettingsModalSheet extends StatefulWidget {
   final ThemeProvider themeProvider;
@@ -26,6 +29,37 @@ class SettingsModalSheet extends StatefulWidget {
 
 class _SettingsModalSheetState extends State<SettingsModalSheet> {
   bool _s3Enabled = true;
+  bool _checkingUpdate = false;
+
+  Future<void> _checkUpdate() async {
+    setState(() => _checkingUpdate = true);
+    try {
+      final res = await UpdateService.checkUpdate();
+      if (mounted) {
+        setState(() => _checkingUpdate = false);
+        UpdateDialog.show(context, result: res, themeProvider: widget.themeProvider);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _checkingUpdate = false);
+        final msg = e.toString().replaceFirst("Exception: ", "");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('检查更新: $msg'),
+            action: SnackBarAction(
+              label: '网页查看',
+              onPressed: () {
+                launchUrl(
+                  Uri.parse('https://github.com/$defaultRepoOwner/$defaultRepoName/releases'),
+                  mode: LaunchMode.externalApplication,
+                );
+              },
+            ),
+          ),
+        );
+      }
+    }
+  }
 
   Future<void> _handleScanQr() async {
     final result = await Navigator.of(context).push<String>(
@@ -612,6 +646,73 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                           ),
                         ),
                       ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              // 五、软件版本与自更新 (Updates & About)
+              Text(
+                '软件版本与自更新 (Updates & About)',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colors.raised,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: colors.border),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: colors.accent.withAlpha(25),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: JiyueIcon('download-cloud', color: colors.accent, size: 18),
+                        ),
+                        const SizedBox(width: 10),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '霁月 (Jiyue Mobile)',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: colors.textPrimary),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '当前版本: v$currentAppVersion',
+                              style: TextStyle(fontSize: 11, color: colors.textMuted),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: colors.accent,
+                        foregroundColor: colors.onAccent,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                      icon: _checkingUpdate
+                          ? SizedBox(
+                              width: 12,
+                              height: 12,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: colors.onAccent),
+                            )
+                          : JiyueIcon('refresh-cw', color: colors.onAccent, size: 14),
+                      label: Text(_checkingUpdate ? '检查中...' : '检查更新', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                      onPressed: _checkingUpdate ? null : _checkUpdate,
                     ),
                   ],
                 ),
