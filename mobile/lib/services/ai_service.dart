@@ -85,8 +85,12 @@ class AiService {
       if (isAnthropic) {
         final content = json['content'] as List<dynamic>?;
         if (content != null && content.isNotEmpty) {
-          final first = content.first as Map<String, dynamic>;
-          return (first['text'] as String? ?? '').trim();
+          final textBlocks = content
+              .whereType<Map<String, dynamic>>()
+              .where((b) => b['type'] == 'text')
+              .map((b) => b['text'] as String? ?? '')
+              .join('\n');
+          if (textBlocks.isNotEmpty) return textBlocks.trim();
         }
       } else {
         final choices = json['choices'] as List<dynamic>?;
