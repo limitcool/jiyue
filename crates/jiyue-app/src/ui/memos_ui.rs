@@ -177,7 +177,10 @@ pub fn refresh_silent(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     };
 
     cx.spawn(async move |this, cx| {
-        let result = client.list_memos(50, None).await;
+        let result = cx
+            .background_executor()
+            .spawn(async move { client.list_memos_blocking(50, None) })
+            .await;
         let _ = this.update(cx, |app, cx| {
             if let Ok((memos, _)) = result {
                 app.ext.memos.memos = memos;
@@ -206,7 +209,10 @@ pub fn refresh(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     cx.notify();
 
     cx.spawn(async move |this, cx| {
-        let result = client.list_memos(50, None).await;
+        let result = cx
+            .background_executor()
+            .spawn(async move { client.list_memos_blocking(50, None) })
+            .await;
         let _ = this.update(cx, |app, cx| {
             app.ext.memos.loading = false;
             match result {
@@ -247,7 +253,10 @@ pub fn delete_memo(app: &mut RustdianApp, memo_name: &str, cx: &mut Context<Rust
     cx.notify();
 
     cx.spawn(async move |this, cx| {
-        let result = client.delete_memo(&name).await;
+        let result = cx
+            .background_executor()
+            .spawn(async move { client.delete_memo_blocking(&name) })
+            .await;
         let _ = this.update(cx, |app, cx| {
             match result {
                 Ok(()) => {
@@ -298,7 +307,10 @@ pub fn submit_new_memo(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     cx.notify();
 
     cx.spawn(async move |this, cx| {
-        let result = client.create_memo(&text, None).await;
+        let result = cx
+            .background_executor()
+            .spawn(async move { client.create_memo_blocking(&text, None) })
+            .await;
         let _ = this.update(cx, |app, cx| {
             app.ext.memos.loading = false;
             match result {
@@ -353,7 +365,10 @@ pub fn toggle_todo(
     };
 
     cx.spawn(async move |this, cx| {
-        let result = client.update_memo_content(&memo_name, &new_content).await;
+        let result = cx
+            .background_executor()
+            .spawn(async move { client.update_memo_content_blocking(&memo_name, &new_content) })
+            .await;
         let _ = this.update(cx, |app, cx| {
             if let Err(e) = result {
                 app.toast(ToastKind::Error, format!("更新待办失败: {}", e));

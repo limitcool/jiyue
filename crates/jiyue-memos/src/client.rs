@@ -3,9 +3,26 @@
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::model::Memo;
+
+static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
+
+fn runtime() -> Result<&'static tokio::runtime::Runtime, MemosError> {
+    RUNTIME
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("jiyue-memos")
+                .enable_all()
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .as_ref()
+        .map_err(|e| MemosError::InvalidUrl(format!("Failed to start Memos runtime: {e}")))
+}
 
 /// Error type for Memos API operations.
 #[derive(Debug)]
@@ -242,5 +259,41 @@ impl MemosClient {
             });
         }
         Ok(())
+    }
+
+    /// Fetches a list of recent memos synchronously on the dedicated Tokio runtime.
+    pub fn list_memos_blocking(
+        &self,
+        page_size: usize,
+        page_token: Option<&str>,
+    ) -> Result<(Vec<Memo>, Option<String>), MemosError> {
+        let rt = runtime()?;
+        rt.block_on(self.list_memos(page_size, page_token))
+    }
+
+    /// Creates a new memo synchronously on the dedicated Tokio runtime.
+    pub fn create_memo_blocking(
+        &self,
+        content: &str,
+        visibility: Option<&str>,
+    ) -> Result<Memo, MemosError> {
+        let rt = runtime()?;
+        rt.block_on(self.create_memo(content, visibility))
+    }
+
+    /// Updates the content of a memo synchronously on the dedicated Tokio runtime.
+    pub fn update_memo_content_blocking(
+        &self,
+        memo_name: &str,
+        new_content: &str,
+    ) -> Result<Memo, MemosError> {
+        let rt = runtime()?;
+        rt.block_on(self.update_memo_content(memo_name, new_content))
+    }
+
+    /// Deletes a memo synchronously on the dedicated Tokio runtime.
+    pub fn delete_memo_blocking(&self, memo_name: &str) -> Result<(), MemosError> {
+        let rt = runtime()?;
+        rt.block_on(self.delete_memo(memo_name))
     }
 }
