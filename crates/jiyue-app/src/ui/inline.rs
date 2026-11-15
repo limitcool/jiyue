@@ -413,14 +413,8 @@ pub fn build_with_resolver(
                         false,
                     )
                 } else {
-                    let mut ghost = run(
-                        len,
-                        family,
-                        FontWeight::NORMAL,
-                        t.tx2,
-                        Some(t.hover),
-                        false,
-                    );
+                    let mut ghost =
+                        run(len, family, FontWeight::NORMAL, t.tx2, Some(t.hover), false);
                     ghost.underline = Some(UnderlineStyle {
                         color: Some(hsla(t.tx3)),
                         thickness: px(1.0),
@@ -508,26 +502,29 @@ pub fn rich_text_geo(
     if let Some(first_target) = targets.first() {
         let clean_title = wikilink_target(first_target).to_string();
         let entity_clone = entity.clone();
-        element = element.tooltip(crate::ui::widgets::overlay::dynamic_tooltip(*t, move |cx| {
-            let app = entity_clone.read(cx);
-            if let Some(idx) = app.vault.note_index_by_title(&clean_title) {
-                let note = &app.vault.notes[idx];
-                let snippet: Vec<&str> = note
-                    .content()
-                    .lines()
-                    .map(str::trim)
-                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                    .take(3)
-                    .collect();
-                if snippet.is_empty() {
-                    format!("[[{}]]\n(空笔记)", clean_title)
+        element = element.tooltip(crate::ui::widgets::overlay::dynamic_tooltip(
+            *t,
+            move |cx| {
+                let app = entity_clone.read(cx);
+                if let Some(idx) = app.vault.note_index_by_title(&clean_title) {
+                    let note = &app.vault.notes[idx];
+                    let snippet: Vec<&str> = note
+                        .content()
+                        .lines()
+                        .map(str::trim)
+                        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                        .take(3)
+                        .collect();
+                    if snippet.is_empty() {
+                        format!("[[{}]]\n(空笔记)", clean_title)
+                    } else {
+                        format!("[[{}]]\n{}", clean_title, snippet.join("\n"))
+                    }
                 } else {
-                    format!("[[{}]]\n{}", clean_title, snippet.join("\n"))
+                    format!("未创建笔记: [[{}]] · 点击立即新建", clean_title)
                 }
-            } else {
-                format!("未创建笔记: [[{}]] · 点击立即新建", clean_title)
-            }
-        }));
+            },
+        ));
     }
 
     let element = element
@@ -700,15 +697,9 @@ mod tests {
     fn build_with_resolver_marks_ghost_links_with_underline() {
         let t = ActiveTheme::light();
         let src = "已有 [[已存在笔记]] 与未创建 [[幽灵笔记]]";
-        let rich = build_with_resolver(
-            src,
-            &t,
-            t.tx,
-            "sans",
-            None,
-            false,
-            |target| target == "已存在笔记",
-        );
+        let rich = build_with_resolver(src, &t, t.tx, "sans", None, false, |target| {
+            target == "已存在笔记"
+        });
         let chip_runs: Vec<&TextRun> = rich
             .runs
             .iter()

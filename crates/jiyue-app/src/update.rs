@@ -334,12 +334,11 @@ pub fn check_latest_tag_via_web(
         };
 
         // If file_size is 0, probe via a fast HEAD request to get real Content-Length
-        if file_size == 0 {
-            if let Ok(head_resp) = client_follow.head(&download_url).send() {
-                if let Some(len) = head_resp.content_length() {
-                    file_size = len;
-                }
-            }
+        if file_size == 0
+            && let Ok(head_resp) = client_follow.head(&download_url).send()
+            && let Some(len) = head_resp.content_length()
+        {
+            file_size = len;
         }
 
         return Ok(Some(UpdateInfo {

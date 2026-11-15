@@ -503,13 +503,19 @@ fn daily_nav(app: &RustdianApp, cx: &mut Context<RustdianApp>, date: Date) -> Di
     let prev_tip = if let Some(d) = prev_existing {
         format!("上一篇日记 ({}-{:02}-{:02})", d.year, d.month, d.day)
     } else {
-        format!("新建前一天日记 ({}-{:02}-{:02})", prev_d.year, prev_d.month, prev_d.day)
+        format!(
+            "新建前一天日记 ({}-{:02}-{:02})",
+            prev_d.year, prev_d.month, prev_d.day
+        )
     };
 
     let next_tip = if let Some(d) = next_existing {
         format!("下一篇日记 ({}-{:02}-{:02})", d.year, d.month, d.day)
     } else {
-        format!("新建后一天日记 ({}-{:02}-{:02})", next_d.year, next_d.month, next_d.day)
+        format!(
+            "新建后一天日记 ({}-{:02}-{:02})",
+            next_d.year, next_d.month, next_d.day
+        )
     };
 
     let prev = nav_button(&t, "daily_nav_prev", "chevron-left", true)
@@ -574,7 +580,12 @@ fn daily_nav(app: &RustdianApp, cx: &mut Context<RustdianApp>, date: Date) -> Di
 }
 
 /// A 26px icon button; disabled buttons are drawn faint and have no hover.
-fn nav_button(t: &ActiveTheme, id: &'static str, name: &'static str, enabled: bool) -> gpui::Stateful<Div> {
+fn nav_button(
+    t: &ActiveTheme,
+    id: &'static str,
+    name: &'static str,
+    enabled: bool,
+) -> gpui::Stateful<Div> {
     let mut color = t.tx2;
     if !enabled {
         color.a = 0.3;

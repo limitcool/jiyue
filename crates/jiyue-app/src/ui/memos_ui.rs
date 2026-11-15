@@ -618,7 +618,9 @@ pub fn render_sidebar_section(
                             .font_weight(FontWeight::MEDIUM)
                     })
                     .when(!is_sel, |d| {
-                        d.bg(t.hover).text_color(t.tx2).hover(|h| h.text_color(t.tx))
+                        d.bg(t.hover)
+                            .text_color(t.tx2)
+                            .hover(|h| h.text_color(t.tx))
                     })
                     .child(format!("#{}", tag))
                     .on_mouse_down(
@@ -681,18 +683,16 @@ pub fn render_sidebar_section(
                         }
                     })),
             )
-            .child(
-                div().ml(px(6.0)).child(button_sized(
-                    &t,
-                    &crate::t!("memos-btn-send"),
-                    ButtonKind::Primary,
-                    ButtonSize::Small,
-                    None,
-                    cx.listener(|this, _, _, cx| {
-                        submit_new_memo(this, cx);
-                    }),
-                )),
-            )
+            .child(div().ml(px(6.0)).child(button_sized(
+                &t,
+                &crate::t!("memos-btn-send"),
+                ButtonKind::Primary,
+                ButtonSize::Small,
+                None,
+                cx.listener(|this, _, _, cx| {
+                    submit_new_memo(this, cx);
+                }),
+            )))
     } else {
         div().h(px(0.0))
     };
@@ -714,10 +714,10 @@ pub fn render_sidebar_section(
     let mut displayed_count = 0;
     for memo in &memos_list {
         // Filter by selected tag if any
-        if let Some(ref sel_tag) = app.ext.memos.selected_tag {
-            if !memo.tags.contains(sel_tag) {
-                continue;
-            }
+        if let Some(ref sel_tag) = app.ext.memos.selected_tag
+            && !memo.tags.contains(sel_tag)
+        {
+            continue;
         }
 
         let m_name = memo.name.clone();
@@ -809,18 +809,14 @@ pub fn render_sidebar_section(
                         .items_center()
                         .justify_between()
                         .mt(px(4.0))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(4.0))
-                                .children(memo.tags.iter().map(|tag| {
-                                    div()
-                                        .text_size(px(10.0))
-                                        .text_color(t.tx3)
-                                        .child(format!("#{}", tag))
-                                })),
-                        )
+                        .child(div().flex().items_center().gap(px(4.0)).children(
+                            memo.tags.iter().map(|tag| {
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(t.tx3)
+                                    .child(format!("#{}", tag))
+                            }),
+                        ))
                         .child(
                             div()
                                 .flex()

@@ -144,21 +144,22 @@ fn render_left_column(app: &RustdianApp, t: &ActiveTheme, cx: &mut Context<Rustd
                                 .text_color(t.tx)
                                 .child(format!("{} · {}", today_title, weekday_str)),
                         )
-                        .child(
-                            div()
-                                .text_size(px(11.5))
-                                .text_color(t.tx3)
-                                .child(if today_exists {
-                                    "已记录 · 点击查看今日日记"
-                                } else {
-                                    "今日待记录 · 点击开始写作"
-                                }),
-                        ),
+                        .child(div().text_size(px(11.5)).text_color(t.tx3).child(
+                            if today_exists {
+                                "已记录 · 点击查看今日日记"
+                            } else {
+                                "今日待记录 · 点击开始写作"
+                            },
+                        )),
                 ),
         )
         .child(button_sized(
             t,
-            if today_exists { "查看" } else { "开启今日" },
+            if today_exists {
+                "查看"
+            } else {
+                "开启今日"
+            },
             if today_exists {
                 ButtonKind::Secondary
             } else {
