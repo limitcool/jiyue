@@ -84,11 +84,14 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         inp.set_theme(t, cx);
         inp
     });
-    let sub = cx.subscribe(&input, |this: &mut RustdianApp, _, ev: &LineInputEvent, cx| {
-        if let LineInputEvent::Submit(_) = ev {
-            submit_new_memo(this, cx);
-        }
-    });
+    let sub = cx.subscribe(
+        &input,
+        |this: &mut RustdianApp, _, ev: &LineInputEvent, cx| {
+            if let LineInputEvent::Submit(_) = ev {
+                submit_new_memo(this, cx);
+            }
+        },
+    );
     app.ext.memos._input_sub = Some(sub);
     app.ext.memos.input = Some(input);
 
@@ -656,13 +659,7 @@ pub fn render_sidebar_section(
                         }),
                     ),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .child(inp.clone()),
-            )
+            .child(div().flex_1().min_w_0().h_full().child(inp.clone()))
             .child(
                 div()
                     .flex_none()
@@ -866,12 +863,7 @@ pub fn render_sidebar_section(
                     18.0,
                     t.tx3,
                 ))
-                .child(
-                    div()
-                        .text_size(px(11.5))
-                        .text_color(t.tx3)
-                        .child(empty_tip),
-                ),
+                .child(div().text_size(px(11.5)).text_color(t.tx3).child(empty_tip)),
         );
     }
 
@@ -1056,14 +1048,7 @@ mod tests {
             None,
             false,
         );
-        let m2 = Memo::from_raw(
-            "2".into(),
-            "普通灵感笔记".into(),
-            None,
-            None,
-            None,
-            false,
-        );
+        let m2 = Memo::from_raw("2".into(), "普通灵感笔记".into(), None, None, None, false);
         let memos = vec![m1, m2];
 
         let mut lines = Vec::new();

@@ -505,7 +505,10 @@ pub fn quick_test_provider(
                     );
                 }
                 Err(e) => {
-                    app.toast(ToastKind::Error, format!("✕ 服务「{}」测试失败：{}", p_name, e));
+                    app.toast(
+                        ToastKind::Error,
+                        format!("✕ 服务「{}」测试失败：{}", p_name, e),
+                    );
                 }
             }
             cx.notify();
@@ -773,7 +776,14 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
     let t = app.theme;
     let is_active_chat = app.ext.ai.config.active_chat.as_deref() == Some(&p.id);
     let is_active_embed = app.ext.ai.config.active_embedding.as_deref() == Some(&p.id);
-    let key_saved = app.ext.ai.settings.key_saved.get(&p.id).copied().unwrap_or(false);
+    let key_saved = app
+        .ext
+        .ai
+        .settings
+        .key_saved
+        .get(&p.id)
+        .copied()
+        .unwrap_or(false);
     let is_quick_testing = app.ext.ai.settings.quick_testing.as_deref() == Some(&p.id);
 
     let (kind_label, kind_bg, kind_fg) = match p.kind {
@@ -858,7 +868,11 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
                         .gap(px(6.0))
                         .child(button(
                             &t,
-                            if is_quick_testing { "测试中..." } else { "测试" },
+                            if is_quick_testing {
+                                "测试中..."
+                            } else {
+                                "测试"
+                            },
                             ButtonKind::Secondary,
                             Some("zap"),
                             cx.listener(move |this, _: &MouseDownEvent, _, cx| {
@@ -1015,54 +1029,60 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             "指定测试模型（可选，留空则默认使用上方对话模型）",
             inputs.test_model.clone(),
         ))
-        .when_some(match &s.settings.test {
-            TestState::Idle => None,
-            TestState::Running => Some(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.0))
-                    .p(px(8.0))
-                    .rounded(px(6.0))
-                    .bg(t.sheet)
-                    .border_1()
-                    .border_color(t.line_soft)
-                    .text_size(px(12.0))
-                    .text_color(t.tx2)
-                    .child(icon("refresh-cw", 12.0, t.ac))
-                    .child("正在连接端点并测试模型响应..."),
-            ),
-            TestState::Ok { latency_ms, model } => Some(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.0))
-                    .p(px(8.0))
-                    .rounded(px(6.0))
-                    .bg(t.ok_soft)
-                    .border_1()
-                    .border_color(t.ok)
-                    .text_size(px(12.0))
-                    .text_color(t.ok)
-                    .child(icon("check-circle-2", 13.0, t.ok))
-                    .child(format!("✓ 握手成功 · 耗时 {}ms · 模型「{}」响应正常", latency_ms, model)),
-            ),
-            TestState::Failed(err) => Some(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.0))
-                    .p(px(8.0))
-                    .rounded(px(6.0))
-                    .bg(gpui::rgba(0xe5484d18))
-                    .border_1()
-                    .border_color(gpui::rgb(RED))
-                    .text_size(px(12.0))
-                    .text_color(gpui::rgb(RED))
-                    .child(icon("alert-circle", 13.0, gpui::rgb(RED)))
-                    .child(format!("✕ 测试失败：{err}")),
-            ),
-        }, |el, status_widget| el.child(status_widget));
+        .when_some(
+            match &s.settings.test {
+                TestState::Idle => None,
+                TestState::Running => Some(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .p(px(8.0))
+                        .rounded(px(6.0))
+                        .bg(t.sheet)
+                        .border_1()
+                        .border_color(t.line_soft)
+                        .text_size(px(12.0))
+                        .text_color(t.tx2)
+                        .child(icon("refresh-cw", 12.0, t.ac))
+                        .child("正在连接端点并测试模型响应..."),
+                ),
+                TestState::Ok { latency_ms, model } => Some(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .p(px(8.0))
+                        .rounded(px(6.0))
+                        .bg(t.ok_soft)
+                        .border_1()
+                        .border_color(t.ok)
+                        .text_size(px(12.0))
+                        .text_color(t.ok)
+                        .child(icon("check-circle-2", 13.0, t.ok))
+                        .child(format!(
+                            "✓ 握手成功 · 耗时 {}ms · 模型「{}」响应正常",
+                            latency_ms, model
+                        )),
+                ),
+                TestState::Failed(err) => Some(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .p(px(8.0))
+                        .rounded(px(6.0))
+                        .bg(gpui::rgba(0xe5484d18))
+                        .border_1()
+                        .border_color(gpui::rgb(RED))
+                        .text_size(px(12.0))
+                        .text_color(gpui::rgb(RED))
+                        .child(icon("alert-circle", 13.0, gpui::rgb(RED)))
+                        .child(format!("✕ 测试失败：{err}")),
+                ),
+            },
+            |el, status_widget| el.child(status_widget),
+        );
 
     let mut col = div()
         .flex()

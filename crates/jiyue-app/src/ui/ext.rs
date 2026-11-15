@@ -265,7 +265,11 @@ fn toast_layer(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         let (icon_name, icon_tint, badge_bg) = match toast.kind {
             ToastKind::Info => ("info-circle", t.ac, t.ac_soft),
             ToastKind::Success => ("check", t.ok, t.ok_soft),
-            ToastKind::Warn => ("alert-triangle", gpui::rgb(0xd97706), gpui::rgba(0xd977061f)),
+            ToastKind::Warn => (
+                "alert-triangle",
+                gpui::rgb(0xd97706),
+                gpui::rgba(0xd977061f),
+            ),
             ToastKind::Error => ("x", gpui::rgb(0xe5484d), gpui::rgba(0xe5484d1f)),
         };
         let id = toast.id;

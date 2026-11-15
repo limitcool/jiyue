@@ -593,7 +593,11 @@ pub fn render_card(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEleme
             .text_color(t.tx3)
             .text_size(px(12.5))
             .child(icon(
-                if card.streaming { "sparkles" } else { "info-circle" },
+                if card.streaming {
+                    "sparkles"
+                } else {
+                    "info-circle"
+                },
                 14.0,
                 t.ac,
             ))
