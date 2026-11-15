@@ -654,6 +654,9 @@ fn apply_texts(
         }
         app.vault.notes[idx].set_content(text);
     }
+    if !before.is_empty() {
+        app.vault.bump_revision();
+    }
     before
 }
 

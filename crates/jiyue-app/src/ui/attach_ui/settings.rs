@@ -7,7 +7,9 @@ use std::rc::Rc;
 use gpui::{AnyElement, Context, Entity, IntoElement, MouseDownEvent, div, prelude::*, px};
 
 use crate::RustdianApp;
-use crate::ui::widgets::{ButtonKind, LineInput, button, form_row, modal, segmented};
+use crate::ui::widgets::{
+    ButtonKind, LineInput, button, form_row, form_row_with_extra, modal, segmented, segmented_full,
+};
 use jiyue_md::attach::{AttachFolder, AttachSettings, LinkStyle};
 
 /// The vault configuration file (the `[attachments]` section), relative to the vault root.
@@ -129,11 +131,12 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<Any
         .flex()
         .flex_col()
         .font_family(crate::ui::fonts::ui_name())
-        .child(form_row(
+        .child(form_row_with_extra(
             &t,
             "保存位置",
-            "粘贴或拖入的文件保存到这里",
-            segmented(&t, &MODE_LABELS, mode, pick_mode),
+            "粘贴或拖入的图片及附件将存放到该位置",
+            div(),
+            segmented_full(&t, &MODE_LABELS, mode, pick_mode),
             false,
         ))
         .child(form_row(
@@ -181,7 +184,7 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<Any
         "附件设置",
         body,
         footer,
-        480.0,
+        560.0,
         cx.listener(|this: &mut RustdianApp, _: &MouseDownEvent, _, cx| {
             this.ext.attach.settings_open = false;
             cx.notify();

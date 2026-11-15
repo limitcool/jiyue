@@ -277,23 +277,77 @@ impl GraphSource {
     }
 }
 
+/// Lightweight graph input carrying only cached wikilink targets (no note body clone).
+#[derive(Clone, Debug)]
+pub struct GraphLinkSource {
+    pub id: String,
+    pub title: String,
+    pub links: Vec<String>,
+}
+
+impl GraphLinkSource {
+    /// Graph input derived from a note's pre-extracted wikilinks.
+    pub fn of(note: &Note) -> Self {
+        Self {
+            id: note.id.clone(),
+            title: note.title.clone(),
+            links: note.wikilinks.clone(),
+        }
+    }
+}
+
 /// Builds the graph from the notes: an edge for each wikilink to another note's title (case
 /// insensitive; the first note with that title is the target), and a circular initial layout.
 /// Pure (no vault access), so it can run on a background thread.
 pub fn build_graph(sources: &[GraphSource]) -> KnowledgeGraph {
+    build_graph_impl(
+        sources,
+        |s| &s.id,
+        |s| &s.title,
+        |s, visit| {
+            for target_title in crate::buffer::wikilink_targets(&s.content) {
+                visit(&target_title);
+            }
+        },
+    )
+}
+
+/// Builds the graph from pre-extracted [`GraphLinkSource`] items without cloning note bodies.
+pub fn build_graph_from_links(sources: &[GraphLinkSource]) -> KnowledgeGraph {
+    build_graph_impl(
+        sources,
+        |s| &s.id,
+        |s| &s.title,
+        |s, visit| {
+            for target_title in &s.links {
+                visit(target_title);
+            }
+        },
+    )
+}
+
+fn build_graph_impl<S>(
+    sources: &[S],
+    id_of: impl Fn(&S) -> &str,
+    title_of: impl Fn(&S) -> &str,
+    for_each_link: impl Fn(&S, &mut dyn FnMut(&str)),
+) -> KnowledgeGraph {
     let count = sources.len();
     if count == 0 {
         return KnowledgeGraph::default();
     }
     // Title (lower case) to the first note with it: the same match as a case-insensitive scan.
-    let mut by_title: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut by_title: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::with_capacity(count);
     for (i, s) in sources.iter().enumerate() {
-        by_title.entry(s.title.to_ascii_lowercase()).or_insert(i);
+        by_title
+            .entry(title_of(s).to_ascii_lowercase())
+            .or_insert(i);
     }
     let mut edges = Vec::new();
     let mut link_counts = vec![0usize; count];
     for (from_idx, s) in sources.iter().enumerate() {
-        for target_title in crate::buffer::wikilink_targets(&s.content) {
+        for_each_link(s, &mut |target_title| {
             if let Some(&to_idx) = by_title.get(&target_title.to_ascii_lowercase())
                 && from_idx != to_idx
             {
@@ -304,7 +358,7 @@ pub fn build_graph(sources: &[GraphSource]) -> KnowledgeGraph {
                 link_counts[from_idx] += 1;
                 link_counts[to_idx] += 1;
             }
-        }
+        });
     }
 
     // Circular force-directed initial distribution
@@ -312,7 +366,7 @@ pub fn build_graph(sources: &[GraphSource]) -> KnowledgeGraph {
     let center_y = 280.0f32;
     let radius_base = 180.0f32;
 
-    let mut nodes = Vec::new();
+    let mut nodes = Vec::with_capacity(count);
     for (i, s) in sources.iter().enumerate() {
         let angle = (i as f32 / count as f32) * std::f32::consts::TAU;
         let dist = radius_base + ((i * 37) % 50) as f32 - 25.0;
@@ -322,8 +376,8 @@ pub fn build_graph(sources: &[GraphSource]) -> KnowledgeGraph {
         let radius = (8.0 + (links as f32 * 3.0)).min(24.0);
 
         nodes.push(GraphNode {
-            id: s.id.clone(),
-            title: s.title.clone(),
+            id: id_of(s).to_string(),
+            title: title_of(s).to_string(),
             note_index: i,
             x,
             y,
@@ -387,6 +441,8 @@ pub struct Vault {
     /// Folders under the root (vault-relative, forward slashes), empty ones included, sorted.
     /// Filled by every disk scan; internal folders (`.trash`, hidden ones) are left out.
     pub folders: Vec<String>,
+    /// Monotonically incremented whenever notes, note contents, or folders change.
+    pub revision: u64,
 }
 
 impl Vault {
@@ -408,6 +464,7 @@ impl Vault {
             active_tab_index: 0,
             graph: KnowledgeGraph::default(),
             folders: Vec::new(),
+            revision: 1,
         };
 
         // Scan directory for .md files
@@ -416,23 +473,36 @@ impl Vault {
         vault
     }
 
-    /// Recursively load .md files from root_dir
-    pub fn load_from_disk(&mut self) {
-        let mut loaded = Vec::new();
-        let mut folders = Vec::new();
-        Self::scan_dir_recursive(&self.root_dir, &self.root_dir, &mut loaded, &mut folders);
-        self.notes = loaded;
-        folders.sort();
-        self.folders = folders;
+    /// Bumps the vault revision after any mutation to `notes` or `folders`.
+    pub fn bump_revision(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
     }
 
-    /// Walks `current` and collects the `.md` notes and the folders below `root`. Paths are
-    /// stored with forward slashes (the same form the watcher and `fsops` use), and internal or
-    /// hidden entries (`.trash`, dot-files, `*.tmp`) are skipped.
-    fn scan_dir_recursive(
+    /// Recursively load .md files from root_dir
+    pub fn load_from_disk(&mut self) {
+        let (loaded, folders) = Self::scan_vault_parallel(&self.root_dir);
+        self.notes = loaded;
+        self.folders = folders;
+        self.bump_revision();
+    }
+
+    /// Walks the vault root, sorts discovered note paths, and reads files in parallel when large.
+    fn scan_vault_parallel(root: &Path) -> (Vec<Note>, Vec<String>) {
+        let mut md_files = Vec::new();
+        let mut folders = Vec::new();
+        Self::collect_entries(root, root, &mut md_files, &mut folders);
+        folders.sort();
+        md_files.sort_by(|a, b| a.1.cmp(&b.1));
+        let notes = Self::load_notes_parallel(&md_files);
+        (notes, folders)
+    }
+
+    /// Walks `current` and collects `.md` file metadata and folders below `root`.
+    /// Paths use forward slashes, and internal/hidden entries (`.trash`, dot-files, `*.tmp`) are skipped.
+    fn collect_entries(
         root: &Path,
         current: &Path,
-        list: &mut Vec<Note>,
+        files: &mut Vec<(String, String, PathBuf)>,
         folders: &mut Vec<String>,
     ) {
         if let Ok(entries) = fs::read_dir(current) {
@@ -448,19 +518,57 @@ impl Vault {
                 }
                 if path.is_dir() {
                     folders.push(rel_path);
-                    Self::scan_dir_recursive(root, &path, list, folders);
+                    Self::collect_entries(root, &path, files, folders);
                 } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
                     let title = path
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or("Untitled")
                         .to_string();
-                    if let Ok(content) = fs::read_to_string(&path) {
-                        list.push(Note::new(&title, &rel_path, &content));
-                    }
+                    files.push((title, rel_path, path));
                 }
             }
         }
+    }
+
+    fn load_notes_parallel(files: &[(String, String, PathBuf)]) -> Vec<Note> {
+        if files.len() < 32 {
+            return files
+                .iter()
+                .filter_map(|(title, rel_path, full_path)| {
+                    let content = fs::read_to_string(full_path).ok()?;
+                    Some(Note::new(title, rel_path, &content))
+                })
+                .collect();
+        }
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .clamp(2, 8);
+        let chunk_size = files.len().div_ceil(threads);
+        let mut out = Vec::with_capacity(files.len());
+        std::thread::scope(|s| {
+            let handles: Vec<_> = files
+                .chunks(chunk_size)
+                .map(|chunk| {
+                    s.spawn(move || {
+                        chunk
+                            .iter()
+                            .filter_map(|(title, rel_path, full_path)| {
+                                let content = fs::read_to_string(full_path).ok()?;
+                                Some(Note::new(title, rel_path, &content))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            for handle in handles {
+                if let Ok(part) = handle.join() {
+                    out.extend(part);
+                }
+            }
+        });
+        out
     }
 
     /// Re-reads the note list and the folders from disk, after files changed or were renamed,
@@ -490,22 +598,20 @@ impl Vault {
         let active_path = self.active_note().map(|n| renamed(&n.path));
         let active_tab = self.active_tab_index;
 
-        let mut loaded = Vec::new();
-        let mut folders = Vec::new();
-        Self::scan_dir_recursive(&self.root_dir, &self.root_dir, &mut loaded, &mut folders);
+        let (mut loaded, folders) = Self::scan_vault_parallel(&self.root_dir);
         for note in &mut loaded {
             if !keep_text.contains(&note.path) {
                 continue;
             }
             if let Some(old) = self.notes.iter().find(|n| renamed(&n.path) == note.path) {
-                let content = old.content().to_string();
+                let content = old.content_arc();
                 note.set_content(&content);
             }
         }
         let paths: Vec<String> = loaded.iter().map(|n| n.path.clone()).collect();
         self.notes = loaded;
-        folders.sort();
         self.folders = folders;
+        self.bump_revision();
 
         let (tabs, tab, note) =
             remap_tab_state(&open_paths, active_path.as_deref(), active_tab, &paths);
@@ -551,6 +657,7 @@ impl Vault {
         self.open_tabs.push(new_idx);
         self.active_tab_index = self.open_tabs.len() - 1;
         self.active_note_index = new_idx;
+        self.bump_revision();
         self.rebuild_graph();
     }
 
@@ -577,18 +684,24 @@ impl Vault {
         }
         self.active_tab_index = 0;
         self.active_note_index = self.open_tabs[0];
+        self.bump_revision();
         self.rebuild_graph();
         true
     }
 
-    /// Recompute Graph View layout positions and topological links
+    /// Recompute Graph View layout positions and topological links without cloning note bodies.
     pub fn rebuild_graph(&mut self) {
-        self.graph = build_graph(&self.graph_sources());
+        self.graph = build_graph_from_links(&self.graph_link_sources());
     }
 
     /// The inputs of the graph: id, title and text of every note, in note order.
     pub fn graph_sources(&self) -> Vec<GraphSource> {
         self.notes.iter().map(GraphSource::of).collect()
+    }
+
+    /// Lightweight graph inputs containing only cached wikilink targets.
+    pub fn graph_link_sources(&self) -> Vec<GraphLinkSource> {
+        self.notes.iter().map(GraphLinkSource::of).collect()
     }
 
     /// Get currently active note
@@ -622,36 +735,34 @@ impl Vault {
 
     /// Build backlinks map: Target Note Title -> List of (Source Note Title, preview)
     pub fn get_backlinks(&self, target_title: &str) -> Vec<(String, String)> {
+        if target_title.is_empty() {
+            return Vec::new();
+        }
         let mut backlinks = Vec::new();
-        let query = format!("[[{}]]", target_title);
-        let query_short = target_title.to_lowercase();
+        let mut target_lower: Option<String> = None;
 
         for note in &self.notes {
             if note.title == target_title {
                 continue;
             }
-            if note.content().contains(&query)
-                || note
-                    .content()
-                    .to_lowercase()
-                    .contains(&format!("[[{}]]", query_short))
-                || note
-                    .extract_wikilinks()
-                    .iter()
-                    .any(|l| l.eq_ignore_ascii_case(target_title))
+            if !note
+                .wikilinks
+                .iter()
+                .any(|link| link.eq_ignore_ascii_case(target_title))
             {
-                let snippet = note
-                    .content()
-                    .lines()
-                    .find(|line| {
-                        line.contains(target_title)
-                            || line.contains(&format!("[[{}]]", target_title))
-                    })
-                    .unwrap_or("Linked reference")
-                    .trim()
-                    .to_string();
-                backlinks.push((note.title.clone(), snippet));
+                continue;
             }
+            let snippet = note
+                .content()
+                .lines()
+                .find(|line| {
+                    line.contains(target_title)
+                        || contains_ignore_case(line, target_title, &mut target_lower)
+                })
+                .unwrap_or("Linked reference")
+                .trim()
+                .to_string();
+            backlinks.push((note.title.clone(), snippet));
         }
         backlinks
     }
@@ -705,6 +816,7 @@ impl Vault {
             self.notes.pop();
             return Err(err.to_string());
         }
+        self.bump_revision();
         self.rebuild_graph();
         Ok(idx)
     }
@@ -723,5 +835,70 @@ impl Vault {
                 self.active_note_index = self.open_tabs[self.active_tab_index];
             }
         }
+    }
+}
+
+fn contains_ignore_case(line: &str, target: &str, target_lower: &mut Option<String>) -> bool {
+    if target.is_ascii() && line.is_ascii() {
+        let needle = target.as_bytes();
+        return line
+            .as_bytes()
+            .windows(needle.len())
+            .any(|w| w.eq_ignore_ascii_case(needle));
+    }
+    let lower = target_lower.get_or_insert_with(|| target.to_lowercase());
+    line.to_lowercase().contains(lower.as_str())
+}
+
+#[cfg(test)]
+mod perf_tests {
+    use super::*;
+
+    #[test]
+    fn parallel_load_is_deterministic_and_bumps_revision() {
+        let dir = std::env::temp_dir().join(format!("jiyue-parload-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("sub")).expect("mkdir");
+        for i in 0..48 {
+            let name = format!("note_{:03}.md", 47 - i);
+            let path = if i % 3 == 0 {
+                dir.join("sub").join(name)
+            } else {
+                dir.join(name)
+            };
+            fs::write(path, format!("# Title {i}\nLinks [[Target]] #tag{i}")).expect("write");
+        }
+
+        let mut vault = Vault::open_or_create(&dir);
+        assert_eq!(vault.notes.len(), 48);
+        assert!(vault.revision >= 2);
+        for w in vault.notes.windows(2) {
+            assert!(w[0].path < w[1].path, "expected sorted paths");
+        }
+
+        let rev_before = vault.revision;
+        vault.load_from_disk();
+        assert_eq!(vault.revision, rev_before + 1);
+        assert_eq!(vault.notes.len(), 48);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn backlinks_use_cached_wikilinks_case_insensitively() {
+        let dir = std::env::temp_dir().join(format!("jiyue-backlink-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("mkdir");
+        fs::write(dir.join("Alpha.md"), "# Alpha").expect("write");
+        fs::write(dir.join("Ref1.md"), "See [[alpha|Alias]] here").expect("write");
+        fs::write(dir.join("Ref2.md"), "Mentions Alpha without brackets").expect("write");
+
+        let vault = Vault::open_or_create(&dir);
+        let bl = vault.get_backlinks("Alpha");
+        assert_eq!(bl.len(), 1);
+        assert_eq!(bl[0].0, "Ref1");
+        assert!(bl[0].1.contains("[[alpha|Alias]]"));
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

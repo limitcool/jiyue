@@ -1,5 +1,6 @@
-//! Settings dialog (820x540, centred over a scrim). Only controls that change something
-//! today are offered; the rest of the design is left out on purpose.
+//! Settings dialog (880x600, centred over a scrim).
+
+use std::rc::Rc;
 
 use futures_util::StreamExt;
 use gpui::{
@@ -8,9 +9,12 @@ use gpui::{
 };
 
 use crate::daily::{self, DailySettings, Date};
-use crate::theme::{ActiveTheme, RADIUS_L, ThemeKind, ThemeMode};
+use crate::theme::{ActiveTheme, RADIUS_L, RADIUS_M, ThemeKind, ThemeMode};
 use crate::ui::icons::icon;
-use crate::ui::widgets::controls::{choice_chip, toggle_view};
+use crate::ui::widgets::controls::{
+    ButtonKind, ButtonSize, button, button_sized, choice_chip, form_row, form_row_with_extra,
+    icon_button, progress_bar, section_title, select, setting_card, spinner, toggle_view,
+};
 use crate::ui::{display_family, fonts};
 use crate::{AppCommand, RustdianApp};
 
@@ -79,6 +83,10 @@ pub struct SettingsState {
     pub daily_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
     /// Input entity for custom template folder.
     pub template_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
+    /// Whether the daily date-format dropdown is open.
+    pub daily_format_open: bool,
+    /// Whether the daily note template dropdown is open.
+    pub daily_template_open: bool,
     pub _daily_sub: Option<gpui::Subscription>,
     pub _tmpl_sub: Option<gpui::Subscription>,
     /// State of mobile config export QR modal.
@@ -99,6 +107,8 @@ impl Default for SettingsState {
             update: crate::update::UpdateState::Idle,
             daily_folder_input: None,
             template_folder_input: None,
+            daily_format_open: false,
+            daily_template_open: false,
             _daily_sub: None,
             _tmpl_sub: None,
             export_qr_open: false,
@@ -126,8 +136,15 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     });
     let sub_daily = cx.subscribe(
         &daily_input,
-        |this: &mut RustdianApp, _, ev: &crate::ui::widgets::LineInputEvent, cx| {
-            if let crate::ui::widgets::LineInputEvent::Submit(text) = ev {
+        |this: &mut RustdianApp, _, ev: &crate::ui::widgets::LineInputEvent, cx| match ev {
+            crate::ui::widgets::LineInputEvent::Changed(text) => {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    this.update_daily(|d| d.folder = trimmed.to_string());
+                    cx.notify();
+                }
+            }
+            crate::ui::widgets::LineInputEvent::Submit(text) => {
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
                     this.update_daily(|d| d.folder = trimmed.to_string());
@@ -138,6 +155,7 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     cx.notify();
                 }
             }
+            crate::ui::widgets::LineInputEvent::Cancel => {}
         },
     );
 
@@ -150,8 +168,18 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     });
     let sub_tmpl = cx.subscribe(
         &template_input,
-        |this: &mut RustdianApp, _, ev: &crate::ui::widgets::LineInputEvent, cx| {
-            if let crate::ui::widgets::LineInputEvent::Submit(text) = ev {
+        |this: &mut RustdianApp, _, ev: &crate::ui::widgets::LineInputEvent, cx| match ev {
+            crate::ui::widgets::LineInputEvent::Changed(text) => {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    let root = this.vault.root_dir.clone();
+                    let mut rules = jiyue_export::TemplateRules::load(&root);
+                    rules.templates_folder = trimmed.to_string();
+                    let _ = rules.save(&root);
+                    cx.notify();
+                }
+            }
+            crate::ui::widgets::LineInputEvent::Submit(text) => {
                 let trimmed = text.trim();
                 if !trimmed.is_empty() {
                     let root = this.vault.root_dir.clone();
@@ -165,6 +193,7 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     cx.notify();
                 }
             }
+            crate::ui::widgets::LineInputEvent::Cancel => {}
         },
     );
 
@@ -180,6 +209,11 @@ pub fn handle_key(app: &mut RustdianApp, ev: &KeyDownEvent) -> bool {
         if crate::ui::fonts_ui::handle_escape(app) {
             return true;
         }
+        if app.settings.daily_format_open || app.settings.daily_template_open {
+            app.settings.daily_format_open = false;
+            app.settings.daily_template_open = false;
+            return true;
+        }
         app.settings.open = false;
         return true;
     }
@@ -187,6 +221,7 @@ pub fn handle_key(app: &mut RustdianApp, ev: &KeyDownEvent) -> bool {
 }
 
 /// Next entry of `options` after `current` (wraps around). Unknown values give the first entry.
+#[cfg(test)]
 pub fn next_preset<'a>(options: &[&'a str], current: &str) -> &'a str {
     match options.iter().position(|o| *o == current) {
         Some(i) => options[(i + 1) % options.len()],
@@ -369,10 +404,12 @@ impl RustdianApp {
             .flex()
             .flex_col()
             .gap(px(2.0))
-            .w(px(200.0))
+            .w(px(204.0))
             .flex_none()
             .h_full()
             .bg(t.chrome)
+            .border_r_1()
+            .border_color(t.border_subtle)
             // The dialog clips only its rectangle: the nav paints its own left corners.
             .rounded_l(px(RADIUS_L))
             .pt(px(20.0))
@@ -393,6 +430,32 @@ impl RustdianApp {
             let label = category_label(idx);
             nav = nav.child(nav_row(&t, idx, &label, ic, idx == category, cx));
         }
+        nav = nav
+            .child(div().flex_1())
+            .child(div().h(px(1.0)).w_full().my(px(6.0)).bg(t.border_subtle))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(9.0))
+                    .w_full()
+                    .h(px(34.0))
+                    .px(px(8.0))
+                    .rounded(px(6.0))
+                    .cursor_pointer()
+                    .text_size(px(13.0))
+                    .text_color(t.tx2)
+                    .hover(|s| s.bg(t.hover).text_color(t.tx))
+                    .child(icon("qrcode", 16.0, t.ac))
+                    .child("手机扫码同步")
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.settings.export_qr_open = true;
+                            cx.notify();
+                        }),
+                    ),
+            );
 
         let body: AnyElement = match category {
             0 => editor_section(self, cx).into_any_element(),
@@ -407,60 +470,22 @@ impl RustdianApp {
         };
         let title = category_label(category);
 
-        let export_btn = div()
-            .flex()
-            .items_center()
-            .gap(px(5.0))
-            .px(px(9.0))
-            .h(px(26.0))
-            .rounded(px(6.0))
-            .border_1()
-            .border_color(t.line)
-            .bg(t.sheet)
-            .hover(|s| s.bg(t.hover))
-            .cursor_pointer()
-            .child(icon("link", 13.0, t.ac))
-            .child(
-                div()
-                    .text_size(px(11.0))
-                    .text_color(t.tx)
-                    .child("手机扫码同步"),
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.settings.export_qr_open = true;
-                    cx.notify();
-                }),
-            );
+        let close_btn = icon_button(
+            &t,
+            "x",
+            cx.listener(|this, _, _, cx| {
+                this.run_command(AppCommand::CloseSettings);
+                cx.notify();
+            }),
+        );
 
         let heading_row = div()
             .flex()
             .items_center()
             .justify_between()
-            .pr(px(36.0))
+            .pb(px(12.0))
             .child(heading(&t, &title))
-            .child(export_btn);
-
-        let close = div()
-            .absolute()
-            .right(px(14.0))
-            .top(px(14.0))
-            .size(px(30.0))
-            .rounded(px(8.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .cursor_pointer()
-            .hover(|s| s.bg(t.hover))
-            .child(icon("x", 16.0, t.tx2))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.run_command(AppCommand::CloseSettings);
-                    cx.notify();
-                }),
-            );
+            .child(close_btn);
 
         // The heading stays put; the section scrolls when it is taller than the pane.
         let scroll_body = div()
@@ -469,34 +494,33 @@ impl RustdianApp {
             .min_h_0()
             .overflow_y_scroll()
             .track_scroll(&self.settings.scroll)
-            .pt(px(8.0))
+            .pt(px(2.0))
             .pb(px(24.0))
-            .pr(px(6.0))
+            .pr(px(8.0))
             .child(body);
         let main = div()
-            .relative()
             .flex_1()
             .min_w_0()
             .h_full()
+            .bg(t.surface)
             .px(px(28.0))
-            .pt(px(22.0))
+            .pt(px(20.0))
             .flex()
             .flex_col()
             .overflow_hidden()
             .children(crate::ui::config_ui::banner(self, cx))
             .child(heading_row)
-            .child(scroll_body)
-            .child(close);
+            .child(scroll_body);
 
         let dialog = div()
             .flex()
-            .w(px(820.0))
-            .h(px(540.0))
+            .w(px(880.0))
+            .h(px(600.0))
             .rounded(px(RADIUS_L))
             .overflow_hidden()
-            .bg(t.raised)
+            .bg(t.surface)
             .border_1()
-            .border_color(t.line)
+            .border_color(t.border_default)
             .shadow_lg()
             // Clicks inside the dialog must not reach the scrim, which closes it.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -536,7 +560,6 @@ impl RustdianApp {
 
 fn heading(t: &ActiveTheme, text: &str) -> Div {
     div()
-        .mb(px(8.0))
         .font_family(display_family(t))
         .text_size(px(20.0))
         .font_weight(FontWeight::SEMIBOLD)
@@ -580,6 +603,8 @@ fn nav_row(
         MouseButton::Left,
         cx.listener(move |this, _, _, cx| {
             this.settings.category = idx;
+            this.settings.daily_format_open = false;
+            this.settings.daily_template_open = false;
             this.settings.scroll.scroll_to_item(0);
             cx.notify();
         }),
@@ -594,58 +619,14 @@ pub(crate) fn setting_row(
     control: impl IntoElement,
     last: bool,
 ) -> Div {
-    let left = div()
-        .flex()
-        .flex_col()
-        .gap(px(2.0))
-        .min_w_0()
-        .child(
-            div()
-                .text_size(px(13.5))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(t.tx)
-                .child(SharedString::from(title.to_string())),
-        )
-        .child(
-            div()
-                .text_size(px(12.0))
-                .text_color(t.tx3)
-                .child(SharedString::from(desc.to_string())),
-        );
-    let mut row = div()
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(20.0))
-        .py(px(8.0))
-        .child(left)
-        .child(control);
-    if !last {
-        row = row.border_b_1().border_color(t.line_soft);
-    }
-    row
+    form_row(t, title, desc, control, last)
 }
 
 /// Muted explanatory line.
 fn note(t: &ActiveTheme, text: &str) -> Div {
     div()
-        .pt(px(12.0))
+        .pt(px(10.0))
         .text_size(px(12.0))
-        .text_color(t.tx3)
-        .child(SharedString::from(text.to_string()))
-}
-
-fn kbd(t: &ActiveTheme, text: &str) -> Div {
-    div()
-        .flex_none()
-        .px(px(6.0))
-        .py(px(1.0))
-        .rounded(px(5.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.raised)
-        .text_size(px(11.0))
-        .font_weight(FontWeight::MEDIUM)
         .text_color(t.tx3)
         .child(SharedString::from(text.to_string()))
 }
@@ -682,7 +663,7 @@ fn theme_card(
                 b: 0.0,
             },
             (ThemeMode::Dark, ThemeMode::Dark) => p.line_soft,
-            _ => t.line,
+            _ => t.border_default,
         }
     };
 
@@ -761,112 +742,74 @@ fn theme_card(
         )
 }
 
-/// Segmented control: one segment per preset, the matching one highlighted.
-fn segmented(
-    t: &ActiveTheme,
-    options: &[&'static str],
-    current: &str,
-    cx: &mut Context<RustdianApp>,
-    apply: fn(&mut DailySettings, &str),
-) -> Div {
-    let mut control = div()
-        .flex()
-        .h(px(30.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.sheet)
-        .overflow_hidden();
-    for (i, name) in options.iter().copied().enumerate() {
-        let on = name == current;
-        let mut seg = div()
-            .flex()
-            .items_center()
-            .px(px(12.0))
-            .h_full()
-            .text_size(px(12.5))
-            .cursor_pointer()
-            .text_color(if on { t.tx } else { t.tx2 })
-            .font_weight(if on {
-                FontWeight::MEDIUM
-            } else {
-                FontWeight::NORMAL
-            })
-            .child(SharedString::from(name.to_string()));
-        if on {
-            seg = seg.bg(t.active);
-        }
-        if i > 0 {
-            seg = seg.border_l_1().border_color(t.line_soft);
-        }
-        seg = seg.on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |this, _, _, cx| {
-                this.update_daily(|d| apply(d, name));
-                if let Some(inp) = &this.settings.daily_folder_input {
-                    inp.update(cx, |i, cx| i.set_text(name, cx));
-                }
-                cx.notify();
-            }),
-        );
-        control = control.child(seg);
-    }
-    control
-}
-
 // ---------------------------------------------------------------------------
 // Sections
 // ---------------------------------------------------------------------------
 
 fn editor_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
-    div()
-        .flex()
-        .flex_col()
-        .mt(px(10.0))
-        .child(setting_row(
-            &t,
-            &crate::t!("settings-live-preview"),
-            &crate::t!("settings-live-preview-desc"),
-            toggle_view(&t, app.live_preview).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.live_preview = !this.live_preview;
-                    cx.notify();
-                }),
-            ),
-            false,
-        ))
-        .child(setting_row(
-            &t,
-            &crate::t!("settings-autoname"),
-            &crate::t!("settings-autoname-desc"),
-            toggle_view(
+    div().flex().flex_col().child(
+        setting_card(&t)
+            .child(setting_row(
                 &t,
-                crate::ui::files_ui::autoname::load(&app.vault.root_dir).auto_name_from_heading,
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    crate::ui::files_ui::autoname::toggle(this);
-                    cx.notify();
-                }),
-            ),
-            true,
-        ))
-        .child(note(&t, &crate::t!("settings-editor-more-note")))
+                &crate::t!("settings-live-preview"),
+                &crate::t!("settings-live-preview-desc"),
+                toggle_view(&t, app.live_preview).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.live_preview = !this.live_preview;
+                        cx.notify();
+                    }),
+                ),
+                false,
+            ))
+            .child(setting_row(
+                &t,
+                &crate::t!("settings-autoname"),
+                &crate::t!("settings-autoname-desc"),
+                toggle_view(
+                    &t,
+                    crate::ui::files_ui::autoname::load(&app.vault.root_dir).auto_name_from_heading,
+                )
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        crate::ui::files_ui::autoname::toggle(this);
+                        cx.notify();
+                    }),
+                ),
+                false,
+            ))
+            .child(setting_row(
+                &t,
+                "附件与图片粘贴",
+                "配置粘贴图片与拖入附件的保存位置与整理规则",
+                button_sized(
+                    &t,
+                    "配置规则…",
+                    ButtonKind::Secondary,
+                    ButtonSize::Small,
+                    Some("folder"),
+                    cx.listener(|this, _, _, cx| {
+                        crate::ui::attach_ui::open_settings(this, cx);
+                        cx.notify();
+                    }),
+                ),
+                true,
+            )),
+    )
 }
 
 fn appearance_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
-    let mut cards = div().flex().gap(px(8.0)).mt(px(10.0));
+    let mut cards = div().flex().gap(px(10.0)).mt(px(10.0));
     for kind in ThemeKind::all() {
         cards = cards.child(theme_card(&t, kind, t.kind, cx));
     }
     let theme_block = div()
         .flex()
         .flex_col()
-        .py(px(8.0))
+        .py(px(12.0))
         .border_b_1()
         .border_color(t.line_soft)
         .child(
@@ -924,9 +867,7 @@ fn appearance_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         false,
     );
 
-    div()
-        .flex()
-        .flex_col()
+    let theme_card_group = setting_card(&t)
         .child(theme_block)
         .child(lang_row)
         .child(setting_row(
@@ -942,7 +883,13 @@ fn appearance_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             &crate::t!("settings-show-right-panel-desc"),
             right_toggle,
             true,
-        ))
+        ));
+
+    div()
+        .flex()
+        .flex_col()
+        .child(section_title(&t, &crate::t!("settings-theme-section")).pt(px(4.0)))
+        .child(theme_card_group)
         .child(crate::ui::fonts_ui::render_section(app, cx))
 }
 
@@ -961,163 +908,170 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         inp.update(cx, |i, cx| i.set_theme(t, cx));
     }
 
-    let folder = segmented(&t, &FOLDER_PRESETS, &daily.folder, cx, |d, name| {
-        d.folder = name.to_string()
-    });
-
-    let folder_control = div()
-        .flex()
-        .items_center()
-        .gap(px(8.0))
-        .child(folder)
-        .when_some(app.settings.daily_folder_input.clone(), |d, inp| {
-            d.child(div().w(px(140.0)).h(px(30.0)).child(inp))
-        });
-
-    let format_button = div()
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(8.0))
-        .w(px(200.0))
-        .h(px(32.0))
-        .px(px(10.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.sheet)
-        .cursor_pointer()
-        .text_size(px(13.0))
-        .text_color(t.tx)
-        .child(SharedString::from(daily.date_format.clone()))
-        .child(icon("selector", 15.0, t.tx3))
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|this, _, _, cx| {
-                this.update_daily(|d| {
-                    d.date_format = next_preset(&DATE_FORMAT_PRESETS, &d.date_format).to_string();
-                });
+    let mut folder_presets = div().flex().items_center().justify_end().gap(px(6.0));
+    for name in FOLDER_PRESETS {
+        let on = name == daily.folder;
+        folder_presets = folder_presets.child(choice_chip(
+            &t,
+            name,
+            on,
+            cx.listener(move |this, _, _, cx| {
+                this.update_daily(|d| d.folder = name.to_string());
+                if let Some(inp) = &this.settings.daily_folder_input {
+                    inp.update(cx, |i, cx| i.set_text(name, cx));
+                }
                 cx.notify();
             }),
-        );
+        ));
+    }
+
+    let folder_input = div()
+        .w(px(200.0))
+        .h(px(30.0))
+        .when_some(app.settings.daily_folder_input.clone(), |d, inp| {
+            d.child(inp)
+        });
+
+    let mut format_options: Vec<&str> = DATE_FORMAT_PRESETS.to_vec();
+    if !format_options.contains(&daily.date_format.as_str()) {
+        format_options.push(daily.date_format.as_str());
+    }
+    let fmt_selected = format_options
+        .iter()
+        .position(|f| *f == daily.date_format)
+        .unwrap_or(0);
+    let owned_formats: Vec<String> = format_options.iter().map(|s| (*s).to_string()).collect();
+    let on_pick_format = Rc::new(cx.listener(move |this, idx: &usize, _, cx| {
+        if let Some(fmt) = owned_formats.get(*idx).cloned() {
+            this.update_daily(|d| d.date_format = fmt);
+        }
+        this.settings.daily_format_open = false;
+        cx.notify();
+    }));
+
+    let format_select = select(
+        &t,
+        &format_options,
+        fmt_selected,
+        app.settings.daily_format_open,
+        fmt_selected,
+        220.0,
+        cx.listener(|this, _, _, cx| {
+            this.settings.daily_format_open = true;
+            this.settings.daily_template_open = false;
+            cx.notify();
+        }),
+        cx.listener(|this, _, _, cx| {
+            this.settings.daily_format_open = false;
+            cx.notify();
+        }),
+        on_pick_format,
+    );
     let example = date_format_example(Date::today(), &daily.date_format);
-    let format_control = div()
-        .flex()
-        .flex_col()
-        .items_end()
-        .gap(px(4.0))
-        .child(format_button)
-        .child(
-            div()
-                .text_size(px(11.5))
-                .text_color(t.tx3)
-                .child(SharedString::from(crate::t!(
-                    "settings-daily-format-example",
-                    example = example.as_str()
-                ))),
-        );
+    let format_desc = format!(
+        "{} · {}",
+        crate::t!("settings-daily-format-desc"),
+        crate::t!("settings-daily-format-example", example = example.as_str())
+    );
 
     div()
         .flex()
         .flex_col()
-        .mt(px(10.0))
-        .child(setting_row(
-            &t,
-            &crate::t!("settings-daily-folder"),
-            &crate::t!("settings-daily-folder-desc"),
-            folder_control,
-            false,
-        ))
-        .child(setting_row(
-            &t,
-            &crate::t!("settings-daily-format"),
-            &crate::t!("settings-daily-format-desc"),
-            format_control,
-            false,
-        ))
-        .child(crate::ui::template_ui::daily_template_row(app, cx))
-        .child(crate::ui::template_ui::folder_row(app, cx))
+        .child(
+            setting_card(&t)
+                .child(form_row_with_extra(
+                    &t,
+                    &crate::t!("settings-daily-folder"),
+                    &crate::t!("settings-daily-folder-desc"),
+                    folder_input,
+                    folder_presets,
+                    false,
+                ))
+                .child(setting_row(
+                    &t,
+                    &crate::t!("settings-daily-format"),
+                    &format_desc,
+                    format_select,
+                    false,
+                ))
+                .child(crate::ui::template_ui::daily_template_row(app, cx))
+                .child(crate::ui::template_ui::folder_row(app, cx)),
+        )
         .child(note(&t, &crate::t!("settings-daily-note-hint")))
 }
 
 fn about_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
+    let brand_card = setting_card(&t).py(px(16.0)).gap(px(10.0)).child(
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .gap(px(14.0))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(14.0))
+                    .child(img("logo/icon-64.png").size(px(56.0)).flex_none())
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(3.0))
+                            .child(
+                                div()
+                                    .font_family(display_family(&t))
+                                    .text_size(px(20.0))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .text_color(t.tx)
+                                    .child("霁月 Jiyue"),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .text_color(t.tx3)
+                                    .child("基于 GPUI 的本地 Markdown 笔记应用"),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(12.5))
+                    .text_color(t.tx2)
+                    .child(SharedString::from(format!(
+                        "{} v{}",
+                        crate::t!("update-current-version"),
+                        env!("CARGO_PKG_VERSION")
+                    ))),
+            ),
+    );
+
     div()
         .flex()
         .flex_col()
-        .mt(px(10.0))
-        .gap(px(8.0))
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(14.0))
-                .child(img("logo/icon-64.png").size(px(64.0)).flex_none())
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.0))
-                        .child(
-                            div()
-                                .font_family(display_family(&t))
-                                .text_size(px(22.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(t.tx)
-                                .child("霁月 Jiyue"),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(12.5))
-                                .text_color(t.tx3)
-                                .child("基于 GPUI 的本地 Markdown 笔记应用"),
-                        ),
-                ),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.0))
-                .text_size(px(13.0))
-                .text_color(t.tx2)
-                .child(SharedString::from(format!(
-                    "{} v{}",
-                    crate::t!("update-current-version"),
-                    env!("CARGO_PKG_VERSION")
-                ))),
-        )
+        .gap(px(12.0))
+        .child(brand_card)
         .child(update_block(app, cx))
-        .child(
-            div()
-                .pt(px(12.0))
-                .text_size(px(12.0))
-                .text_color(t.tx3)
-                .child("笔记保存在本地的纯文本 Markdown 文件中，无需联网即可使用。"),
-        )
+        .child(note(
+            &t,
+            "笔记保存在本地的纯文本 Markdown 文件中，无需联网即可使用。",
+        ))
 }
 
 fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
-    let card = div()
-        .flex()
-        .flex_col()
-        .gap(px(10.0))
-        .mt(px(6.0))
-        .p(px(14.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.sheet);
+    let card = setting_card(&t).py(px(14.0)).gap(px(10.0));
 
     match &app.settings.update {
         crate::update::UpdateState::Idle => {
-            let btn = crate::ui::widgets::controls::button(
+            let btn = button(
                 &t,
                 &crate::t!("update-check-now"),
-                crate::ui::widgets::ButtonKind::Secondary,
-                Some("arrows-sort"),
+                ButtonKind::Secondary,
+                Some("refresh"),
                 cx.listener(|this, _, _, cx| {
                     this.trigger_check_update(true, cx);
                 }),
@@ -1141,7 +1095,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 .flex()
                 .items_center()
                 .gap(px(10.0))
-                .child(crate::ui::widgets::controls::spinner(&t, 16.0))
+                .child(spinner(&t, 16.0))
                 .child(
                     div()
                         .text_size(px(13.0))
@@ -1150,11 +1104,11 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 ),
         ),
         crate::update::UpdateState::UpToDate { .. } => {
-            let recheck = crate::ui::widgets::controls::button(
+            let recheck = button(
                 &t,
                 &crate::t!("update-check-now"),
-                crate::ui::widgets::ButtonKind::Secondary,
-                Some("arrows-sort"),
+                ButtonKind::Secondary,
+                Some("refresh"),
                 cx.listener(|this, _, _, cx| {
                     this.trigger_check_update(true, cx);
                 }),
@@ -1169,7 +1123,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                             .flex()
                             .items_center()
                             .gap(px(8.0))
-                            .child(crate::ui::icons::icon("check", 16.0, t.ac))
+                            .child(icon("check", 16.0, t.ac))
                             .child(
                                 div()
                                     .text_size(px(13.0))
@@ -1182,11 +1136,11 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         }
         crate::update::UpdateState::Available(info) => {
             let info_clone = info.clone();
-            let dl_btn = crate::ui::widgets::controls::button(
+            let dl_btn = button(
                 &t,
                 &crate::t!("update-download"),
-                crate::ui::widgets::ButtonKind::Primary,
-                Some("arrow-down"),
+                ButtonKind::Primary,
+                Some("download"),
                 cx.listener(move |this, _, _, cx| {
                     this.trigger_download_update(info_clone.clone(), cx);
                 }),
@@ -1197,7 +1151,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             } else {
                 String::new()
             };
-            let mut col = div().flex().flex_col().gap(px(8.0));
+            let mut col = div().flex().flex_col().gap(px(10.0));
             col = col.child(
                 div()
                     .flex()
@@ -1208,7 +1162,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                             .flex()
                             .items_center()
                             .gap(px(8.0))
-                            .child(crate::ui::icons::icon("arrow-up", 18.0, t.ac))
+                            .child(icon("arrow-up", 18.0, t.ac))
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
@@ -1230,19 +1184,22 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                     )
                     .child(dl_btn),
             );
-            if !info.release_notes.trim().is_empty() {
+            let cleaned_notes = crate::update::format_release_notes_plain(&info.release_notes);
+            if !cleaned_notes.is_empty() {
                 col = col.child(
                     div()
-                        .max_h(px(90.0))
-                        .overflow_hidden()
-                        .p(px(8.0))
-                        .rounded(px(6.0))
-                        .bg(t.raised)
+                        .id("update_release_notes")
+                        .max_h(px(160.0))
+                        .overflow_y_scroll()
+                        .p(px(10.0))
+                        .rounded(px(RADIUS_M))
+                        .bg(t.surface)
                         .border_1()
-                        .border_color(t.line_soft)
+                        .border_color(t.border_subtle)
                         .text_size(px(12.0))
+                        .line_height(px(18.0))
                         .text_color(t.tx2)
-                        .child(SharedString::from(info.release_notes.clone())),
+                        .child(SharedString::from(cleaned_notes)),
                 );
             }
             card.child(col)
@@ -1283,7 +1240,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                                 )),
                             )),
                     )
-                    .child(crate::ui::widgets::controls::progress_bar(&t, *progress)),
+                    .child(progress_bar(&t, *progress)),
             )
         }
         crate::update::UpdateState::Ready {
@@ -1291,10 +1248,10 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             installer_path,
         } => {
             let path_clone = installer_path.clone();
-            let restart_btn = crate::ui::widgets::controls::button(
+            let restart_btn = button(
                 &t,
                 &crate::t!("update-install"),
-                crate::ui::widgets::ButtonKind::Primary,
+                ButtonKind::Primary,
                 Some("arrow-up"),
                 cx.listener(move |this, _, _, cx| {
                     this.trigger_apply_update(path_clone.clone(), cx);
@@ -1316,7 +1273,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                                     .flex()
                                     .items_center()
                                     .gap(px(6.0))
-                                    .child(crate::ui::icons::icon("check", 16.0, t.ac))
+                                    .child(icon("check", 16.0, t.ac))
                                     .child(
                                         div()
                                             .font_weight(FontWeight::MEDIUM)
@@ -1337,11 +1294,11 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         }
         crate::update::UpdateState::Failed(err) => {
             let err_clone = err.clone();
-            let retry_btn = crate::ui::widgets::controls::button(
+            let retry_btn = button(
                 &t,
                 &crate::t!("update-retry"),
-                crate::ui::widgets::ButtonKind::Secondary,
-                Some("arrows-sort"),
+                ButtonKind::Secondary,
+                Some("refresh"),
                 cx.listener(|this, _, _, cx| {
                     this.trigger_check_update(true, cx);
                 }),
@@ -1356,7 +1313,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                             .flex()
                             .items_center()
                             .gap(px(8.0))
-                            .child(crate::ui::icons::icon("alert-triangle", 16.0, t.danger))
+                            .child(icon("alert-triangle", 16.0, t.danger))
                             .child(
                                 div()
                                     .text_size(px(12.5))

@@ -661,7 +661,7 @@ pub fn anchor_row(text: &str, anchor: &Anchor) -> Option<usize> {
 // Settings modal
 // ---------------------------------------------------------------------------
 
-fn open_settings(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+pub fn open_settings(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     app.show_palette = false;
     app.ext.attach.draft = app.ext.attach.settings.clone();
     let name = settings::folder_name(&app.ext.attach.draft.folder);

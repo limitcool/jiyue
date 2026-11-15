@@ -86,6 +86,7 @@ pub fn caret_after_insert(
 /// The template the daily-note setting shows after one click: `None` (built-in) → the first
 /// template, each template → the next, the last one → built-in again. `current` is the template
 /// path now set (`None` for the built-in one).
+#[cfg(test)]
 pub fn next_daily_template(current: Option<&str>, templates: &[TemplateInfo]) -> Option<String> {
     if templates.is_empty() {
         return None;
@@ -96,6 +97,17 @@ pub fn next_daily_template(current: Option<&str>, templates: &[TemplateInfo]) ->
         Some(_) => None,
     };
     next.map(|i| templates[i].path.clone())
+}
+
+/// Option index of `current` in `[builtin, ...templates, custom_fallback]`.
+pub fn selected_daily_template_index(current: Option<&str>, templates: &[TemplateInfo]) -> usize {
+    let Some(path) = current else {
+        return 0;
+    };
+    match templates.iter().position(|t| t.path == path) {
+        Some(i) => i + 1,
+        None => templates.len() + 1,
+    }
 }
 
 #[cfg(test)]

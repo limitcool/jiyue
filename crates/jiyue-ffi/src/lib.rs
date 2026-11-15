@@ -13,7 +13,7 @@ use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 
-use jiyue_core::buffer::{Note, ZedBuffer, wikilink_targets};
+use jiyue_core::buffer::{Note, wikilink_targets};
 use jiyue_core::daily::Date;
 use jiyue_core::vault::Vault;
 use jiyue_sync::store::{OpendalStore, StoreConfig};
@@ -171,10 +171,11 @@ impl VaultBridge {
             .position(|n| n.path.replace('\\', "/") == norm)
             .ok_or_else(|| format!("Note not found: {path}"))?;
 
-        vault.notes[idx].buffer = ZedBuffer::new(new_content);
+        vault.notes[idx].set_content(new_content);
         vault
             .save_note_to_disk(idx)
             .map_err(|e| format!("Failed to save note: {e}"))?;
+        vault.bump_revision();
         vault.rebuild_graph();
         Ok(())
     }
@@ -186,13 +187,13 @@ impl VaultBridge {
             .unwrap_or_else(|| format!("未命名 {}", vault.notes.len() + 1));
 
         let filename = format!("{}.md", safe_title);
-        let mut note = Note::new(&safe_title, &filename, content);
-        note.buffer = ZedBuffer::new(content);
+        let note = Note::new(&safe_title, &filename, content);
         vault.notes.push(note);
         let new_idx = vault.notes.len() - 1;
         vault
             .save_note_to_disk(new_idx)
             .map_err(|e| format!("Failed to persist new note: {e}"))?;
+        vault.bump_revision();
         vault.rebuild_graph();
 
         let n = &vault.notes[new_idx];
@@ -222,6 +223,7 @@ impl VaultBridge {
         let abs_path = vault.root_dir.join(&vault.notes[idx].path);
         let _ = std::fs::remove_file(abs_path);
         vault.notes.remove(idx);
+        vault.bump_revision();
         vault.rebuild_graph();
         Ok(())
     }
@@ -248,6 +250,7 @@ impl VaultBridge {
 
         vault.notes[idx].title = safe_title;
         vault.notes[idx].path = new_rel.clone();
+        vault.bump_revision();
         vault.rebuild_graph();
         Ok(new_rel)
     }
@@ -337,10 +340,11 @@ impl VaultBridge {
         let new_line = format!("\n- [{}] {}\n", now_hhmm, entry.trim());
         let updated = format!("{}{}", old_content.trim_end(), new_line);
 
-        vault.notes[idx].buffer = ZedBuffer::new(&updated);
+        vault.notes[idx].set_content(&updated);
         vault
             .save_note_to_disk(idx)
             .map_err(|e| format!("Failed to save daily note: {e}"))?;
+        vault.bump_revision();
         vault.rebuild_graph();
         Ok(())
     }

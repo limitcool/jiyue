@@ -189,12 +189,26 @@ impl RustdianApp {
     }
 }
 
+fn spawn_detached(program: &str, args: Vec<std::ffi::OsString>) {
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    let _ = cmd.spawn();
+}
+
 /// Shows `path` in the system file manager: Windows Explorer with the item selected, Finder with
 /// the item revealed (macOS), or the parent folder in the default file manager (Linux, which has no
 /// standard "select" option). Failures are ignored: the button is only a convenience.
 pub fn reveal_in_explorer(path: &std::path::Path) {
     if let Some((program, args)) = reveal_command(std::env::consts::OS, path) {
-        let _ = std::process::Command::new(program).args(args).spawn();
+        spawn_detached(program, args);
     }
 }
 
@@ -202,7 +216,7 @@ pub fn reveal_in_explorer(path: &std::path::Path) {
 /// is set). Failures are ignored: the button is only a convenience.
 pub fn open_with_default_app(path: &std::path::Path) {
     if let Some((program, args)) = open_command(std::env::consts::OS, path) {
-        let _ = std::process::Command::new(program).args(args).spawn();
+        spawn_detached(program, args);
     }
 }
 

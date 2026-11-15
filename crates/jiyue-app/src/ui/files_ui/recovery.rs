@@ -95,6 +95,7 @@ fn apply(app: &mut RustdianApp, item: RecoveryItem, cx: &mut Context<RustdianApp
         }
     };
     app.vault.notes[idx].set_content(&text);
+    app.vault.bump_revision();
     match app.editors.get_mut(&path) {
         Some(entry) => {
             entry.restored = true;

@@ -35,7 +35,7 @@ pub type LiveHandle = Rc<RefCell<LiveContext>>;
 pub struct NoteSnap {
     pub path: String,
     pub title: String,
-    pub body: Rc<str>,
+    pub body: Arc<str>,
 }
 
 /// Where an image stands: decoding, decoded (ready to paint) or unreadable.
@@ -110,6 +110,7 @@ pub struct LiveContext {
     /// Bumped whenever something a widget reads changes. Widgets built from older data are rebuilt.
     pub data_gen: u64,
     files_stamp: (usize, usize),
+    vault_revision: u64,
 }
 
 impl LiveContext {
@@ -194,7 +195,8 @@ impl LiveContext {
 /// frame before the editors paint.
 pub fn sync(handle: &LiveHandle, app: &RustdianApp) {
     let mut c = handle.borrow_mut();
-    if c.root != app.vault.root_dir {
+    let root_changed = c.root != app.vault.root_dir;
+    if root_changed {
         c.root = app.vault.root_dir.clone();
         c.images.clear();
         c.bump();
@@ -210,16 +212,9 @@ pub fn sync(handle: &LiveHandle, app: &RustdianApp) {
         c.images.clear();
         c.bump();
     }
-    // The snapshots are compared with the notes by content (a memory compare, no copies): an edit
-    // that keeps the length of a note (a replaced letter) is seen too.
-    let same = notes_match(
-        &c.notes,
-        app.vault
-            .notes
-            .iter()
-            .map(|n| (n.path.as_str(), n.title.as_str(), n.content())),
-    );
-    if !same {
+    // Note snapshots only rebuild when vault revision or vault root changes, sharing each note's
+    // immutable `Arc<str>` buffer in O(1) without cloning any note bodies.
+    if root_changed || c.vault_revision != app.vault.revision {
         c.notes = app
             .vault
             .notes
@@ -227,9 +222,10 @@ pub fn sync(handle: &LiveHandle, app: &RustdianApp) {
             .map(|n| NoteSnap {
                 path: n.path.clone(),
                 title: n.title.clone(),
-                body: Rc::from(n.content()),
+                body: n.content_arc(),
             })
             .collect();
+        c.vault_revision = app.vault.revision;
         c.bump();
     }
 }
@@ -465,7 +461,7 @@ mod tests {
         NoteSnap {
             path: path.to_string(),
             title: title.to_string(),
-            body: Rc::from(body),
+            body: Arc::from(body),
         }
     }
 

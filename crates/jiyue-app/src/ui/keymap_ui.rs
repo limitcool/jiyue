@@ -11,7 +11,7 @@ use crate::RustdianApp;
 use crate::theme::ActiveTheme;
 use crate::ui::keymap::{self, Category, Chord, Conflict, Keymap, RESERVED, SPECS, Spec};
 use crate::ui::widgets::{
-    ButtonKind, LineInput, LineInputEvent, button, confirm_dialog, kbd, section_title,
+    ButtonKind, LineInput, LineInputEvent, button, confirm_dialog, kbd, section_title, setting_card,
 };
 
 /// A chord that is already used: waits for 替换 or 取消.
@@ -231,7 +231,7 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEl
         .flex()
         .items_center()
         .gap(px(10.0))
-        .mt(px(10.0))
+        .pb(px(4.0))
         .child(div().flex_1().min_w_0().child(field))
         .child(button(
             &t,
@@ -266,9 +266,11 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEl
         shown += rows.len();
         body = body.child(section_title(&t, cat.label()));
         let last = rows.len() - 1;
+        let mut card = setting_card(&t);
         for (i, s) in rows.iter().enumerate() {
-            body = body.child(row(app, cx, s, &km, i == last));
+            card = card.child(row(app, cx, s, &km, i == last));
         }
+        body = body.child(card);
     }
     if shown == 0 {
         body = body.child(
@@ -284,19 +286,20 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEl
         .child(section_title(&t, &crate::t!("keymap-reserved-title")))
         .child(
             div()
-                .pb(px(6.0))
+                .pb(px(8.0))
                 .text_size(px(12.0))
                 .text_color(t.tx3)
                 .child(SharedString::from(crate::t!("keymap-reserved-desc"))),
         );
+    let mut reserved_card = setting_card(&t);
     for (i, (keys, meaning)) in RESERVED.iter().enumerate() {
         let shown_keys = Chord::parse(keys).map(|c| c.format()).unwrap_or_default();
-        body = body.child(
+        reserved_card = reserved_card.child(
             div()
                 .flex()
                 .items_center()
                 .justify_between()
-                .h(px(30.0))
+                .py(px(7.0))
                 .when(i + 1 < RESERVED.len(), |d| {
                     d.border_b_1().border_color(t.line_soft)
                 })
@@ -309,6 +312,7 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEl
                 .child(kbd(&t, &shown_keys)),
         );
     }
+    body = body.child(reserved_card);
     body.into_any_element()
 }
 

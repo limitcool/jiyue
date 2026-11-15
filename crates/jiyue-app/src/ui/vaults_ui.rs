@@ -28,7 +28,7 @@ use crate::ui::settings::{CAT_LIBRARY, setting_row};
 use crate::ui::widgets::controls::PickIndex;
 use crate::ui::widgets::{
     BadgeKind, ButtonKind, LineInput, LineInputEvent, MenuItem, badge, button, confirm_dialog,
-    context_menu, is_escape, modal, section_title, tooltip,
+    context_menu, is_escape, modal, section_title, setting_card, tooltip,
 };
 use crate::vaults::{self, Action, Facts, Mode, RecentRow, RecentStore};
 use jiyue_core::platform;
@@ -579,24 +579,23 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
             },
         ));
 
-    let mut list = div().flex().flex_col();
+    let mut list_card = setting_card(&t);
     if rows.is_empty() {
-        list = list.child(
+        list_card = list_card.child(
             div()
-                .py(px(10.0))
+                .py(px(12.0))
                 .text_size(px(12.5))
                 .text_color(t.tx3)
                 .child(SharedString::from(crate::t!("settings-vault-recent-empty"))),
         );
-    }
-    for (i, row) in rows.iter().enumerate() {
-        list = list.child(recent_row(&me, &t, i, row));
+    } else {
+        let last = rows.len() - 1;
+        for (i, row) in rows.iter().enumerate() {
+            list_card = list_card.child(recent_row(&me, &t, i, row, i == last));
+        }
     }
 
-    div()
-        .flex()
-        .flex_col()
-        .mt(px(10.0))
+    let info_card = setting_card(&t)
         .child(setting_row(
             &t,
             &crate::t!("settings-vault-name"),
@@ -645,10 +644,15 @@ pub fn render_library_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) 
             &crate::t!("settings-vault-tag-count-desc"),
             tags,
             true,
-        ))
+        ));
+
+    div()
+        .flex()
+        .flex_col()
+        .child(info_card)
         .child(actions)
         .child(section_title(&t, &crate::t!("settings-vault-recent-title")))
-        .child(list)
+        .child(list_card)
         .into_any_element()
 }
 
@@ -658,6 +662,7 @@ fn recent_row(
     t: &ActiveTheme,
     index: usize,
     row: &RecentRow,
+    last: bool,
 ) -> gpui::Stateful<Div> {
     let path = row.path.clone();
     let mut name_line = div().flex().items_center().gap(px(8.0)).child(
@@ -728,9 +733,8 @@ fn recent_row(
         .items_center()
         .justify_between()
         .gap(px(12.0))
-        .py(px(8.0))
-        .border_b_1()
-        .border_color(t.line_soft)
+        .py(px(10.0))
+        .when(!last, |d| d.border_b_1().border_color(t.line_soft))
         .child(left)
         .child(actions);
     if row.missing {

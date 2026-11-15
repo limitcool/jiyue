@@ -91,7 +91,7 @@ pub const SCHEMA_VERSION: u32 = 2;
 
 const VERSION_FILE: &str = "jiyue-search.version";
 const INDEX_SUBDIR: &str = "tantivy";
-const WRITER_BUDGET: usize = 50 * 1024 * 1024;
+const WRITER_THREAD_BUDGET: usize = 15_000_000;
 
 /// Field handles for the schema.
 #[derive(Debug, Clone, Copy)]
@@ -143,8 +143,9 @@ fn register_analyzer(index: &Index) {
 }
 
 struct Inner {
+    index: Index,
     reader: IndexReader,
-    writer: Mutex<IndexWriter<TantivyDocument>>,
+    writer: Mutex<Option<IndexWriter<TantivyDocument>>>,
     fields: Fields,
     needs_rebuild: AtomicBool,
 }
@@ -212,49 +213,85 @@ impl SearchIndex {
     pub fn upsert(&mut self, doc: &NoteDoc) -> Result<(), SearchError> {
         let fields = self.inner.fields;
         let tantivy_doc = to_document(fields, doc);
-        let writer = self.lock_writer()?;
-        writer.delete_term(Term::from_field_text(fields.path, &doc.path));
-        writer.add_document(tantivy_doc).map_err(other)?;
-        Ok(())
+        let path = doc.path.as_str();
+        self.with_writer(|writer| {
+            writer.delete_term(Term::from_field_text(fields.path, path));
+            writer.add_document(tantivy_doc).map_err(other)?;
+            Ok(())
+        })
+    }
+
+    /// Adds or replaces a batch of notes without committing yet.
+    pub fn upsert_batch(&mut self, docs: &[NoteDoc]) -> Result<(), SearchError> {
+        if docs.is_empty() {
+            return Ok(());
+        }
+        let fields = self.inner.fields;
+        self.with_writer(|writer| {
+            for doc in docs {
+                writer.delete_term(Term::from_field_text(fields.path, &doc.path));
+                writer
+                    .add_document(to_document(fields, doc))
+                    .map_err(other)?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Marks every document for deletion in the current write transaction.
+    pub fn clear(&mut self) -> Result<(), SearchError> {
+        self.with_writer(|writer| {
+            writer.delete_all_documents().map_err(other)?;
+            Ok(())
+        })
     }
 
     /// Removes the note at `path`. Buffered until [`SearchIndex::commit`].
     pub fn remove(&mut self, path: &str) -> Result<(), SearchError> {
         let fields = self.inner.fields;
-        let writer = self.lock_writer()?;
-        writer.delete_term(Term::from_field_text(fields.path, path));
+        self.with_writer(|writer| {
+            writer.delete_term(Term::from_field_text(fields.path, path));
+            Ok(())
+        })
+    }
+
+    /// Makes pending changes visible to searches and drops the underlying writer to free buffers.
+    pub fn commit(&mut self) -> Result<(), SearchError> {
+        let writer = {
+            let mut guard = self.lock_writer()?;
+            guard.take()
+        };
+        if let Some(mut writer) = writer {
+            writer.commit().map_err(other)?;
+            drop(writer);
+        }
+        self.inner.reader.reload().map_err(other)?;
         Ok(())
     }
 
-    /// Makes pending changes visible to searches.
-    pub fn commit(&mut self) -> Result<(), SearchError> {
-        {
-            let mut writer = self.lock_writer()?;
-            writer.commit().map_err(other)?;
+    /// Commits a streamed rebuild, frees the writer, writes the version marker and clears `needs_rebuild()`.
+    pub fn finish_rebuild(&mut self) -> Result<(), SearchError> {
+        self.commit()?;
+        if !self.dir.as_os_str().is_empty() {
+            fs::write(self.dir.join(VERSION_FILE), version_marker())?;
         }
-        self.inner.reader.reload().map_err(other)?;
+        self.inner.needs_rebuild.store(false, Ordering::SeqCst);
         Ok(())
     }
 
     /// Replaces the whole index with `docs` and commits. Clears `needs_rebuild()`.
     pub fn rebuild(&mut self, docs: impl Iterator<Item = NoteDoc>) -> Result<(), SearchError> {
         let fields = self.inner.fields;
-        {
-            let mut writer = self.lock_writer()?;
+        self.with_writer(|writer| {
             writer.delete_all_documents().map_err(other)?;
             for doc in docs {
                 writer
                     .add_document(to_document(fields, &doc))
                     .map_err(other)?;
             }
-            writer.commit().map_err(other)?;
-        }
-        self.inner.reader.reload().map_err(other)?;
-        if !self.dir.as_os_str().is_empty() {
-            fs::write(self.dir.join(VERSION_FILE), version_marker())?;
-        }
-        self.inner.needs_rebuild.store(false, Ordering::SeqCst);
-        Ok(())
+            Ok(())
+        })?;
+        self.finish_rebuild()
     }
 
     /// Number of committed notes.
@@ -329,11 +366,32 @@ impl SearchIndex {
         }
     }
 
-    fn lock_writer(&self) -> Result<MutexGuard<'_, IndexWriter<TantivyDocument>>, SearchError> {
+    fn lock_writer(
+        &self,
+    ) -> Result<MutexGuard<'_, Option<IndexWriter<TantivyDocument>>>, SearchError> {
         self.inner
             .writer
             .lock()
             .map_err(|_| SearchError::Other("index writer lock poisoned".into()))
+    }
+
+    fn with_writer<T>(
+        &self,
+        f: impl FnOnce(&mut IndexWriter<TantivyDocument>) -> Result<T, SearchError>,
+    ) -> Result<T, SearchError> {
+        let mut guard = self.lock_writer()?;
+        if guard.is_none() {
+            let writer = self
+                .inner
+                .index
+                .writer_with_num_threads(1, WRITER_THREAD_BUDGET)
+                .map_err(other)?;
+            *guard = Some(writer);
+        }
+        let writer = guard
+            .as_mut()
+            .ok_or_else(|| SearchError::Other("index writer unavailable".into()))?;
+        f(writer)
     }
 }
 
@@ -375,14 +433,12 @@ fn assemble(index: Index, dir: PathBuf, needs_rebuild: bool) -> Result<SearchInd
         .reload_policy(ReloadPolicy::Manual)
         .try_into()
         .map_err(other)?;
-    let writer = index
-        .writer::<TantivyDocument>(WRITER_BUDGET)
-        .map_err(other)?;
     Ok(SearchIndex {
         dir,
         inner: Arc::new(Inner {
+            index,
             reader,
-            writer: Mutex::new(writer),
+            writer: Mutex::new(None),
             fields,
             needs_rebuild: AtomicBool::new(needs_rebuild),
         }),
@@ -482,5 +538,61 @@ mod lib_tests {
     #[test]
     fn version_marker_mentions_schema_version() {
         assert!(version_marker().ends_with(&SCHEMA_VERSION.to_string()));
+    }
+
+    #[test]
+    fn writer_drops_on_commit_and_recreates_on_next_write() {
+        let mut index = SearchIndex::open_in_ram().expect("ram index");
+        assert!(index.lock_writer().expect("lock").is_none());
+
+        let doc = |path: &str, body: &str| NoteDoc {
+            path: path.to_string(),
+            title: path.to_string(),
+            body: body.to_string(),
+            tags: Vec::new(),
+            mtime_ms: 1,
+        };
+
+        index
+            .rebuild(std::iter::once(doc("a.md", "alpha release")))
+            .expect("rebuild");
+        assert!(index.lock_writer().expect("lock").is_none());
+        assert_eq!(index.count(), 1);
+
+        index.upsert(&doc("b.md", "beta update")).expect("upsert");
+        assert!(index.lock_writer().expect("lock").is_some());
+        index.commit().expect("commit");
+        assert!(index.lock_writer().expect("lock").is_none());
+
+        assert_eq!(index.count(), 2);
+        assert_eq!(index.search("alpha", 5).len(), 1);
+        assert_eq!(index.search("beta", 5).len(), 1);
+    }
+
+    #[test]
+    fn clear_and_batched_upsert_support_streamed_rebuild() {
+        let mut index = SearchIndex::open_in_ram().expect("ram index");
+        let doc = |path: &str, body: &str| NoteDoc {
+            path: path.to_string(),
+            title: path.to_string(),
+            body: body.to_string(),
+            tags: Vec::new(),
+            mtime_ms: 1,
+        };
+        index
+            .rebuild(std::iter::once(doc("old.md", "stale term")))
+            .expect("initial rebuild");
+        assert_eq!(index.count(), 1);
+
+        index.clear().expect("clear");
+        index
+            .upsert_batch(&[doc("new1.md", "fresh one"), doc("new2.md", "fresh two")])
+            .expect("batch");
+        index.finish_rebuild().expect("finish rebuild");
+
+        assert!(index.lock_writer().expect("lock").is_none());
+        assert_eq!(index.count(), 2);
+        assert!(index.search("stale", 5).is_empty());
+        assert_eq!(index.search("fresh", 5).len(), 2);
     }
 }

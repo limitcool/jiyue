@@ -511,6 +511,7 @@ impl RustdianApp {
             && note.content() != text
         {
             note.set_content(&text);
+            self.vault.bump_revision();
             edited = true;
         }
         let mut turned_dirty = false;
@@ -637,12 +638,12 @@ impl RustdianApp {
             cx.background_executor().timer(GRAPH_DEBOUNCE).await;
             let _ = this.update(cx, |app, cx| {
                 if app.graph_debounce.is_current(token) {
-                    // Built on a background thread from a copy of the notes; the result is applied
-                    // only if no newer change was scheduled meanwhile (that change schedules its own).
-                    let sources = app.vault.graph_sources();
+                    // Built on a background thread from cached wikilinks without cloning bodies;
+                    // the result is applied only if no newer change was scheduled meanwhile.
+                    let sources = app.vault.graph_link_sources();
                     let built = cx
                         .background_executor()
-                        .spawn(async move { jiyue_core::vault::build_graph(&sources) });
+                        .spawn(async move { jiyue_core::vault::build_graph_from_links(&sources) });
                     cx.spawn(async move |this, cx| {
                         let graph = built.await;
                         let _ = this.update(cx, |app, cx| {
@@ -700,6 +701,7 @@ impl RustdianApp {
             && note.content() != text
         {
             note.set_content(&text);
+            self.vault.bump_revision();
         }
         match self.vault.save_note_to_disk(idx) {
             Ok(()) => {
@@ -853,8 +855,8 @@ impl RustdianApp {
         }
         self.live_seen = self.live_preview;
 
-        let existing: Vec<String> = self.vault.notes.iter().map(|n| n.path.clone()).collect();
-        retain_paths(&mut self.editors, |p| existing.iter().any(|e| e == p));
+        let notes = &self.vault.notes;
+        retain_paths(&mut self.editors, |p| notes.iter().any(|n| n.path == p));
 
         let open = self.open_paths();
         let active = self.active_path().map(str::to_string);

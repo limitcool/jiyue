@@ -22,9 +22,10 @@ pub mod text_edit;
 #[allow(unused_imports)]
 pub use controls::{
     BadgeKind, ButtonKind, ButtonSize, IconBtnSize, ListAction, action_chip, badge, button,
-    button_sized, checkbox, checkbox_toggle, choice_chip, empty_state, form_row, icon_button,
-    icon_button_sized, icon_toggle_button, kbd, progress_bar, removable_tag_chip, section_title,
-    segmented, segmented_full, select, select_action, spinner, toggle,
+    button_sized, checkbox, checkbox_toggle, choice_chip, empty_state, form_row,
+    form_row_with_extra, icon_button, icon_button_sized, icon_toggle_button, kbd, progress_bar,
+    removable_tag_chip, section_title, segmented, segmented_full, select, select_action,
+    setting_card, spinner, stepper, toggle,
 };
 #[allow(unused_imports)]
 pub use line_input::{LineInput, LineInputEvent};

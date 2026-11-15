@@ -36,21 +36,6 @@ pub fn render_right_panel(
 ) -> impl IntoElement + use<> {
     let t = app.theme;
     let tab = app.right_panel_tab;
-    let (headings, title) = match app.vault.active_note() {
-        Some(n) => {
-            // A `# comment` inside the frontmatter block is not a heading.
-            let block = attach_ui::props::leading_block_lines(n.content());
-            let headings: Vec<HeadingItem> = n
-                .extract_headings()
-                .into_iter()
-                .filter(|h| h.line_number > block)
-                .collect();
-            (headings, n.title.clone())
-        }
-        None => (Vec::new(), String::new()),
-    };
-    let backlinks = app.vault.get_backlinks(&title);
-    let unlinked = unlinked_mentions(app, &title, &backlinks);
 
     let tab_outline = crate::t!("panel-outline");
     let tab_backlinks = crate::t!("panel-backlinks");
@@ -86,6 +71,17 @@ pub fn render_right_panel(
 
     match tab {
         RightPanelTab::Outline => {
+            let headings: Vec<HeadingItem> = match app.vault.active_note() {
+                Some(n) => {
+                    // A `# comment` inside the frontmatter block is not a heading.
+                    let block = attach_ui::props::leading_block_lines(n.content());
+                    n.extract_headings()
+                        .into_iter()
+                        .filter(|h| h.line_number > block)
+                        .collect()
+                }
+                None => Vec::new(),
+            };
             content = content
                 .child(properties_section(app, cx))
                 .child(section_title(
@@ -97,6 +93,13 @@ pub fn render_right_panel(
                 .child(outline(app, &headings, cx));
         }
         RightPanelTab::Backlinks => {
+            let title = app
+                .vault
+                .active_note()
+                .map(|n| n.title.clone())
+                .unwrap_or_default();
+            let cached = cached_backlinks(app, &title);
+            let (backlinks, unlinked) = (&cached.0, &cached.1);
             content = content
                 .child(section_title(
                     &t,
@@ -106,7 +109,7 @@ pub fn render_right_panel(
                 ))
                 .child(cards(
                     app,
-                    &backlinks,
+                    backlinks,
                     0,
                     &crate::t!("panel-backlinks-empty"),
                     cx,
@@ -119,7 +122,7 @@ pub fn render_right_panel(
                 ))
                 .child(cards(
                     app,
-                    &unlinked,
+                    unlinked,
                     10_000,
                     &crate::t!("panel-unlinked-empty"),
                     cx,
@@ -878,6 +881,30 @@ fn cards(
         );
     }
     col.into_any_element()
+}
+
+/// Returns cached backlinks and unlinked mentions for `title`, recomputing only when vault
+/// revision, vault root, or active note title changes.
+fn cached_backlinks(app: &RustdianApp, title: &str) -> Rc<super::files_ui::BacklinksData> {
+    let rev = app.vault.revision;
+    let mut cache = app.ext.files.backlinks_cache.borrow_mut();
+    if let Some((cached_rev, cached_root, cached_title, data)) = cache.as_ref()
+        && *cached_rev == rev
+        && *cached_root == app.vault.root_dir
+        && cached_title == title
+    {
+        return Rc::clone(data);
+    }
+    let backlinks = app.vault.get_backlinks(title);
+    let unlinked = unlinked_mentions(app, title, &backlinks);
+    let data = Rc::new((backlinks, unlinked));
+    *cache = Some((
+        rev,
+        app.vault.root_dir.clone(),
+        title.to_string(),
+        Rc::clone(&data),
+    ));
+    data
 }
 
 /// Notes that mention the title in plain text without linking to it.

@@ -2,6 +2,7 @@
 
 use super::{folder_key, path_parts};
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use gpui::{
     AnyElement, ClickEvent, Context, DragMoveEvent, ElementId, Entity, FontWeight, IntoElement,
@@ -445,9 +446,25 @@ fn logo_mark() -> impl IntoElement {
 }
 
 #[derive(Default)]
-struct DirNode {
+pub(crate) struct DirNode {
     dirs: BTreeMap<String, DirNode>,
     files: Vec<(String, usize)>,
+}
+
+/// Returns the cached folder/file tree for the current vault state, rebuilding only when `revision`
+/// or `root_dir` changes.
+fn cached_tree(app: &RustdianApp) -> Rc<DirNode> {
+    let rev = app.vault.revision;
+    let mut cache = app.ext.files.tree_cache.borrow_mut();
+    if let Some((cached_rev, cached_root, tree)) = cache.as_ref()
+        && *cached_rev == rev
+        && *cached_root == app.vault.root_dir
+    {
+        return Rc::clone(tree);
+    }
+    let tree = Rc::new(build_tree(app));
+    *cache = Some((rev, app.vault.root_dir.clone(), Rc::clone(&tree)));
+    tree
 }
 
 /// Builds the folder tree from the folders on disk and the notes' vault-relative paths.
@@ -525,7 +542,7 @@ pub fn visible_rows(app: &RustdianApp) -> Vec<String> {
             }
         }
     }
-    let tree = build_tree(app);
+    let tree = cached_tree(app);
     let mut out = Vec::new();
     collect(app, &tree, "", &mut out);
     out
@@ -533,7 +550,7 @@ pub fn visible_rows(app: &RustdianApp) -> Vec<String> {
 
 /// Visible rows of the file tree. Folders are expanded when listed in `expanded_folders`.
 fn file_tree(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElement> {
-    let tree = build_tree(app);
+    let tree = cached_tree(app);
     let mut out = Vec::new();
     let active = app.vault.active_note_index;
     // A new note or folder at the root is typed at the top of the tree.
@@ -816,15 +833,31 @@ fn walk(
     }
 }
 
+/// Returns cached sorted `(tag, count)` pairs for the vault, rebuilding only on revision change.
+fn cached_tag_counts(app: &RustdianApp) -> Rc<Vec<(String, usize)>> {
+    let rev = app.vault.revision;
+    let mut cache = app.ext.files.tags_cache.borrow_mut();
+    if let Some((cached_rev, cached_root, counts)) = cache.as_ref()
+        && *cached_rev == rev
+        && *cached_root == app.vault.root_dir
+    {
+        return Rc::clone(counts);
+    }
+    let mut map: BTreeMap<String, usize> = BTreeMap::new();
+    for note in &app.vault.notes {
+        for tag in &note.tags {
+            *map.entry(tag.clone()).or_default() += 1;
+        }
+    }
+    let counts: Rc<Vec<(String, usize)>> = Rc::new(map.into_iter().collect());
+    *cache = Some((rev, app.vault.root_dir.clone(), Rc::clone(&counts)));
+    counts
+}
+
 /// 标签 section: each tag with the number of notes that use it.
 fn tags(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + use<> {
     let t = app.theme;
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    for note in &app.vault.notes {
-        for tag in &note.tags {
-            *counts.entry(tag.clone()).or_default() += 1;
-        }
-    }
+    let counts = cached_tag_counts(app);
     // The active tags are those of the search text (sidebar search tab or modal search).
     let search_open = (app.left_sidebar_open && app.sidebar_tab == SidebarTab::Search)
         || app.ext.search.panel.open;
@@ -834,9 +867,10 @@ fn tags(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + 
         String::new()
     };
     let mut list = div().flex().flex_col().flex_none();
-    for (name, count) in counts {
-        let is_active = query_has_tag(&search_text, &name);
+    for (name, count) in counts.iter() {
+        let is_active = query_has_tag(&search_text, name);
         let click_name = name.clone();
+        let display_name = name.clone();
         let mut row = div()
             .flex()
             .flex_none()
@@ -863,7 +897,12 @@ fn tags(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + 
                     .font_weight(FontWeight::MEDIUM)
                     .child("#"),
             )
-            .child(div().flex_1().min_w_0().child(SharedString::from(name)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(SharedString::from(display_name)),
+            )
             .child(
                 div()
                     .flex_none()

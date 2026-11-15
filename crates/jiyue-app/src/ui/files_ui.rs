@@ -21,8 +21,16 @@ mod watch;
 pub use modals::confirm_close_despite_failures;
 pub use recovery::start_recovery;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::{Duration, Instant};
+
+pub(crate) type BacklinksData = (Vec<(String, String)>, Vec<(String, String)>);
+type BacklinksCache = (u64, PathBuf, String, Rc<BacklinksData>);
+type TreeCache = (u64, PathBuf, Rc<crate::ui::sidebar::DirNode>);
+type TagsCache = (u64, PathBuf, Rc<Vec<(String, usize)>>);
 
 use gpui::{
     AnyElement, AppContext, Context, Entity, FocusHandle, KeyDownEvent, Subscription, Window,
@@ -70,6 +78,12 @@ pub struct State {
     pub autoname: autoname::Session,
     /// The rows selected with Ctrl+click, Shift+click or Ctrl+A (see `selection`).
     pub selection: selection::Selection,
+    /// Cached folder/file tree keyed by `(vault.revision, vault.root_dir)`.
+    pub(crate) tree_cache: RefCell<Option<TreeCache>>,
+    /// Cached tag counts keyed by `(vault.revision, vault.root_dir)`.
+    pub(crate) tags_cache: RefCell<Option<TagsCache>>,
+    /// Cached backlinks and unlinked mentions keyed by `(vault.revision, vault.root_dir, title)`.
+    pub(crate) backlinks_cache: RefCell<Option<BacklinksCache>>,
 }
 
 /// Commands this module handles (sent as `ExtCommand::Files`).

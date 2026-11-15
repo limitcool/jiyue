@@ -1,11 +1,13 @@
 //! The two rows of the 日记 settings page that belong to templates.
 
-use gpui::{Context, Div, IntoElement, MouseButton, SharedString, div, prelude::*, px};
+use std::rc::Rc;
+
+use gpui::{Context, Div, MouseDownEvent, div, prelude::*, px};
 use jiyue_export::{TemplateRules, list_templates};
 
 use super::pure;
 use crate::RustdianApp;
-use crate::ui::settings::setting_row;
+use crate::ui::widgets::controls::{choice_chip, form_row, form_row_with_extra, select};
 
 /// 模板文件夹: the folder the templates are read from (模板 or Templates), kept in
 /// `.jiyue/templates.json`.
@@ -13,61 +15,46 @@ pub fn folder_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
     let current = TemplateRules::load(&app.vault.root_dir).templates_folder;
     let options = [pure::DEFAULT_FOLDER, pure::CHINESE_FOLDER];
-    let mut control = div()
-        .flex()
-        .h(px(30.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.sheet)
-        .overflow_hidden();
+
+    let mut chips = div().flex().items_center().justify_end().gap(px(6.0));
     for name in options {
         let on = name == current;
-        control = control.child(
-            div()
-                .flex()
-                .items_center()
-                .px(px(12.0))
-                .h_full()
-                .text_size(px(12.5))
-                .cursor_pointer()
-                .bg(if on { t.active } else { t.sheet })
-                .text_color(if on { t.tx } else { t.tx2 })
-                .child(SharedString::from(name))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _, _, cx| {
-                        let root = this.vault.root_dir.clone();
-                        let mut rules = TemplateRules::load(&root);
-                        rules.templates_folder = name.to_owned();
-                        let _ = rules.save(&root);
-                        if let Some(inp) = &this.settings.template_folder_input {
-                            inp.update(cx, |i, cx| i.set_text(name, cx));
-                        }
-                        cx.notify();
-                    }),
-                ),
-        );
+        chips = chips.child(choice_chip(
+            &t,
+            name,
+            on,
+            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                let root = this.vault.root_dir.clone();
+                let mut rules = TemplateRules::load(&root);
+                rules.templates_folder = name.to_owned();
+                let _ = rules.save(&root);
+                if let Some(inp) = &this.settings.template_folder_input {
+                    inp.update(cx, |i, cx| i.set_text(name, cx));
+                }
+                cx.notify();
+            }),
+        ));
     }
-    let control_with_input = div()
-        .flex()
-        .items_center()
-        .gap(px(8.0))
-        .child(control)
+
+    let input_box = div()
+        .w(px(200.0))
+        .h(px(30.0))
         .when_some(app.settings.template_folder_input.clone(), |d, inp| {
-            d.child(div().w(px(140.0)).h(px(30.0)).child(inp))
+            d.child(inp)
         });
-    setting_row(
+
+    form_row_with_extra(
         &t,
         &crate::t!("settings-template-folder"),
         &crate::t!("settings-template-folder-desc"),
-        control_with_input,
-        false,
+        input_box,
+        chips,
+        true,
     )
 }
 
-/// 模板 of the daily note: the built-in one, or one of the templates. The button steps through
-/// them. The choice is saved in `.jiyue/daily.json` (the same field the daily note reads).
+/// 模板 of the daily note: the built-in one, or one of the templates. The choice is saved in
+/// `.jiyue/daily.json` (the same field the daily note reads).
 pub fn daily_template_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
     let root = app.vault.root_dir.clone();
@@ -81,59 +68,67 @@ pub fn daily_template_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> D
     let templates = list_templates(&root, &folder);
 
     let current = Some(daily.template_path.trim().to_string()).filter(|p| !p.is_empty());
-    let shown = match &current {
-        Some(path) => templates
-            .iter()
-            .find(|tpl| &tpl.path == path)
-            .map(|tpl| tpl.name.clone())
-            .unwrap_or_else(|| path.clone()),
-        None => crate::t!("settings-template-builtin"),
-    };
-    let next_button = div()
-        .flex()
-        .items_center()
-        .h(px(28.0))
-        .px(px(10.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.sheet)
-        .cursor_pointer()
-        .hover(|s| s.bg(t.hover))
-        .text_size(px(12.5))
-        .text_color(t.tx2)
-        .child(SharedString::from(crate::t!("settings-template-change")))
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |this, _, _, cx| {
-                let next = pure::next_daily_template(current.as_deref(), &templates);
-                let mut settings = this
-                    .settings
-                    .daily
-                    .clone()
-                    .unwrap_or_else(|| this.vault.daily_settings());
-                settings.template_path = next.unwrap_or_default();
-                let _ = settings.save(&this.vault.root_dir);
-                this.settings.daily = Some(settings);
-                cx.notify();
-            }),
-        );
-    let control = div()
-        .flex()
-        .items_center()
-        .gap(px(10.0))
-        .child(
-            div()
-                .text_size(px(12.5))
-                .text_color(t.tx2)
-                .child(SharedString::from(shown)),
-        )
-        .child(next_button.into_any_element());
-    setting_row(
+    let selected = pure::selected_daily_template_index(current.as_deref(), &templates);
+
+    let mut labels: Vec<String> = Vec::with_capacity(templates.len() + 2);
+    labels.push(crate::t!("settings-template-builtin"));
+    for tpl in &templates {
+        labels.push(tpl.name.clone());
+    }
+    if let Some(path) = &current
+        && !templates.iter().any(|tpl| &tpl.path == path)
+    {
+        labels.push(path.clone());
+    }
+    let option_refs: Vec<&str> = labels.iter().map(String::as_str).collect();
+    let open = app.settings.daily_template_open;
+
+    let paths: Vec<String> = templates.into_iter().map(|tpl| tpl.path).collect();
+    let current_fallback = current.clone();
+    let on_pick = Rc::new(cx.listener(move |this, idx: &usize, _, cx| {
+        let next = if *idx == 0 {
+            String::new()
+        } else if let Some(p) = paths.get(idx - 1) {
+            p.clone()
+        } else {
+            current_fallback.clone().unwrap_or_default()
+        };
+        let mut settings = this
+            .settings
+            .daily
+            .clone()
+            .unwrap_or_else(|| this.vault.daily_settings());
+        settings.template_path = next;
+        let _ = settings.save(&this.vault.root_dir);
+        this.settings.daily = Some(settings);
+        this.settings.daily_template_open = false;
+        cx.notify();
+    }));
+
+    let picker = select(
+        &t,
+        &option_refs,
+        selected.min(option_refs.len().saturating_sub(1)),
+        open,
+        selected.min(option_refs.len().saturating_sub(1)),
+        220.0,
+        cx.listener(|this, _: &MouseDownEvent, _, cx| {
+            this.settings.daily_template_open = true;
+            this.settings.daily_format_open = false;
+            cx.notify();
+        }),
+        cx.listener(|this, _: &MouseDownEvent, _, cx| {
+            this.settings.daily_template_open = false;
+            cx.notify();
+        }),
+        on_pick,
+    );
+
+    form_row(
         &t,
         &crate::t!("settings-daily-template"),
         &crate::t!("settings-daily-template-desc"),
-        control,
-        true,
+        picker,
+        false,
     )
 }

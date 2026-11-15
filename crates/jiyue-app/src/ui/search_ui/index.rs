@@ -35,12 +35,12 @@ pub enum Op {
     Sync(String),
 }
 
-/// A full build in progress: the notes still to read and the documents read so far.
+/// A full build in progress: the notes still to read and whether the index was already cleared.
 pub struct Build {
     pub total: usize,
     pub done: usize,
     queue: VecDeque<(String, String)>,
-    docs: Vec<NoteDoc>,
+    cleared: bool,
 }
 
 /// State of the index pipeline (owned by `search_ui::State`).
@@ -176,7 +176,7 @@ fn start_build(app: &mut RustdianApp) {
         total,
         done: 0,
         queue,
-        docs: Vec::new(),
+        cleared: false,
     });
 }
 
@@ -197,8 +197,11 @@ pub fn index(app: &RustdianApp) -> Option<SearchIndex> {
 
 /// What the next job does.
 enum Next {
-    Chunk(Vec<(String, String)>),
-    Rebuild(Vec<NoteDoc>),
+    Chunk {
+        paths: Vec<(String, String)>,
+        first: bool,
+    },
+    Finish,
     Ops(Vec<Op>),
     Idle,
 }
@@ -211,10 +214,15 @@ pub fn pump(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
             (false, true, true) => {
                 if let Some(build) = svc.build.as_mut() {
                     if build.queue.is_empty() {
-                        Next::Rebuild(std::mem::take(&mut build.docs))
+                        Next::Finish
                     } else {
                         let take = build.queue.len().min(BUILD_CHUNK);
-                        Next::Chunk(build.queue.drain(..take).collect())
+                        let first = !build.cleared;
+                        build.cleared = true;
+                        Next::Chunk {
+                            paths: build.queue.drain(..take).collect(),
+                            first,
+                        }
                     }
                 } else if svc.ops.is_empty() {
                     Next::Idle
@@ -231,37 +239,46 @@ pub fn pump(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     };
     match next {
         Next::Idle => {}
-        Next::Chunk(chunk) => {
+        Next::Chunk { paths, first } => {
             svc.busy = true;
-            let count = chunk.len();
+            let count = paths.len();
             spawn_blocking(
                 cx,
                 move || {
-                    let docs: Vec<NoteDoc> = chunk
+                    let mut index = index;
+                    if first {
+                        index.clear().map_err(|e| e.to_string())?;
+                    }
+                    let docs: Vec<NoteDoc> = paths
                         .iter()
                         .filter_map(|(path, title)| doc_from_disk(&root, path, title))
                         .collect();
-                    docs
+                    index.upsert_batch(&docs).map_err(|e| e.to_string())
                 },
-                move |app: &mut RustdianApp, docs: Vec<NoteDoc>, cx: &mut Context<RustdianApp>| {
+                move |app: &mut RustdianApp,
+                      result: Result<(), String>,
+                      cx: &mut Context<RustdianApp>| {
                     let svc = &mut app.ext.search.service;
                     svc.busy = false;
                     if let Some(build) = svc.build.as_mut() {
                         build.done = (build.done + count).min(build.total);
-                        build.docs.extend(docs);
+                    }
+                    if let Err(err) = result {
+                        svc.build = None;
+                        app.toast(ToastKind::Warn, format!("搜索索引重建失败：{err}"));
                     }
                     pump(app, cx);
                     cx.notify();
                 },
             );
         }
-        Next::Rebuild(docs) => {
+        Next::Finish => {
             svc.busy = true;
             spawn_blocking(
                 cx,
                 move || {
                     let mut index = index;
-                    index.rebuild(docs.into_iter()).map_err(|e| e.to_string())
+                    index.finish_rebuild().map_err(|e| e.to_string())
                 },
                 |app: &mut RustdianApp,
                  result: Result<(), String>,

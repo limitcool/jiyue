@@ -73,8 +73,11 @@ settings-show-right-panel = 显示右侧栏
 settings-show-right-panel-desc = 大纲与反向链接所在的面板
 
 # 设置 - 字体与字号 (Settings Fonts)
+settings-theme-section = 主题与界面
 settings-fonts-title = 字体与字号
 settings-fonts-desc = 对所有笔记库生效，修改后立即显示在编辑区和界面中
+settings-font-section-family = 字体族
+settings-font-section-sizing = 字号与排版
 settings-ui-font = 界面字体
 settings-ui-font-desc = 菜单、侧栏、标签和按钮的字体
 settings-editor-font = 正文字体
@@ -84,14 +87,15 @@ settings-code-font-desc = 代码块与行内代码的字体
 settings-editor-font-size = 正文字号
 settings-editor-font-size-desc = 编辑区与阅读模式的文字大小（标题按比例放大）
 settings-code-font-size = 代码字号
-settings-code-font-size-desc = 代码块与行内代码；“跟随正文”时为正文的 90%
+settings-code-font-size-desc = 代码块与行内代码；开启“跟随正文”时自动取正文的 90%
 settings-line-height = 行高比例
 settings-line-height-desc = 行与行之间的距离，相对于字号的倍数
-settings-font-default = 默认（{ $label }）
-settings-font-default-ui = 默认界面字体
-settings-font-same-as-ui = 与界面字体相同
-settings-font-default-code = 默认等宽字体
-settings-font-system-default = 默认（系统）
+settings-font-default = { $label }
+settings-font-default-ui = 系统默认界面字体
+settings-font-same-as-ui = 跟随界面字体
+settings-font-default-code = 系统默认等宽字体
+settings-font-system-default = 系统默认
+settings-font-follow-toggle = 跟随正文
 settings-font-preset-follow = 跟随正文 { $size } px
 settings-font-search-placeholder = 搜索字体…
 settings-font-search-footer = 按 Enter 确认，按 Esc 取消
@@ -122,7 +126,7 @@ settings-daily-format = 日期文件名格式
 settings-daily-format-desc = 决定日记文件的命名方式
 settings-daily-format-preview = 文件名预览
 settings-daily-template = 日记模板
-settings-daily-template-desc = 新建日记时使用的模板；「更换」在笔记模板之间切换，最后回到内置模板
+settings-daily-template-desc = 新建日记时自动套用的笔记模板；可选择内置模板或模板文件夹中的笔记
 
 # 设置 - 关于与自更新 (Settings About & Updates)
 settings-about = 关于与更新

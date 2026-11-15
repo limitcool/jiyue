@@ -21,7 +21,7 @@ use crate::theme::ActiveTheme;
 use crate::ui::text_input::TextEditor;
 use crate::ui::widgets::line_input::LineInput;
 use crate::ui::widgets::{
-    BadgeKind, ButtonKind, badge, button, form_row, section_title, segmented, toggle,
+    BadgeKind, ButtonKind, badge, button, form_row, section_title, segmented, setting_card, toggle,
 };
 
 /// Entities of the form, created once in `init`. Cheap to clone.
@@ -314,30 +314,24 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
     );
 
     let mut body = div()
-        .id("sync_settings")
         .flex()
         .flex_col()
-        .h(px(440.0))
-        .pr(px(10.0))
-        .overflow_y_scroll()
-        .font_family(crate::ui::fonts::ui_name())
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .py(px(8.0))
-                .child(section_title(&t, &crate::t!("sync-backend")))
-                .child(backend),
-        );
+        .font_family(crate::ui::fonts::ui_name());
 
     if let Some(err) = &s.config_error {
-        body = body.child(note_line(&t, false, err));
+        body = body.child(div().pb(px(6.0)).child(note_line(&t, false, err)));
     }
 
-    body = body.child(section_title(&t, &crate::t!("sync-connection")));
+    body = body.child(section_title(&t, &crate::t!("sync-connection")).pt(px(4.0)));
+    let mut conn_card = setting_card(&t).child(form_row(
+        &t,
+        &crate::t!("sync-backend"),
+        "选择云端对象存储 S3 或 WebDAV 协议",
+        backend,
+        false,
+    ));
     if s3 {
-        body = body
+        conn_card = conn_card
             .child(form_row(
                 &t,
                 &crate::t!("sync-server-addr"),
@@ -400,7 +394,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                 true,
             ));
     } else {
-        body = body
+        conn_card = conn_card
             .child(form_row(
                 &t,
                 &crate::t!("sync-server-addr"),
@@ -435,9 +429,10 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                 true,
             ));
     }
+    body = body.child(conn_card);
 
     body = body.child(section_title(&t, &crate::t!("sync-auto-sync-section")));
-    body = body
+    let auto_card = setting_card(&t)
         .child(form_row(
             &t,
             &crate::t!("sync-enable"),
@@ -546,16 +541,17 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
             field(&t, &inputs.device),
             true,
         ));
+    body = body.child(auto_card);
 
     body = body.child(section_title(&t, &crate::t!("sync-ignore-rules")));
     body = body.child(
-        div()
-            .pb(px(10.0))
+        setting_card(&t)
+            .py(px(12.0))
             .child(
                 div()
                     .text_size(px(12.0))
                     .text_color(t.tx3)
-                    .pb(px(6.0))
+                    .pb(px(8.0))
                     .child(SharedString::from(crate::t!("sync-ignore-desc"))),
             )
             .child(
@@ -563,7 +559,8 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                     .h(px(96.0))
                     .rounded(px(8.0))
                     .border_1()
-                    .border_color(t.line)
+                    .border_color(t.border_default)
+                    .bg(t.surface)
                     .overflow_hidden()
                     .child(inputs.ignore.clone()),
             ),
@@ -574,17 +571,27 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         None => (true, None),
     };
     let last = last_line(app);
+    let dirty = read_form(app, cx).is_some_and(|(cfg, typed)| !typed.is_empty() || cfg != s.saved);
     body = body.child(
         div()
             .flex()
             .flex_col()
             .gap(px(8.0))
-            .pt(px(6.0))
+            .pt(px(12.0))
             .child(
                 div()
-                    .text_size(px(12.0))
-                    .text_color(t.tx3)
-                    .child(SharedString::from(last)),
+                    .flex()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(
+                        div()
+                            .text_size(px(12.0))
+                            .text_color(t.tx3)
+                            .child(SharedString::from(last)),
+                    )
+                    .when(dirty, |d| {
+                        d.child(badge(&t, "有未保存修改", BadgeKind::Warn))
+                    }),
             )
             .child(
                 div()
@@ -629,7 +636,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
     }
 
     body = body.child(section_title(&t, &crate::t!("sync-danger-zone")));
-    body = body.child(form_row(
+    body = body.child(setting_card(&t).child(form_row(
         &t,
         &crate::t!("sync-reset-state"),
         &crate::t!("sync-reset-state-desc"),
@@ -644,7 +651,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
             }),
         ),
         true,
-    ));
+    )));
 
     body.into_any_element()
 }
@@ -660,7 +667,7 @@ fn note_line(t: &ActiveTheme, ok: bool, text: &str) -> AnyElement {
 
 /// One text field in a form row (30px high).
 fn field(_t: &ActiveTheme, input: &Entity<LineInput>) -> impl IntoElement + use<> {
-    div().w(px(300.0)).flex_none().child(input.clone())
+    div().w(px(260.0)).flex_none().child(input.clone())
 }
 
 /// "Last sync" summary above the buttons.
@@ -701,51 +708,51 @@ fn test_card(t: &ActiveTheme, test: &TestState) -> Option<AnyElement> {
         }
         TestState::Done(report) => report,
     };
-    let row = |label: &str, value: &str, kind: BadgeKind| {
-        div()
+    let row = |label: &str, value: &str, kind: BadgeKind, last: bool| {
+        let mut r = div()
             .flex()
             .items_center()
             .justify_between()
-            .py(px(4.0))
-            .border_b_1()
-            .border_color(t.line_soft)
+            .py(px(6.0))
             .child(
                 div()
                     .text_size(px(13.0))
                     .text_color(t.tx)
                     .child(SharedString::from(label.to_owned())),
             )
-            .child(badge(t, value, kind))
+            .child(badge(t, value, kind));
+        if !last {
+            r = r.border_b_1().border_color(t.line_soft);
+        }
+        r
     };
-    let mut card = div()
+    let mut card = setting_card(t)
         .mt(px(8.0))
-        .p(px(12.0))
-        .rounded(px(10.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.sheet)
-        .flex()
-        .flex_col()
+        .py(px(10.0))
         .font_weight(FontWeight::NORMAL)
         .child(row(
             "可连接",
             yes_no(report.reachable),
             ok_kind(report.reachable),
+            false,
         ))
         .child(row(
             "可列出",
             yes_no(report.can_list),
             ok_kind(report.can_list),
+            false,
         ))
         .child(row(
             "可写入",
             yes_no(report.can_write),
             ok_kind(report.can_write),
+            false,
         ))
         .child(row(
             "可删除",
             yes_no(report.can_delete),
             ok_kind(report.can_delete),
+            false,
         ))
         .child(row(
             "版本控制",
@@ -755,6 +762,7 @@ fn test_card(t: &ActiveTheme, test: &TestState) -> Option<AnyElement> {
                 "未开启"
             },
             ok_kind(report.supports_versions),
+            false,
         ))
         .child(row(
             "条件写入",
@@ -764,6 +772,7 @@ fn test_card(t: &ActiveTheme, test: &TestState) -> Option<AnyElement> {
                 "不支持"
             },
             ok_kind(report.conditional_put_supported),
+            true,
         ));
     if !report.supports_versions {
         card = card.child(

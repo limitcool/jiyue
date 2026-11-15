@@ -554,6 +554,7 @@ impl Vault {
                     content
                 };
                 self.notes.push(Note::new(&title, &rel_str, &content));
+                self.bump_revision();
                 self.notes.len() - 1
             }
         };

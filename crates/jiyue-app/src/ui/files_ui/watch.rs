@@ -211,6 +211,7 @@ pub fn handle_modified(app: &mut RustdianApp, path: &str, cx: &mut Context<Rustd
         }
     }
     app.vault.notes[idx].set_content(&disk);
+    app.vault.bump_revision();
     if editor.is_some() {
         let title = app.vault.notes[idx].title.clone();
         app.toast(ToastKind::Info, format!("已从磁盘更新：{title}"));
@@ -249,6 +250,7 @@ pub fn discard_and_reload(app: &mut RustdianApp, path: &str, cx: &mut Context<Ru
     }
     if let Some(idx) = app.vault.notes.iter().position(|n| n.path == path) {
         app.vault.notes[idx].set_content(&disk);
+        app.vault.bump_revision();
     }
     // The unsaved text is gone: the note is clean and its recovery copy is no longer needed.
     if let Some(entry) = app.editors.get_mut(path) {

@@ -6,8 +6,8 @@
 use std::time::Duration;
 
 use gpui::{
-    AnyElement, App, Context, Div, FontWeight, IntoElement, MouseButton, MouseDownEvent,
-    ScrollHandle, SharedString, Subscription, Window, div, prelude::*, px,
+    AnyElement, Context, Div, FontWeight, IntoElement, MouseButton, ScrollHandle, SharedString,
+    Subscription, Window, div, prelude::*, px,
 };
 use jiyue_core::config::appearance::{
     Appearance, CODE_SIZE_FOLLOW, CODE_SIZE_RANGE, EDITOR_SIZE_DEFAULT, EDITOR_SIZE_RANGE,
@@ -15,10 +15,13 @@ use jiyue_core::config::appearance::{
 };
 
 use crate::RustdianApp;
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, CONTROL_MD, RADIUS_M};
 use crate::ui::ext::ToastKind;
 use crate::ui::fonts::{self, Slot};
-use crate::ui::settings::setting_row;
+use crate::ui::widgets::controls::{
+    ButtonKind, ButtonSize, button_sized, choice_chip, form_row, form_row_with_extra,
+    section_title, setting_card, stepper,
+};
 use crate::ui::widgets::{LineInput, LineInputEvent};
 
 /// Pause after the last change before the file is written.
@@ -58,7 +61,7 @@ pub struct FontUi {
     save_seq: u64,
 }
 
-/// The rows of the 字体与字号 block, below the theme and sidebar rows of the 外观 page.
+/// The rows of the 字体与字号 block, below the theme and sidebar card of the 外观 page.
 pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
     fonts::ensure_installed(|| cx.text_system().all_font_names());
@@ -66,29 +69,6 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let snapshot = fonts::current();
     let m = fonts::current_metrics();
 
-    let mut block = div()
-        .flex()
-        .flex_col()
-        .mt(px(14.0))
-        .pt(px(10.0))
-        .border_t_1()
-        .border_color(t.line_soft)
-        .child(
-            div()
-                .text_size(px(13.5))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(t.tx)
-                .child(SharedString::from(crate::t!("settings-fonts-title"))),
-        )
-        .child(
-            div()
-                .pb(px(4.0))
-                .text_size(px(12.0))
-                .text_color(t.tx3)
-                .child(SharedString::from(crate::t!("settings-fonts-desc"))),
-        );
-
-    // Font families.
     let ui_row = font_row(
         app,
         cx,
@@ -96,6 +76,7 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         &cfg.ui_font,
         &crate::t!("settings-font-default-ui"),
         &snapshot.ui_family,
+        false,
     );
     let editor_row = font_row(
         app,
@@ -104,6 +85,7 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         &cfg.editor_font,
         &crate::t!("settings-font-same-as-ui"),
         &snapshot.editor_family,
+        false,
     );
     let code_row = font_row(
         app,
@@ -112,32 +94,31 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         &cfg.code_font,
         &crate::t!("settings-font-default-code"),
         &snapshot.code_family,
+        true,
     );
-    block = block
+
+    let family_card = setting_card(&t)
         .child(ui_row)
         .child(editor_row)
-        .child(code_row)
-        .children(missing_lines(&t, &snapshot.missing))
-        .children(missing_lines(&t, &snapshot.clamp_warnings));
+        .child(code_row);
 
-    // Sizes.
-    block = block
-        .child(setting_row(
+    let sizing_card = setting_card(&t)
+        .child(form_row_with_extra(
             &t,
             &crate::t!("settings-editor-font-size"),
             &crate::t!("settings-editor-font-size-desc"),
             size_control(app, cx, NumField::EditorSize, &cfg),
+            preset_row(app, cx, &cfg),
             false,
         ))
-        .child(preset_row(app, cx, &cfg))
-        .child(setting_row(
+        .child(form_row(
             &t,
             &crate::t!("settings-line-height"),
             &crate::t!("settings-line-height-desc"),
-            number_stepper(app, cx, NumField::LineHeight, line_text(&cfg), -1, 1),
+            number_stepper(app, cx, NumField::LineHeight, line_text(&cfg), -1, 1, false),
             false,
         ))
-        .child(setting_row(
+        .child(form_row(
             &t,
             &crate::t!("settings-code-font-size"),
             &crate::t!("settings-code-font-size-desc"),
@@ -145,22 +126,36 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             true,
         ));
 
-    block = block
+    div()
+        .flex()
+        .flex_col()
+        .mt(px(4.0))
+        .child(section_title(
+            &t,
+            &crate::t!("settings-font-section-family"),
+        ))
+        .child(family_card)
+        .children(missing_lines(&t, &snapshot.missing))
+        .children(missing_lines(&t, &snapshot.clamp_warnings))
+        .child(section_title(
+            &t,
+            &crate::t!("settings-font-section-sizing"),
+        ))
+        .child(sizing_card)
         .child(preview(
             &t,
             &snapshot.editor_family,
             &snapshot.code_family,
             &m,
         ))
-        .child(reset_row(app, cx));
-    block
+        .child(reset_row(app, cx))
 }
 
 // ---------------------------------------------------------------------------
 // Font families
 // ---------------------------------------------------------------------------
 
-/// One font row: the title, the trigger that opens the picker, and the picker when it is open.
+/// One font row: the title, the trigger that opens the picker, and the inline picker when open.
 fn font_row(
     app: &RustdianApp,
     cx: &mut Context<RustdianApp>,
@@ -168,6 +163,7 @@ fn font_row(
     value: &str,
     default_label: &str,
     resolved: &str,
+    last: bool,
 ) -> Div {
     let t = app.theme;
     let open = app.settings.fonts.picker.as_ref().map(|p| p.slot) == Some(slot);
@@ -192,28 +188,36 @@ fn font_row(
     };
     let mut trigger = div()
         .flex()
+        .flex_none()
         .items_center()
         .justify_between()
         .gap(px(8.0))
-        .w(px(280.0))
-        .h(px(32.0))
+        .w(px(240.0))
+        .h(px(CONTROL_MD))
         .px(px(10.0))
-        .rounded(px(8.0))
+        .rounded(px(RADIUS_M))
         .border_1()
-        .border_color(if open { t.ac } else { t.line })
-        .bg(t.sheet)
+        .border_color(if open { t.ac } else { t.border_default })
+        .bg(t.surface)
+        .hover(|s| s.bg(t.hover))
         .cursor_pointer()
         .child(
             div()
+                .flex_1()
                 .min_w_0()
                 .overflow_hidden()
                 .whitespace_nowrap()
+                .truncate()
                 .font_family(SharedString::from(resolved.to_string()))
-                .text_size(px(14.0))
+                .text_size(px(13.0))
                 .text_color(t.tx)
                 .child(SharedString::from(shown)),
         )
-        .child(crate::ui::icons::icon("selector", 15.0, t.tx3));
+        .child(crate::ui::icons::icon(
+            "chevron-down",
+            14.0,
+            if open { t.ac } else { t.tx3 },
+        ));
     if !open {
         trigger = trigger.on_mouse_down(
             MouseButton::Left,
@@ -223,14 +227,10 @@ fn font_row(
             }),
         );
     }
-    let mut block = div()
-        .flex()
-        .flex_col()
-        .child(setting_row(&t, &title, &desc, trigger, false));
-    if open {
-        block = block.children(picker_panel(app, cx, slot, value));
+    if open && let Some(panel) = picker_panel(app, cx, slot, value) {
+        return form_row_with_extra(&t, &title, &desc, trigger, panel, last);
     }
-    block
+    form_row(&t, &title, &desc, trigger, last)
 }
 
 /// The searchable list under a font row: the default entry first, then the matches.
@@ -302,15 +302,14 @@ fn picker_panel(
     Some(
         div()
             .ml_auto()
-            .w(px(280.0))
-            .mt(px(4.0))
-            .mb(px(8.0))
-            .rounded(px(8.0))
+            .w(px(260.0))
+            .rounded(px(RADIUS_M))
             .border_1()
-            .border_color(t.line)
-            .bg(t.raised)
+            .border_color(t.border_default)
+            .bg(t.surface)
             .shadow_md()
             .overflow_hidden()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                 this.settings.fonts.picker = None;
                 cx.notify();
@@ -319,7 +318,7 @@ fn picker_panel(
             .child(rows)
             .child(
                 div()
-                    .px(px(16.0))
+                    .px(px(12.0))
                     .py(px(6.0))
                     .border_t_1()
                     .border_color(t.line_soft)
@@ -501,23 +500,56 @@ fn size_control(
         format!("{} px", fmt_num(cfg.editor_font_size)),
         -1,
         1,
+        false,
     )
 }
 
 fn code_size_control(app: &RustdianApp, cx: &mut Context<RustdianApp>, cfg: &Appearance) -> Div {
-    let label = if cfg.code_font_size == CODE_SIZE_FOLLOW {
-        let resolved = fonts::current().code_size;
-        let s = fmt_num(resolved);
-        crate::t!("settings-font-preset-follow", size = s.as_str())
+    let t = app.theme;
+    let following = cfg.code_font_size == CODE_SIZE_FOLLOW;
+    let display_size = if following {
+        fonts::current().code_size
     } else {
-        format!("{} px", fmt_num(cfg.code_font_size))
+        cfg.code_font_size
     };
-    number_stepper(app, cx, NumField::CodeSize, label, -1, 1)
+
+    let follow_chip = choice_chip(
+        &t,
+        &crate::t!("settings-font-follow-toggle"),
+        following,
+        cx.listener(move |this, _, _, cx| {
+            let resolved = fonts::current().code_size;
+            edit(this, cx, |a| {
+                if a.code_font_size == CODE_SIZE_FOLLOW {
+                    a.code_font_size = fonts::step_float(resolved, 0.0, fonts::STEP_CODE);
+                } else {
+                    a.code_font_size = CODE_SIZE_FOLLOW;
+                }
+            });
+            cx.notify();
+        }),
+    );
+
+    let step = number_stepper(
+        app,
+        cx,
+        NumField::CodeSize,
+        format!("{} px", fmt_num(display_size)),
+        -1,
+        1,
+        following,
+    );
+
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(8.0))
+        .child(follow_chip)
+        .child(step)
 }
 
-/// Stepper: − / value / +. The value is typed into when clicked (Enter applies, Escape cancels).
-/// `down` and `up` are the raw steps given to `step`: `±1` for sizes (and `±1` tenth for the line
-/// height).
+/// Integrated stepper: `− | value | +`. The value opens a compact inline input on click.
 fn number_stepper(
     app: &RustdianApp,
     cx: &mut Context<RustdianApp>,
@@ -525,6 +557,7 @@ fn number_stepper(
     label: String,
     down: i32,
     up: i32,
+    muted: bool,
 ) -> Div {
     let t = app.theme;
     let editing = app
@@ -534,21 +567,25 @@ fn number_stepper(
         .as_ref()
         .filter(|n| n.field == field);
     let value: AnyElement = match editing {
-        Some(n) => div().w(px(96.0)).child(n.input.clone()).into_any_element(),
+        Some(n) => div()
+            .w(px(72.0))
+            .h_full()
+            .px(px(4.0))
+            .child(n.input.clone())
+            .into_any_element(),
         None => div()
             .flex()
             .items_center()
             .justify_center()
-            .w(px(96.0))
-            .h(px(30.0))
-            .rounded(px(6.0))
-            .border_1()
-            .border_color(t.line)
-            .bg(t.raised)
+            .min_w(px(64.0))
+            .h_full()
+            .px(px(10.0))
             .cursor_pointer()
-            .text_size(px(13.0))
-            .text_color(t.tx)
+            .text_size(px(12.5))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(if muted { t.tx2 } else { t.tx })
             .hover(|s| s.bg(t.hover))
+            .whitespace_nowrap()
             .child(SharedString::from(label))
             .on_mouse_down(
                 MouseButton::Left,
@@ -559,49 +596,18 @@ fn number_stepper(
             )
             .into_any_element(),
     };
-    div()
-        .flex()
-        .items_center()
-        .gap(px(6.0))
-        .child(step_button(
-            &t,
-            "−",
-            cx.listener(move |this, _, _, cx| {
-                step(this, field, down, cx);
-                cx.notify();
-            }),
-        ))
-        .child(value)
-        .child(step_button(
-            &t,
-            "+",
-            cx.listener(move |this, _, _, cx| {
-                step(this, field, up, cx);
-                cx.notify();
-            }),
-        ))
-}
-
-fn step_button(
-    t: &ActiveTheme,
-    label: &str,
-    on: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
-) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .size(px(28.0))
-        .rounded(px(6.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.sheet)
-        .cursor_pointer()
-        .text_size(px(15.0))
-        .text_color(t.tx2)
-        .hover(|s| s.bg(t.hover))
-        .child(SharedString::from(label.to_string()))
-        .on_mouse_down(MouseButton::Left, on)
+    stepper(
+        &t,
+        value,
+        cx.listener(move |this, _, _, cx| {
+            step(this, field, down, cx);
+            cx.notify();
+        }),
+        cx.listener(move |this, _, _, cx| {
+            step(this, field, up, cx);
+            cx.notify();
+        }),
+    )
 }
 
 /// One step of a field. `delta` is the stepper's unit: sizes and the line height use `±1`, which
@@ -633,14 +639,21 @@ fn open_number(
     let cfg = fonts::appearance();
     let text = match field {
         NumField::EditorSize => fmt_num(cfg.editor_font_size),
-        NumField::CodeSize => fmt_num(cfg.code_font_size),
+        NumField::CodeSize => {
+            if cfg.code_font_size == CODE_SIZE_FOLLOW {
+                fmt_num(fonts::current().code_size)
+            } else {
+                fmt_num(cfg.code_font_size)
+            }
+        }
         NumField::LineHeight => format!("{:.2}", cfg.line_height),
     };
     app.settings.fonts.picker = None;
-    let input = cx.new(|cx| LineInput::new(cx, "输入数字后按 Enter"));
+    let input = cx.new(|cx| LineInput::new(cx, "数值"));
     let theme = app.theme;
     input.update(cx, |i, cx| {
         i.set_theme(theme, cx);
+        i.set_borderless(true, cx);
         i.set_text(&text, cx);
     });
     let sub = cx.subscribe(
@@ -685,13 +698,13 @@ fn apply_number(app: &mut RustdianApp, field: NumField, v: f32, cx: &mut Context
     });
 }
 
-/// The quick presets of the body size, under its stepper.
+/// The quick presets of the body size, rendered inside the same row container.
 fn preset_row(app: &RustdianApp, cx: &mut Context<RustdianApp>, cfg: &Appearance) -> Div {
     let t = app.theme;
-    let mut row = div().flex().gap(px(6.0)).pb(px(6.0)).justify_end();
+    let mut row = div().flex().flex_wrap().gap(px(6.0)).justify_end();
     for &p in fonts::EDITOR_PRESETS.iter() {
         let on = fonts::snap_preset(cfg.editor_font_size, &[p]).is_some();
-        row = row.child(chip(
+        row = row.child(choice_chip(
             &t,
             &fmt_num(p),
             on,
@@ -702,15 +715,6 @@ fn preset_row(app: &RustdianApp, cx: &mut Context<RustdianApp>, cfg: &Appearance
         ));
     }
     row
-}
-
-fn chip(
-    t: &ActiveTheme,
-    label: &str,
-    on: bool,
-    on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
-) -> Div {
-    crate::ui::widgets::controls::choice_chip(t, label, on, on_click)
 }
 
 // ---------------------------------------------------------------------------
@@ -733,20 +737,14 @@ fn missing_lines(t: &ActiveTheme, messages: &[String]) -> Vec<Div> {
 /// A short sample in the chosen body and code faces and sizes.
 fn preview(t: &ActiveTheme, body: &str, code: &str, m: &fonts::Metrics) -> Div {
     let h2 = m.heading[1];
-    div()
-        .mt(px(12.0))
-        .mb(px(8.0))
-        .p(px(14.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.sheet)
-        .flex()
-        .flex_col()
+    setting_card(t)
+        .mt(px(14.0))
+        .py(px(14.0))
         .gap(px(6.0))
         .child(
             div()
                 .text_size(px(11.5))
+                .font_weight(FontWeight::MEDIUM)
                 .text_color(t.tx3)
                 .child(SharedString::from(crate::t!("settings-font-preview-title"))),
         )
@@ -784,11 +782,16 @@ fn reset_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
     div()
         .flex()
+        .items_center()
+        .justify_end()
         .gap(px(8.0))
-        .pt(px(4.0))
-        .child(reset_button(
+        .pt(px(12.0))
+        .child(button_sized(
             &t,
             &crate::t!("settings-font-reset-family"),
+            ButtonKind::Secondary,
+            ButtonSize::Small,
+            Some("refresh"),
             cx.listener(|this, _, _, cx| {
                 edit(this, cx, |a| {
                     a.ui_font.clear();
@@ -799,9 +802,12 @@ fn reset_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 cx.notify();
             }),
         ))
-        .child(reset_button(
+        .child(button_sized(
             &t,
             &crate::t!("settings-font-reset-size"),
+            ButtonKind::Secondary,
+            ButtonSize::Small,
+            Some("refresh"),
             cx.listener(|this, _, _, cx| {
                 edit(this, cx, |a| {
                     a.editor_font_size = EDITOR_SIZE_DEFAULT;
@@ -812,28 +818,6 @@ fn reset_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 cx.notify();
             }),
         ))
-}
-
-fn reset_button(
-    t: &ActiveTheme,
-    label: &str,
-    on: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
-) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .h(px(28.0))
-        .px(px(12.0))
-        .rounded(px(8.0))
-        .border_1()
-        .border_color(t.line)
-        .bg(t.sheet)
-        .cursor_pointer()
-        .text_size(px(12.5))
-        .text_color(t.tx2)
-        .hover(|s| s.bg(t.hover))
-        .child(SharedString::from(label.to_string()))
-        .on_mouse_down(MouseButton::Left, on)
 }
 
 // ---------------------------------------------------------------------------

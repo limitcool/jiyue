@@ -17,8 +17,8 @@ use crate::theme::{RADIUS_M, RADIUS_S};
 use crate::ui::ext::{ExtEvent, ToastKind};
 use crate::ui::icons::icon;
 use crate::ui::widgets::controls::{
-    ButtonKind, IconBtnSize, button, choice_chip, empty_state, icon_button_sized, segmented_full,
-    toggle,
+    BadgeKind, ButtonKind, IconBtnSize, badge, button, choice_chip, empty_state, icon_button_sized,
+    segmented_full, setting_card, toggle,
 };
 use crate::ui::widgets::form_row;
 use crate::ui::widgets::line_input::{LineInput, LineInputEvent};
@@ -938,9 +938,6 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         inp.update(cx, |i, cx| i.set_theme(t, cx));
     }
 
-    let mut body = div().flex().flex_col().mt(px(4.0));
-
-    // 1. Enable Toggle Row
     let toggle_btn = toggle(
         &t,
         cfg.enabled,
@@ -953,63 +950,79 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
         }),
     );
 
-    body = body.child(form_row(
+    let has_url = url_input.is_some();
+    let has_token = token_input.is_some();
+
+    let mut card = setting_card(&t).child(form_row(
         &t,
         &crate::t!("settings-memos-enabled"),
         &crate::t!("settings-memos-desc"),
         toggle_btn,
-        false,
+        !has_url && !has_token,
     ));
 
-    // 2. Base URL Row
     if let Some(inp) = url_input {
-        body = body.child(form_row(
+        card = card.child(form_row(
             &t,
             &crate::t!("settings-memos-url"),
             "自建 Memos 服务的 Web/API 地址，如 http://192.168.1.10:5230",
-            div().w(px(320.0)).flex_none().child(inp),
-            false,
+            div().w(px(280.0)).flex_none().child(inp),
+            !has_token,
         ));
     }
 
-    // 3. Token Row
     if let Some(inp) = token_input {
-        body = body.child(form_row(
+        card = card.child(form_row(
             &t,
             &crate::t!("settings-memos-token"),
             "在 Memos 个人设置 -> 访问令牌 (Access Token) 中获取",
-            div().w(px(320.0)).flex_none().child(inp),
-            false,
+            div().w(px(280.0)).flex_none().child(inp),
+            true,
         ));
     }
 
-    // 4. Save Button
-    let save_btn = div().flex().justify_end().mt(px(16.0)).child(button(
-        &t,
-        "保存并连接 / Save & Connect",
-        ButtonKind::Primary,
-        Some("check"),
-        cx.listener(move |this, _, _, cx| {
-            let root = this.vault.root_dir.clone();
-            let mut c = load_config(&root);
-            if let Some(inp) = &this.ext.memos.settings_url_input {
-                c.base_url = inp.read(cx).text().trim().to_string();
-            }
-            let _ = save_config(&root, &c);
+    let status_badge = if cfg.enabled {
+        badge(&t, "已启用", BadgeKind::Ok)
+    } else {
+        badge(&t, "未启用", BadgeKind::Neutral)
+    };
 
-            if let Some(inp) = &this.ext.memos.settings_token_input {
-                let tok = inp.read(cx).text().trim().to_string();
-                let _ = save_token(&tok);
-            }
+    let footer = div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .mt(px(14.0))
+        .child(status_badge)
+        .child(button(
+            &t,
+            "保存并连接",
+            ButtonKind::Primary,
+            Some("check"),
+            cx.listener(move |this, _, _, cx| {
+                let root = this.vault.root_dir.clone();
+                let mut c = load_config(&root);
+                if let Some(inp) = &this.ext.memos.settings_url_input {
+                    c.base_url = inp.read(cx).text().trim().to_string();
+                }
+                let _ = save_config(&root, &c);
 
-            this.toast(ToastKind::Info, "已保存 Memos 设置");
-            refresh(this, cx);
-            cx.notify();
-        }),
-    ));
+                if let Some(inp) = &this.ext.memos.settings_token_input {
+                    let tok = inp.read(cx).text().trim().to_string();
+                    let _ = save_token(&tok);
+                }
 
-    body = body.child(save_btn);
-    body.into_any_element()
+                this.toast(ToastKind::Info, "已保存 Memos 设置");
+                refresh(this, cx);
+                cx.notify();
+            }),
+        ));
+
+    div()
+        .flex()
+        .flex_col()
+        .child(card)
+        .child(footer)
+        .into_any_element()
 }
 
 #[cfg(test)]

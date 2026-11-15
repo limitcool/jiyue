@@ -418,11 +418,25 @@ jobs:
         working-directory: mobile
         run: flutter pub get
 
+      - name: Decode Android Signing Keystore
+        if: steps.check_reuse.outputs.reused != 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile/android/app/upload-keystore.jks
+          fi
+
       - name: Build APK
         if: steps.check_reuse.outputs.reused != 'true'
         working-directory: mobile
         env:
           CI: 'true'
+          ANDROID_KEYSTORE_PATH: upload-keystore.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: flutter build apk --release
 
       - name: Prepare APK Asset

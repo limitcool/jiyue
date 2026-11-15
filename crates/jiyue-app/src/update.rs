@@ -484,24 +484,90 @@ where
     Ok(final_path)
 }
 
+/// Formats raw GitHub Markdown release notes into clean, readable plain text.
+pub fn format_release_notes_plain(md: &str) -> String {
+    let mut out = Vec::new();
+    let mut prev_blank = true;
+
+    for raw_line in md.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            if !prev_blank {
+                out.push(String::new());
+                prev_blank = true;
+            }
+            continue;
+        }
+
+        // Skip horizontal rules and top-level version heading (`## [0.3.4] ...`).
+        if trimmed == "---" || trimmed == "***" || trimmed.starts_with("## [") {
+            continue;
+        }
+
+        let cleaned = if let Some(rest) = trimmed.strip_prefix("### ") {
+            format!("【{}】", strip_inline_md(rest.trim()))
+        } else if let Some(rest) = trimmed.strip_prefix("## ") {
+            format!("【{}】", strip_inline_md(rest.trim()))
+        } else if let Some(rest) = trimmed.strip_prefix("# ") {
+            strip_inline_md(rest.trim())
+        } else if let Some(rest) = trimmed
+            .strip_prefix("- ")
+            .or_else(|| trimmed.strip_prefix("* "))
+        {
+            format!("• {}", strip_inline_md(rest.trim()))
+        } else {
+            strip_inline_md(trimmed)
+        };
+
+        if !cleaned.is_empty() {
+            out.push(cleaned);
+            prev_blank = false;
+        }
+    }
+
+    while out.last().is_some_and(String::is_empty) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
+fn strip_inline_md(s: &str) -> String {
+    s.replace("**", "").replace('`', "")
+}
+
 /// Applies the update and restarts Jiyue.
 /// On Windows, triggers silent MSI installation and relaunches the app.
 pub fn apply_update_and_restart(installer_path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
         let current_exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let pid = std::process::id();
-        let script = format!(
-            "Start-Sleep -Milliseconds 600; \
-             Wait-Process -Id {pid} -Timeout 5 -ErrorAction SilentlyContinue; \
-             Start-Process -FilePath 'msiexec.exe' -ArgumentList '/i', '\"{msi}\"', '/qn', '/norestart' -Wait; \
-             Start-Process -FilePath '\"{exe}\"'",
-            pid = pid,
-            msi = installer_path.display(),
-            exe = current_exe.display()
+        let script = concat!(
+            "Start-Sleep -Milliseconds 600; ",
+            "Wait-Process -Id ([int]$env:JIYUE_PID) -Timeout 8 -ErrorAction SilentlyContinue; ",
+            "$msiArgs = @('/i', ('\"' + $env:JIYUE_MSI + '\"'), '/qn', '/norestart'); ",
+            "Start-Process -FilePath 'msiexec.exe' -ArgumentList $msiArgs -Wait -WindowStyle Hidden; ",
+            "Start-Process -FilePath $env:JIYUE_EXE"
         );
         std::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                script,
+            ])
+            .env("JIYUE_PID", pid.to_string())
+            .env("JIYUE_MSI", installer_path.as_os_str())
+            .env("JIYUE_EXE", current_exe.as_os_str())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| format!("启动静默升级进程失败: {e}"))?;
         std::process::exit(0);
@@ -659,6 +725,23 @@ ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad *Jiyue-0.1.2-aa
         );
         assert_eq!(assets[1].name, "Jiyue-0.3.0-arm64.msi");
         assert_eq!(assets[2].name, "SHA256SUMS");
+    }
+
+    #[test]
+    fn release_notes_plain_cleans_markdown_syntax() {
+        let raw = "\
+## [0.3.4] - 2026-11-15
+### 新增与优化
+- **桌面端**: 使用 `controls.rs` 统一控件
+
+
+---
+* 修复签名不一致问题";
+        let cleaned = format_release_notes_plain(raw);
+        assert_eq!(
+            cleaned,
+            "【新增与优化】\n• 桌面端: 使用 controls.rs 统一控件\n\n• 修复签名不一致问题"
+        );
     }
 
     #[test]

@@ -220,14 +220,19 @@ fn restrict_impl(path: &Path) -> Result<(), String> {
 
 #[cfg(windows)]
 fn restrict_impl(path: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
     let user = std::env::var("USERNAME").map_err(|_| "USERNAME 未设置".to_string())?;
     let status = std::process::Command::new("icacls")
         .arg(path)
         .arg("/inheritance:r")
         .arg("/grant:r")
         .arg(format!("{user}:F"))
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map_err(|e| e.kind().to_string())?;
     if status.success() {

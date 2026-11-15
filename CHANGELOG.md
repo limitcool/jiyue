@@ -3,6 +3,64 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.3.5] - 2026-11-16
+
+### 中文
+
+**大型笔记库性能与内存专项治理**
+- **流式搜索索引与按需写入器管理**：
+  - 将 `jiyue-search` 中的 Tantivy `IndexWriter` 改为按需创建单线程写入器（15 MB 堆预算），并在提交与全库重建完成后立即释放，避免闲置常驻内存占用。
+  - 索引构建改为分块流式读取与写入，移除建库前将整库全文一次性囤积在内存队列中的行为。
+- **文本缓冲与双链缓存轻量化**：
+  - 移除 `gpui_sum_tree` 依赖，将 `ZedBuffer` 重构为不可变共享 `Arc<str>` 与紧凑统计摘要（字节数、字符数、换行数），消除海量行级堆碎片分配。
+  - 在 `Note` 解析时预提取并缓存双链目标，避免反链检索时对未命中笔记执行全文小写转换与重复正则扫描。
+- **并行加载、修订号门控与渲染热路径去重**：
+  - `Vault` 新增确定性多线程并行加载与 `revision` 修订号追踪，并新增零正文拷贝图谱构建链路（`GraphLinkSource`）。
+  - 为 `LiveContext`、侧边栏文件树与标签列表、右侧栏反链面板引入按修订号缓存；大纲页签切换时跳过无意义的反链预计算，彻底消除每帧全库对比与冗余分配。
+
+**Android 正式发布签名与应用内自更新闭环**
+- **正式发布签名与跨版本覆盖安装体系**：
+  - 在 [`build.gradle.kts`](mobile/android/app/build.gradle.kts) 与发布流水线中完整接入 Android 正式发布签名证书（注：从 `v0.3.4` 及更早测试签名版升级至 `v0.3.5` 时需最后一次卸载重装以切换签名证书，自 `v0.3.5` 起后续版本均可直接覆盖更新）。
+- **应用内流式下载与原生系统安装器拉起**：
+  - 新增 `FileProvider` 与 `MainActivity` 原生更新通道，支持读取真实已安装版本号、未知来源安装权限检查与引导，并在应用的 `updates/` 缓存目录中流式分块下载 APK，自动复用已校验缓存与清理未完成 `.part` 文件。
+  - 重构 [`UpdateDialog`](mobile/lib/widgets/update_dialog.dart) 与设置页版本卡片：支持实时进度条、取消保护与内联错误/网页兜底展示（解决原先 `SnackBar` 被设置抽屉遮挡的问题）。
+  - 为移动端版本检查增加 12 秒请求超时与 GitHub API `403`/`429` 限流时的网页端发布资产回退解析，并补齐 `<queries>` 协议声明。
+
+**桌面端设置中心重构与 Windows 静默更新优化**
+- **设置中心组件布局与交互精修**：
+  - 重构桌面端设置中心卡片分组、字体与行高步进器（防止文字溢出），完善下拉选择器浮动层级、滚动与文本截断表现，并统一 AI、同步、附件、模板、知识库、快捷键与微记面板的表单控件排布及中英双语文案。
+- **Windows 无黑框子进程与更新弹窗文案清理**：
+  - 在 Windows 桌面端自动更新静默安装（[`update.rs`](crates/jiyue-app/src/update.rs)）及外部凭据命令调用（[`secret.rs`](crates/jiyue-core/src/config/secret.rs)）中注入 `CREATE_NO_WINDOW` 标志，消除更新或读取凭据时弹出黑色控制台窗口的问题。
+  - 清理桌面端更新说明弹窗中的原始 Markdown 语法标记，提升阅读整洁度。
+
+---
+
+### English
+
+**Large Vault Memory & Performance Optimization**
+- **On-Demand Tantivy Writer & Streamed Indexing**:
+  - Converted `jiyue-search`'s Tantivy `IndexWriter` to an on-demand single-threaded writer (15 MB budget) that is dropped immediately after `commit()` and rebuild completion.
+  - Replaced full-vault in-memory document buffering with chunked streaming indexing during search index rebuilds.
+- **Lightweight Text Buffer & Link Caching**:
+  - Removed the `gpui_sum_tree` dependency and redesigned `ZedBuffer` around shared `Arc<str>` slices with compact `TextSummary` metrics, eliminating per-line heap fragmentation.
+  - Pre-extracted and cached wikilink targets on `Note` to skip full-body lowercasing and repeated scans on non-matching notes during backlink lookups.
+- **Parallel Loading, Revision Gating & Render Loop Caching**:
+  - Added deterministic multi-threaded vault loading (`load_notes_parallel`), `Vault.revision` tracking, and zero-body-copy graph building (`GraphLinkSource`).
+  - Gated `LiveContext` snapshot syncs, sidebar file-tree/tag caches, and right-panel backlink computations on `vault.revision`, and stopped computing backlinks unconditionally when viewing the outline tab.
+
+**Android Release Signing & In-App Updater**
+- **Release Signing Pipeline**:
+  - Configured proper Android release keystore signing in [`build.gradle.kts`](mobile/android/app/build.gradle.kts) and CI/CD workflows (upgrading from `v0.3.4` or earlier debug-signed builds requires a one-time uninstall/reinstall to switch certificates; upgrades from `v0.3.5` onward support seamless in-place installation).
+- **In-App Streaming APK Download & Native Installer**:
+  - Added Android `FileProvider` configuration and a native `MethodChannel` bridge in [`MainActivity.kt`](mobile/android/app/src/main/kotlin/cool/jiyue/jiyue_mobile/MainActivity.kt) for reading installed package versions, checking/requesting unknown-source install permissions, and launching the system package installer.
+  - Upgraded [`UpdateService`](mobile/lib/services/update_service.dart), [`UpdateDialog`](mobile/lib/widgets/update_dialog.dart), and [`SettingsSheet`](mobile/lib/widgets/settings_sheet.dart) with 12-second timeouts, GitHub API `403`/`429` web-fallback asset parsing, chunked APK download with progress tracking, cancellation cleanup (`.part` removal), cache reuse, and inline update error/status feedback inside the settings sheet.
+
+**Desktop Settings Polish & Windows Silent Update**
+- **Desktop Settings Refinement**:
+  - Refined settings section grouping, font/line-height stepper layouts, and floating dropdown menus (`occlude`, scrolling, text truncation), and standardized control layouts and zh-CN/en-US localization across AI, Sync, Attachments, Templates, Vaults, Keymaps, and Memos settings.
+- **Windowless Windows Subprocesses & Clean Release Notes**:
+  - Added `CREATE_NO_WINDOW` flags to Windows silent MSI updates ([`update.rs`](crates/jiyue-app/src/update.rs)) and secret command execution ([`secret.rs`](crates/jiyue-core/src/config/secret.rs)) to eliminate flashing console windows, and stripped raw Markdown markers in the desktop update prompt.
+
 ## [0.3.4] - 2026-11-15
 
 ### 中文

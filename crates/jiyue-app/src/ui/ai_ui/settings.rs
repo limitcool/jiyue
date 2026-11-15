@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Context, Div, Entity, FontWeight, MouseButton, MouseDownEvent, SharedString,
-    div, prelude::*, px,
+    AnyElement, App, Context, Div, Entity, FontWeight, MouseDownEvent, SharedString, div,
+    prelude::*, px,
 };
 use jiyue_ai::{ProviderEntry, ProviderKind};
 use jiyue_core::config::credentials::{self, AI_TABLE};
@@ -22,11 +22,9 @@ use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
 use crate::ui::widgets::controls::{PickIndex, choice_chip};
 use crate::ui::widgets::{
-    ButtonKind, LineInput, button, form_row, icon_button, section_title, segmented, toggle,
+    BadgeKind, ButtonKind, LineInput, badge, button, form_row, icon_button, removable_tag_chip,
+    section_title, segmented, setting_card, toggle,
 };
-
-/// Height of the scrolling part of the settings page (the dialog is 540 px high).
-const SCROLL_HEIGHT: f32 = 440.0;
 
 /// Outcome of the connection test shown next to its button.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -581,7 +579,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     let cfg = &s.config;
     let mut col = div().flex().flex_col().gap(px(2.0)).pb(px(14.0));
 
-    col = col.child(form_row(
+    col = col.child(setting_card(&t).child(form_row(
         &t,
         &crate::t!("ai-enable"),
         &crate::t!("ai-enable-desc"),
@@ -590,8 +588,8 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
             cfg.enabled,
             cx.listener(|this, _: &MouseDownEvent, _, cx| toggle_enabled(this, cx)),
         ),
-        false,
-    ));
+        true,
+    )));
     if let Some(err) = &s.config_error {
         col = col.child(
             div()
@@ -614,10 +612,12 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     col = col.child(section_title(&t, &crate::t!("ai-providers")));
     if cfg.providers.is_empty() && s.test.is_none() {
         col = col.child(
-            div()
-                .py(px(6.0))
-                .text_color(t.tx3)
-                .child(SharedString::from(crate::t!("ai-no-providers-hint"))),
+            setting_card(&t).py(px(10.0)).child(
+                div()
+                    .text_size(px(12.5))
+                    .text_color(t.tx3)
+                    .child(SharedString::from(crate::t!("ai-no-providers-hint"))),
+            ),
         );
     }
     for p in &cfg.providers {
@@ -625,23 +625,18 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     }
     if let Some(env) = &s.test {
         col = col.child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .py(px(8.0))
-                .text_size(px(13.0))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .child(format!("{}（环境变量，不保存）", worker::TEST_NAME))
-                        .child(div().text_size(px(11.5)).text_color(t.tx3).child(format!(
-                            "{} · {}",
-                            host_of(&env.base),
-                            env.model
-                        ))),
-                ),
+            setting_card(&t).py(px(10.0)).mb(px(8.0)).child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .text_size(px(13.0))
+                    .child(format!("{}（环境变量，不保存）", worker::TEST_NAME))
+                    .child(div().text_size(px(11.5)).text_color(t.tx3).child(format!(
+                        "{} · {}",
+                        host_of(&env.base),
+                        env.model
+                    ))),
+            ),
         );
     }
     col = col.child(div().pt(px(8.0)).child(button(
@@ -662,11 +657,11 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         .map(|p| (p.id.clone(), p.name.clone()))
         .collect();
     let active_chat = effective_config(s).active_chat;
-    col = col.child(section_title(&t, &crate::t!("ai-chat-service")));
     let mut chat_row = div().flex().flex_wrap().gap(px(6.0));
     if chat_options.is_empty() {
         chat_row = chat_row.child(
             div()
+                .text_size(px(12.5))
                 .text_color(t.tx3)
                 .child(SharedString::from(crate::t!("ai-add-service-first"))),
         );
@@ -683,7 +678,6 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
             }),
         ));
     }
-    col = col.child(chat_row);
 
     let embed_options: Vec<(String, String)> = effective_config(s)
         .providers
@@ -692,7 +686,6 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         .map(|p| (p.id.clone(), p.name.clone()))
         .collect();
     let active_embed = effective_config(s).active_embedding;
-    col = col.child(section_title(&t, &crate::t!("ai-embed-service")));
     let mut embed_row = div().flex().flex_wrap().gap(px(6.0));
     embed_row = embed_row.child(choice_chip(
         &t,
@@ -712,62 +705,155 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
             }),
         ));
     }
-    col = col.child(embed_row);
+
+    let active_card = setting_card(&t)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .py(px(10.0))
+                .border_b_1()
+                .border_color(t.line_soft)
+                .child(
+                    div()
+                        .text_size(px(13.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.tx)
+                        .child(SharedString::from(crate::t!("ai-chat-service"))),
+                )
+                .child(chat_row),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .py(px(10.0))
+                .child(
+                    div()
+                        .text_size(px(13.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.tx)
+                        .child(SharedString::from(crate::t!("ai-embed-service"))),
+                )
+                .child(embed_row),
+        );
+    col = col.child(section_title(&t, "模型分配")).child(active_card);
 
     // Exclusions.
-    col = col.child(section_title(&t, &crate::t!("ai-excluded-folders")));
-    col = col.child(exclusion_list(app, ListKind::Folder, cx));
-    col = col.child(section_title(&t, &crate::t!("ai-excluded-tags")));
-    col = col.child(exclusion_list(app, ListKind::Tag, cx));
-    col = col.child(
-        div()
-            .pt(px(4.0))
-            .text_size(px(12.0))
-            .text_color(t.tx3)
-            .child(SharedString::from(crate::t!("ai-exclusions-desc"))),
-    );
+    let exclusion_card = setting_card(&t)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .py(px(10.0))
+                .border_b_1()
+                .border_color(t.line_soft)
+                .child(
+                    div()
+                        .text_size(px(13.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.tx)
+                        .child(SharedString::from(crate::t!("ai-excluded-folders"))),
+                )
+                .child(exclusion_list(app, ListKind::Folder, cx)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.0))
+                .py(px(10.0))
+                .border_b_1()
+                .border_color(t.line_soft)
+                .child(
+                    div()
+                        .text_size(px(13.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.tx)
+                        .child(SharedString::from(crate::t!("ai-excluded-tags"))),
+                )
+                .child(exclusion_list(app, ListKind::Tag, cx)),
+        )
+        .child(
+            div()
+                .py(px(10.0))
+                .text_size(px(12.0))
+                .text_color(t.tx3)
+                .child(SharedString::from(crate::t!("ai-exclusions-desc"))),
+        );
+    col = col
+        .child(section_title(&t, "隐私与排除范围"))
+        .child(exclusion_card);
 
-    // Index.
-    col = col.child(section_title(&t, &crate::t!("ai-vector-index")));
+    // Index & Privacy.
     let (status, is_error) = status_text(app);
-    col = col.child(
-        div()
-            .py(px(4.0))
-            .text_size(px(12.5))
-            .text_color(if is_error { t.danger } else { t.tx2 })
-            .child(status),
-    );
-    col = col.child(
-        div()
-            .pt(px(2.0))
-            .text_size(px(12.0))
-            .text_color(t.tx3)
-            .child(SharedString::from(crate::t!("ai-index-desc"))),
-    );
-    col = col.child(div().pt(px(6.0)).child(button(
-        &t,
-        &crate::t!("ai-rebuild-index"),
-        ButtonKind::Secondary,
-        Some("link"),
-        cx.listener(|this, _: &MouseDownEvent, _, cx| rebuild(this, cx)),
-    )));
+    let index_card = setting_card(&t)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(16.0))
+                .py(px(10.0))
+                .border_b_1()
+                .border_color(t.line_soft)
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .flex_col()
+                        .gap(px(3.0))
+                        .child(
+                            div()
+                                .text_size(px(13.5))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(if is_error { t.danger } else { t.tx })
+                                .child(status),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(t.tx3)
+                                .child(SharedString::from(crate::t!("ai-index-desc"))),
+                        ),
+                )
+                .child(button(
+                    &t,
+                    &crate::t!("ai-rebuild-index"),
+                    ButtonKind::Secondary,
+                    Some("refresh"),
+                    cx.listener(|this, _: &MouseDownEvent, _, cx| rebuild(this, cx)),
+                )),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(3.0))
+                .py(px(10.0))
+                .child(
+                    div()
+                        .text_size(px(13.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.tx)
+                        .child(SharedString::from(crate::t!("ai-privacy"))),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(t.tx3)
+                        .child(SharedString::from(crate::t!("ai-privacy-desc"))),
+                ),
+        );
+    col = col
+        .child(section_title(&t, &crate::t!("ai-vector-index")))
+        .child(index_card);
 
-    // Privacy.
-    col = col.child(section_title(&t, &crate::t!("ai-privacy")));
-    col = col.child(
-        div()
-            .text_size(px(12.5))
-            .text_color(t.tx2)
-            .child(SharedString::from(crate::t!("ai-privacy-desc"))),
-    );
-
-    div()
-        .id("ai-settings-scroll")
-        .h(px(SCROLL_HEIGHT))
-        .overflow_y_scroll()
-        .pr(px(6.0))
-        .font_family(crate::ui::fonts::ui_name())
-        .child(col)
+    col.font_family(crate::ui::fonts::ui_name())
         .into_any_element()
 }
 
@@ -785,9 +871,9 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
         .unwrap_or(false);
     let is_quick_testing = app.ext.ai.settings.quick_testing.as_deref() == Some(&p.id);
 
-    let (kind_label, kind_bg, kind_fg) = match p.kind {
-        ProviderKind::OpenAiCompatible => ("OpenAI", t.ok_soft, t.ok),
-        ProviderKind::Anthropic => ("Anthropic", t.ac_soft, t.ac),
+    let (kind_label, kind_badge) = match p.kind {
+        ProviderKind::OpenAiCompatible => ("OpenAI", BadgeKind::Ok),
+        ProviderKind::Anthropic => ("Anthropic", BadgeKind::Accent),
     };
 
     let edit_id = p.id.clone();
@@ -798,12 +884,16 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
         .flex()
         .flex_col()
         .gap(px(6.0))
-        .p(px(12.0))
+        .p(px(14.0))
         .mb(px(8.0))
         .rounded(px(10.0))
-        .bg(t.raised)
+        .bg(t.elevated)
         .border_1()
-        .border_color(if is_active_chat { t.ac } else { t.line })
+        .border_color(if is_active_chat {
+            t.ac
+        } else {
+            t.border_subtle
+        })
         .child(
             // Header: 名称 + 协议徽章 + 激活状态 + 右侧快捷按钮
             div()
@@ -814,7 +904,7 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(8.0))
+                        .gap(px(6.0))
                         .child(
                             div()
                                 .font_weight(FontWeight::BOLD)
@@ -822,42 +912,12 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
                                 .text_color(t.tx)
                                 .child(p.name.clone()),
                         )
-                        .child(
-                            div()
-                                .px(px(6.0))
-                                .py(px(1.5))
-                                .rounded(px(4.0))
-                                .bg(kind_bg)
-                                .text_size(px(10.5))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(kind_fg)
-                                .child(kind_label),
-                        )
+                        .child(badge(&t, kind_label, kind_badge))
                         .when(is_active_chat, |el| {
-                            el.child(
-                                div()
-                                    .px(px(6.0))
-                                    .py(px(1.5))
-                                    .rounded(px(4.0))
-                                    .bg(t.ac_soft)
-                                    .text_size(px(10.5))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(t.ac)
-                                    .child("当前对话"),
-                            )
+                            el.child(badge(&t, "当前对话", BadgeKind::Accent))
                         })
                         .when(is_active_embed, |el| {
-                            el.child(
-                                div()
-                                    .px(px(6.0))
-                                    .py(px(1.5))
-                                    .rounded(px(4.0))
-                                    .bg(t.ac_soft)
-                                    .text_size(px(10.5))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(t.ac)
-                                    .child("当前嵌入"),
-                            )
+                            el.child(badge(&t, "当前嵌入", BadgeKind::Accent))
                         }),
                 )
                 .child(
@@ -993,9 +1053,9 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .gap(px(8.0))
         .p(px(10.0))
         .rounded(px(8.0))
-        .bg(t.raised)
+        .bg(t.surface)
         .border_1()
-        .border_color(t.line_soft)
+        .border_color(t.border_subtle)
         .child(
             div()
                 .flex()
@@ -1037,12 +1097,12 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                         .gap(px(6.0))
                         .p(px(8.0))
                         .rounded(px(6.0))
-                        .bg(t.sheet)
+                        .bg(t.elevated)
                         .border_1()
-                        .border_color(t.line_soft)
+                        .border_color(t.border_subtle)
                         .text_size(px(12.0))
                         .text_color(t.tx2)
-                        .child(icon("arrows-sort", 12.0, t.ac))
+                        .child(icon("refresh", 12.0, t.ac))
                         .child("正在连接端点并测试模型响应..."),
                 ),
                 TestState::Ok { latency_ms, model } => Some(
@@ -1086,12 +1146,12 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .flex()
         .flex_col()
         .gap(px(10.0))
-        .mt(px(8.0))
-        .p(px(14.0))
-        .rounded(px(12.0))
-        .bg(t.sheet)
+        .mt(px(10.0))
+        .p(px(16.0))
+        .rounded(px(10.0))
+        .bg(t.elevated)
         .border_1()
-        .border_color(t.line)
+        .border_color(t.border_default)
         .child(
             div()
                 .font_weight(FontWeight::BOLD)
@@ -1213,41 +1273,19 @@ fn exclusion_list(app: &RustdianApp, kind: ListKind, cx: &mut Context<RustdianAp
         );
     }
     for (i, item) in items.iter().enumerate() {
-        chips = chips.child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.0))
-                .h(px(24.0))
-                .pl(px(10.0))
-                .pr(px(4.0))
-                .rounded(px(12.0))
-                .bg(t.sheet)
-                .border_1()
-                .border_color(t.line_soft)
-                .text_size(px(12.0))
-                .child(match kind {
-                    ListKind::Tag => format!("#{item}"),
-                    ListKind::Folder => item.clone(),
-                })
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(px(18.0))
-                        .rounded_full()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(t.hover))
-                        .child(icon("x", 11.0, t.tx3))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                                remove_excluded(this, kind, i, cx);
-                            }),
-                        ),
-                ),
-        );
+        let (chip_id, label) = match kind {
+            ListKind::Tag => (("ai-excl-tag", i).into(), format!("#{item}")),
+            ListKind::Folder => (("ai-excl-folder", i).into(), item.clone()),
+        };
+        chips = chips.child(removable_tag_chip(
+            &t,
+            chip_id,
+            &label,
+            |_, _, _| {},
+            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                remove_excluded(this, kind, i, cx);
+            }),
+        ));
     }
     div()
         .flex()

@@ -71,7 +71,7 @@ pub fn button_sized(
 ) -> Div {
     let (bg, fg, border, hover) = match kind {
         ButtonKind::Primary => (t.ac, t.ac_on, t.ac, t.ac_hover),
-        ButtonKind::Secondary => (t.elevated, t.tx, t.border_default, t.hover),
+        ButtonKind::Secondary => (t.surface, t.tx, t.border_default, t.hover),
         ButtonKind::Ghost => (
             gpui::transparent_black().into(),
             t.tx2,
@@ -111,7 +111,7 @@ pub fn button_sized(
         el = el.child(icon(name, icon_sz, fg));
     }
     el = el.child(SharedString::from(label.to_string()));
-    if matches!(kind, ButtonKind::Primary | ButtonKind::Secondary) {
+    if matches!(kind, ButtonKind::Primary) {
         el = el.shadow_sm();
     }
     el = match kind {
@@ -525,38 +525,55 @@ pub fn select(
         .justify_between()
         .gap(px(8.0))
         .w(px(width))
-        .h(px(30.0))
+        .h(px(CONTROL_MD))
         .px(px(10.0))
         .rounded(px(RADIUS_M))
         .border_1()
-        .border_color(if open { t.ac } else { t.line })
-        .bg(t.raised)
+        .border_color(if open { t.ac } else { t.border_default })
+        .bg(t.surface)
+        .hover(|s| s.bg(t.hover))
         .font_family(crate::ui::fonts::ui_name())
         .text_size(px(13.0))
         .text_color(t.tx)
         .cursor_pointer()
-        .child(SharedString::from(current.to_string()))
-        .child(icon("chevron-down", 14.0, t.tx3));
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .truncate()
+                .child(SharedString::from(current.to_string())),
+        )
+        .child(icon("chevron-down", 14.0, if open { t.ac } else { t.tx3 }));
     if !open {
         trigger = trigger.on_mouse_down(MouseButton::Left, on_open);
     }
 
-    let mut wrap = div().relative().w(px(width)).child(trigger);
+    let mut wrap = div().relative().flex_none().w(px(width)).child(trigger);
     if open {
         let mut list = div()
+            .id("controls-select-menu")
+            .flex()
+            .flex_col()
             .absolute()
-            .top(px(34.0))
+            .top(px(CONTROL_MD + 4.0))
             .left_0()
             .w_full()
+            .max_h(px(220.0))
+            .overflow_y_scroll()
             .py(px(4.0))
             .rounded(px(RADIUS_L))
             .border_1()
-            .border_color(t.line)
-            .bg(t.raised)
-            .shadow_md()
+            .border_color(t.border_default)
+            .bg(t.elevated)
+            .shadow_lg()
+            .occlude()
             .font_family(crate::ui::fonts::ui_name())
             .text_size(px(13.0))
             .text_color(t.tx)
+            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_mouse_down_out(on_close);
         for (i, name) in options.iter().enumerate() {
             let on = i == highlight;
@@ -565,12 +582,21 @@ pub fn select(
                 .flex()
                 .items_center()
                 .justify_between()
+                .gap(px(8.0))
                 .h(px(30.0))
                 .mx(px(4.0))
                 .px(px(10.0))
                 .rounded(px(RADIUS_S))
                 .cursor_pointer()
-                .child(SharedString::from(name.to_string()));
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .truncate()
+                        .child(SharedString::from(name.to_string())),
+                );
             if on {
                 row = row.bg(t.active);
             } else {
@@ -582,7 +608,7 @@ pub fn select(
             row = row.on_mouse_down(MouseButton::Left, move |_, window, cx| pick(&i, window, cx));
             list = list.child(row);
         }
-        wrap = wrap.child(list);
+        wrap = wrap.child(gpui::deferred(list).with_priority(10));
     }
     wrap
 }
@@ -652,29 +678,40 @@ pub fn badge(t: &ActiveTheme, text: &str, kind: BadgeKind) -> Div {
         .child(SharedString::from(text.to_string()))
 }
 
-/// Small caption above a group of rows.
+/// Small caption above a group of rows or a settings card.
 pub fn section_title(t: &ActiveTheme, text: &str) -> Div {
     div()
-        .pt(px(12.0))
+        .pt(px(14.0))
         .pb(px(6.0))
         .font_family(crate::ui::fonts::ui_name())
-        .text_size(px(11.5))
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(t.tx3)
+        .text_size(px(12.0))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(t.tx2)
         .child(SharedString::from(text.to_string()))
 }
 
-/// Settings row: title and description on the left, `control` on the right, a thin separator
-/// below unless `last`.
-pub fn form_row(
+/// Elevated rounded card container for grouping settings rows on `t.surface`.
+pub fn setting_card(t: &ActiveTheme) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .rounded(px(RADIUS_L))
+        .border_1()
+        .border_color(t.border_subtle)
+        .bg(t.elevated)
+        .px(px(16.0))
+        .py(px(2.0))
+}
+
+fn form_row_header(
     t: &ActiveTheme,
     title: &str,
     description: &str,
     control: impl IntoElement,
-    last: bool,
 ) -> Div {
     let left = div()
         .flex()
+        .flex_1()
         .flex_col()
         .gap(px(2.0))
         .min_w_0()
@@ -691,19 +728,100 @@ pub fn form_row(
                 .text_color(t.tx3)
                 .child(SharedString::from(description.to_string())),
         );
-    let mut row = div()
+    div()
         .flex()
         .items_center()
         .justify_between()
         .gap(px(20.0))
-        .py(px(8.0))
-        .font_family(crate::ui::fonts::ui_name())
         .child(left)
-        .child(control);
+        .child(control)
+}
+
+/// Settings row: title and description on the left, `control` on the right, a thin separator
+/// below unless `last`.
+pub fn form_row(
+    t: &ActiveTheme,
+    title: &str,
+    description: &str,
+    control: impl IntoElement,
+    last: bool,
+) -> Div {
+    let mut row = div()
+        .flex()
+        .flex_col()
+        .py(px(10.0))
+        .font_family(crate::ui::fonts::ui_name())
+        .child(form_row_header(t, title, description, control));
     if !last {
         row = row.border_b_1().border_color(t.line_soft);
     }
     row
+}
+
+/// Settings row with an embedded secondary block (e.g. preset chips or inline font picker) kept
+/// inside the same row boundary above its separator.
+pub fn form_row_with_extra(
+    t: &ActiveTheme,
+    title: &str,
+    description: &str,
+    control: impl IntoElement,
+    extra: impl IntoElement,
+    last: bool,
+) -> Div {
+    let mut row = div()
+        .flex()
+        .flex_col()
+        .py(px(10.0))
+        .font_family(crate::ui::fonts::ui_name())
+        .child(form_row_header(t, title, description, control))
+        .child(div().pt(px(8.0)).child(extra));
+    if !last {
+        row = row.border_b_1().border_color(t.line_soft);
+    }
+    row
+}
+
+/// Integrated compact stepper (`− | value | +`) with unified outer border and height.
+pub fn stepper(
+    t: &ActiveTheme,
+    value_el: impl IntoElement,
+    on_dec: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+    on_inc: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    let step_btn = |label: &'static str, border_side: bool| {
+        let b = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .w(px(28.0))
+            .h_full()
+            .cursor_pointer()
+            .text_size(px(14.5))
+            .text_color(t.tx2)
+            .hover(|s| s.bg(t.hover).text_color(t.tx))
+            .child(label);
+        if border_side {
+            b.border_r_1().border_color(t.border_subtle)
+        } else {
+            b.border_l_1().border_color(t.border_subtle)
+        }
+    };
+
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .h(px(CONTROL_MD))
+        .rounded(px(RADIUS_M))
+        .border_1()
+        .border_color(t.border_default)
+        .bg(t.surface)
+        .overflow_hidden()
+        .font_family(crate::ui::fonts::ui_name())
+        .child(step_btn("−", true).on_mouse_down(MouseButton::Left, on_dec))
+        .child(value_el)
+        .child(step_btn("+", false).on_mouse_down(MouseButton::Left, on_inc))
 }
 
 /// Determinate progress bar, 6px high. `fraction` is clamped to 0..=1.

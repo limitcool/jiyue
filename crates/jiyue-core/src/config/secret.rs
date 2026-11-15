@@ -215,11 +215,17 @@ pub fn run_secret_command(line: &str, timeout: Duration) -> Result<SecretString,
     }
     let argv = split_command_line(line).map_err(SecretError::CmdSplit)?;
     let (program, args) = argv.split_first().ok_or(SecretError::CmdEmpty)?;
-    let mut child = Command::new(program)
-        .args(args)
+    let mut cmd = Command::new(program);
+    cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    let mut child = cmd
         .spawn()
         .map_err(|e| SecretError::CmdSpawn(e.kind().to_string()))?;
     let mut stdout = child

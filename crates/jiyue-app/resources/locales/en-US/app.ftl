@@ -76,8 +76,11 @@ settings-show-right-panel = Show Right Panel
 settings-show-right-panel-desc = Panel for outline and backlinks
 
 # Settings Fonts
+settings-theme-section = Theme & Interface
 settings-fonts-title = Fonts & Sizing
 settings-fonts-desc = Applies across all vaults, immediately reflected in editor and UI
+settings-font-section-family = Font Families
+settings-font-section-sizing = Sizing & Spacing
 settings-ui-font = UI Font
 settings-ui-font-desc = Font family for menus, sidebars, tags, and buttons
 settings-editor-font = Editor Font
@@ -90,11 +93,12 @@ settings-code-font-size = Code Font Size
 settings-code-font-size-desc = Font size for code blocks; follows editor at 90% when linked
 settings-line-height = Line Height
 settings-line-height-desc = Multiplier for spacing between lines
-settings-font-default = Default ({ $label })
-settings-font-default-ui = Default UI Font
+settings-font-default = { $label }
+settings-font-default-ui = System Default UI Font
 settings-font-same-as-ui = Same as UI Font
-settings-font-default-code = Default Monospace Font
-settings-font-system-default = Default (System)
+settings-font-default-code = System Default Monospace
+settings-font-system-default = System Default
+settings-font-follow-toggle = Follow Body
 settings-font-preset-follow = Follow Body { $size } px
 settings-font-search-placeholder = Search fonts…
 settings-font-search-footer = Press Enter to apply, Esc to cancel
@@ -125,7 +129,7 @@ settings-daily-format = Date Format
 settings-daily-format-desc = File naming pattern for daily notes
 settings-daily-format-preview = Filename Preview
 settings-daily-template = Daily Note Template
-settings-daily-template-desc = Template used when creating a daily note; "Change" cycles through note templates and returns to built-in
+settings-daily-template-desc = Template automatically applied when creating a new daily note
 
 # Settings About & Updates
 settings-about = About & Updates
