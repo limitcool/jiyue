@@ -8,7 +8,7 @@ use gpui::{
 };
 
 use crate::daily::{self, DailySettings, Date};
-use crate::theme::{ActiveTheme, RADIUS_L, ThemeKind};
+use crate::theme::{ActiveTheme, RADIUS_L, ThemeKind, ThemeMode};
 use crate::ui::icons::icon;
 use crate::ui::{display_family, fonts};
 use crate::{AppCommand, RustdianApp};
@@ -698,28 +698,53 @@ fn theme_card(
     };
     let line_col = Rgba { a: 0.3, ..p.ac };
 
+    let card_border = if selected {
+        t.ac
+    } else {
+        match (t.mode, p.mode) {
+            (ThemeMode::Light, ThemeMode::Dark) => Rgba {
+                a: 0.16,
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+            },
+            (ThemeMode::Dark, ThemeMode::Dark) => p.line_soft,
+            _ => t.line,
+        }
+    };
+
     let mut preview = div()
         .relative()
-        .w(px(96.0))
-        .h(px(64.0))
-        .rounded(px(8.0))
+        .w(px(100.0))
+        .h(px(68.0))
+        .rounded(px(9.0))
         .overflow_hidden()
         .bg(p.sheet)
-        .border_1()
-        .border_color(p.line)
+        .border_2()
+        .border_color(card_border)
+        .shadow_sm()
+        .hover(|h| {
+            if !selected {
+                h.border_color(t.line).shadow_md()
+            } else {
+                h
+            }
+        })
         .child(
             div()
                 .absolute()
                 .left(px(0.0))
                 .top(px(0.0))
                 .bottom(px(0.0))
-                .w(px(26.0))
+                .w(px(27.0))
+                .rounded_l(px(7.0))
                 .bg(p.chrome),
         )
-        .child(bar(34.0, 10.0, 30.0, 5.0, p.ac))
-        .child(bar(34.0, 22.0, 44.0, 3.0, line_col))
-        .child(bar(34.0, 30.0, 34.0, 3.0, line_col))
-        .child(bar(34.0, 38.0, 40.0, 3.0, line_col));
+        .child(bar(35.0, 11.0, 32.0, 5.0, p.ac))
+        .child(bar(35.0, 23.0, 46.0, 3.0, line_col))
+        .child(bar(35.0, 32.0, 36.0, 3.0, line_col))
+        .child(bar(35.0, 41.0, 42.0, 3.0, line_col));
+
     if selected {
         preview = preview.child(
             div()
@@ -732,30 +757,15 @@ fn theme_card(
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(icon("check", 11.0, t.ac_on)),
+                .child(icon("check", 10.0, t.ac_on)),
         );
     }
-
-    let ring = div()
-        .w(px(104.0))
-        .h(px(72.0))
-        .rounded(px(10.0))
-        .border_2()
-        .border_color(if selected {
-            t.ac
-        } else {
-            Rgba { a: 0.0, ..t.ac }
-        })
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(preview);
 
     div()
         .flex()
         .flex_col()
         .items_center()
-        .gap(px(4.0))
+        .gap(px(5.0))
         .cursor_pointer()
         .on_mouse_down(
             MouseButton::Left,
@@ -764,7 +774,7 @@ fn theme_card(
                 cx.notify();
             }),
         )
-        .child(ring)
+        .child(preview)
         .child(
             div()
                 .text_size(px(12.0))
