@@ -29,6 +29,10 @@ on:
         description: "Skip the tests (job checks) and publish anyway. Manual runs only: a tag push always runs the tests"
         type: boolean
         default: false
+      rebuild_android:
+        description: "Force rebuild Android APK even if mobile/ and crates/jiyue-ffi/ are unchanged"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -316,16 +320,67 @@ jobs:
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Check mobile changes and attempt reusing previous APK
+        id: check_reuse
+        shell: bash
+        env:
+          FORCE_REBUILD: ${{ inputs.rebuild_android || 'false' }}
+          CURRENT_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          reused=false
+
+          if [ "$FORCE_REBUILD" = "true" ]; then
+            echo "Rebuild explicitly requested by input."
+          else
+            prev_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+            if [ -n "$prev_tag" ]; then
+              echo "Previous tag: $prev_tag"
+              changed=$(git diff --name-only "$prev_tag" HEAD -- mobile/ crates/jiyue-ffi/ || true)
+              if [ -z "$changed" ]; then
+                echo "No changes in mobile/ or crates/jiyue-ffi/ since $prev_tag."
+                echo "Attempting to download and reuse Android APK from release $prev_tag..."
+                if gh release download "$prev_tag" --pattern "*android.apk" --dir dist 2>/dev/null; then
+                  downloaded=$(ls dist/*android.apk 2>/dev/null | head -n 1 || true)
+                  if [ -n "$downloaded" ]; then
+                    target="dist/Jiyue-${CURRENT_VERSION}-android.apk"
+                    if [ "$downloaded" != "$target" ]; then
+                      mv "$downloaded" "$target"
+                    fi
+                    echo "Successfully reused APK from $prev_tag as $target"
+                    reused=true
+                  fi
+                else
+                  echo "Could not download APK from $prev_tag, will fall back to build."
+                fi
+              else
+                echo "Detected changes in mobile/ or crates/jiyue-ffi/ since $prev_tag:"
+                echo "$changed"
+              fi
+            else
+              echo "No previous tag found, will build from scratch."
+            fi
+          fi
+
+          echo "reused=$reused" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java
+        if: steps.check_reuse.outputs.reused != 'true'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
       - name: Set up Flutter
+        if: steps.check_reuse.outputs.reused != 'true'
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.29.2'
@@ -333,16 +388,19 @@ jobs:
           cache: true
 
       - name: Install Dependencies
+        if: steps.check_reuse.outputs.reused != 'true'
         working-directory: mobile
         run: flutter pub get
 
       - name: Build APK
+        if: steps.check_reuse.outputs.reused != 'true'
         working-directory: mobile
         env:
           CI: 'true'
         run: flutter build apk --release
 
       - name: Prepare APK Asset
+        if: steps.check_reuse.outputs.reused != 'true'
         run: |
           mkdir -p dist
           cp mobile/build/app/outputs/flutter-apk/app-release.apk dist/Jiyue-${{ needs.prepare.outputs.version }}-android.apk
