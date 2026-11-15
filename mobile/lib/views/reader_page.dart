@@ -4,6 +4,7 @@ import '../bridge/vault_service.dart';
 import '../models/note.dart';
 import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
+import '../widgets/ai_polish_sheet.dart';
 import '../widgets/jiyue_icon.dart';
 import 'editor_page.dart';
 
@@ -59,6 +60,41 @@ class _ReaderPageState extends State<ReaderPage> {
     if (updated == true) {
       _loadNote();
     }
+  }
+
+  void _openAiPolish() {
+    if (_note == null || _note!.content.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('笔记内容为空，无法处理')),
+      );
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AiPolishSheet(
+        initialText: _note!.content,
+        vaultService: widget.vaultService,
+        themeProvider: widget.themeProvider,
+        onApply: (polished, isReplace) async {
+          final newContent = isReplace ? polished : '${_note!.content}\n\n$polished';
+          final ok = await widget.vaultService.saveNote(_note!.path, newContent);
+          if (mounted) {
+            if (ok) {
+              _loadNote();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(isReplace ? '已更新笔记内容' : '已插入内容到末尾')),
+              );
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('保存更新失败')),
+              );
+            }
+          }
+        },
+      ),
+    );
   }
 
   @override
@@ -148,6 +184,11 @@ class _ReaderPageState extends State<ReaderPage> {
         ),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: JiyueIcon('sparkles', color: colors.accent, size: 20),
+            tooltip: 'AI 智能润色 / 摘要',
+            onPressed: _openAiPolish,
+          ),
           IconButton(
             icon: JiyueIcon('palette', color: colors.textSecondary, size: 20),
             onPressed: () {

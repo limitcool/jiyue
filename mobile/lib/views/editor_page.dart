@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../bridge/vault_service.dart';
 import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
+import '../widgets/ai_polish_sheet.dart';
 import '../widgets/jiyue_icon.dart';
 
 class EditorPage extends StatefulWidget {
@@ -66,6 +67,54 @@ class _EditorPageState extends State<EditorPage> {
     _controller.selection = TextSelection.collapsed(offset: selection.start + prefix.length + selectedText.length);
   }
 
+  void _openAiPolish([String? customText]) {
+    final text = _controller.text;
+    final selection = _controller.selection;
+    final bool hasSelection = selection.isValid && !selection.isCollapsed && selection.start >= 0 && selection.end <= text.length;
+    final targetText = customText ?? (hasSelection ? text.substring(selection.start, selection.end) : text);
+
+    if (targetText.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('笔记内容为空，无法润色')),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AiPolishSheet(
+        initialText: targetText,
+        vaultService: widget.vaultService,
+        themeProvider: widget.themeProvider,
+        onApply: (polished, isReplace) {
+          if (isReplace) {
+            if (hasSelection && customText == null) {
+              final newText = text.replaceRange(selection.start, selection.end, polished);
+              _controller.text = newText;
+              _controller.selection = TextSelection.collapsed(offset: selection.start + polished.length);
+            } else {
+              _controller.text = polished;
+              _controller.selection = TextSelection.collapsed(offset: polished.length);
+            }
+          } else {
+            if (hasSelection && customText == null) {
+              final insertOffset = selection.end;
+              final newText = '${text.substring(0, insertOffset)}\n\n$polished\n${text.substring(insertOffset)}';
+              _controller.text = newText;
+              _controller.selection = TextSelection.collapsed(offset: insertOffset + polished.length + 3);
+            } else {
+              final newText = '${_controller.text}\n\n$polished';
+              _controller.text = newText;
+              _controller.selection = TextSelection.collapsed(offset: newText.length);
+            }
+          }
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = widget.themeProvider.colors;
@@ -118,6 +167,7 @@ class _EditorPageState extends State<EditorPage> {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
+                _aiToolButton('✨ AI 润色', () => _openAiPolish(), colors),
                 _toolButton('[[ ]]', '双链', () => _insertMarkdown('[[', ']]'), colors),
                 _toolButton('#', '大标题', () => _insertMarkdown('# '), colors),
                 _toolButton('##', '二级标题', () => _insertMarkdown('## '), colors),
@@ -137,6 +187,23 @@ class _EditorPageState extends State<EditorPage> {
                 maxLines: null,
                 expands: true,
                 keyboardType: TextInputType.multiline,
+                contextMenuBuilder: (context, editableTextState) {
+                  final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
+                  buttonItems.insert(
+                    0,
+                    ContextMenuButtonItem(
+                      label: '✨ AI 润色',
+                      onPressed: () {
+                        editableTextState.hideToolbar();
+                        _openAiPolish();
+                      },
+                    ),
+                  );
+                  return AdaptiveTextSelectionToolbar.buttonItems(
+                    anchors: editableTextState.contextMenuAnchors,
+                    buttonItems: buttonItems,
+                  );
+                },
                 style: TextStyle(
                   fontSize: 15,
                   height: 1.6,
@@ -152,6 +219,33 @@ class _EditorPageState extends State<EditorPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _aiToolButton(String label, VoidCallback onTap, JiyueThemeColors colors) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: colors.accent.withAlpha(30),
+            border: Border.all(color: colors.accent.withAlpha(80)),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: colors.accent,
+            ),
+          ),
+        ),
       ),
     );
   }
