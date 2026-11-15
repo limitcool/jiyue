@@ -711,7 +711,7 @@ pub fn render_sidebar_section(
                     .when(as_todo, |d| d.bg(t.ac_soft).border_1().border_color(t.ac))
                     .when(!as_todo, |d| d.hover(|h| h.bg(t.hover)))
                     .child(icon(
-                        if as_todo { "checkbox" } else { "check" },
+                        if as_todo { "checkbox" } else { "list" },
                         14.0,
                         if as_todo { t.ac } else { t.tx3 },
                     ))
@@ -803,7 +803,7 @@ pub fn render_sidebar_section(
                                     .mt(px(2.0))
                                     .cursor_pointer()
                                     .child(icon(
-                                        if is_done { "checkbox" } else { "check" },
+                                        if is_done { "checkbox" } else { "square" },
                                         13.0,
                                         if is_done { t.tx3 } else { t.ac },
                                     ))
@@ -908,10 +908,27 @@ pub fn render_sidebar_section(
         };
         card_container = card_container.child(
             div()
-                .py(px(12.0))
-                .text_size(px(11.0))
-                .text_color(t.tx3)
-                .child(empty_tip),
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .py(px(20.0))
+                .gap(px(6.0))
+                .child(icon(
+                    if tab == Tab::Todos {
+                        "check"
+                    } else {
+                        "file-text"
+                    },
+                    18.0,
+                    t.tx3,
+                ))
+                .child(
+                    div()
+                        .text_size(px(11.5))
+                        .text_color(t.tx3)
+                        .child(empty_tip),
+                ),
         );
     }
 

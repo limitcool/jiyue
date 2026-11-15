@@ -255,18 +255,18 @@ fn toast_layer(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     let start = app.ext.toasts.items.len().saturating_sub(TOAST_MAX_VISIBLE);
     let mut stack = div()
         .absolute()
-        .right(px(16.0))
-        .bottom(px(40.0))
+        .right(px(20.0))
+        .bottom(px(42.0))
         .flex()
         .flex_col()
         .items_end()
         .gap(px(8.0));
     for toast in &app.ext.toasts.items[start..] {
-        let (name, tint) = match toast.kind {
-            ToastKind::Info => ("info-circle", t.ac),
-            ToastKind::Success => ("check", t.ok),
-            ToastKind::Warn => ("bulb", t.ac_on),
-            ToastKind::Error => ("x", t.st),
+        let (icon_name, icon_tint, badge_bg) = match toast.kind {
+            ToastKind::Info => ("info-circle", t.ac, t.ac_soft),
+            ToastKind::Success => ("check", t.ok, t.ok_soft),
+            ToastKind::Warn => ("alert-triangle", gpui::rgb(0xd97706), gpui::rgba(0xd977061f)),
+            ToastKind::Error => ("x", gpui::rgb(0xe5484d), gpui::rgba(0xe5484d1f)),
         };
         let id = toast.id;
         let action_button = toast.action.clone().map(|action| {
@@ -278,11 +278,19 @@ fn toast_layer(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
                 .px(px(8.0))
                 .py(px(3.0))
                 .rounded(px(6.0))
+                .bg(t.sheet)
+                .border_1()
+                .border_color(t.line_soft)
                 .text_color(t.ac)
-                .hover(|s| s.bg(t.hover))
+                .text_size(px(11.5))
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .hover(|s| s.bg(t.hover).border_color(t.ac))
                 .child(SharedString::from(label))
-                .on_mouse_down(MouseButton::Left, move |_, _, _| match &action {
-                    ToastAction::Reveal(path) => reveal_in_explorer(path),
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    match &action {
+                        ToastAction::Reveal(path) => reveal_in_explorer(path),
+                    }
                 })
                 .into_any_element()
         });
@@ -291,25 +299,50 @@ fn toast_layer(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
                 .flex()
                 .items_center()
                 .gap(px(10.0))
-                .max_w(px(320.0))
-                .px(px(14.0))
-                .py(px(10.0))
-                .rounded(px(10.0))
+                .min_w(px(260.0))
+                .max_w(px(380.0))
+                .px(px(12.0))
+                .py(px(9.0))
+                .rounded(px(11.0))
                 .bg(t.raised)
                 .border_1()
                 .border_color(t.line)
-                .shadow_md()
+                .shadow_lg()
                 .font_family(crate::ui::fonts::ui_name())
-                .text_size(px(13.0))
-                .text_color(t.tx)
                 .cursor_pointer()
-                .child(icon(name, 16.0, tint))
                 .child(
                     div()
+                        .size(px(24.0))
+                        .flex_none()
+                        .rounded(px(12.0))
+                        .bg(badge_bg)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(icon(icon_name, 14.0, icon_tint)),
+                )
+                .child(
+                    div()
+                        .flex_1()
                         .min_w_0()
+                        .text_size(px(12.5))
+                        .line_height(gpui::relative(1.4))
+                        .text_color(t.tx)
                         .child(SharedString::from(toast.text.clone())),
                 )
                 .children(action_button)
+                .child(
+                    div()
+                        .size(px(18.0))
+                        .flex_none()
+                        .rounded(px(4.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_color(t.tx3)
+                        .hover(|s| s.bg(t.hover).text_color(t.tx))
+                        .child(icon("x", 11.0, t.tx3)),
+                )
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
@@ -514,5 +547,21 @@ mod reveal_tests {
         let (program, args) = reveal_command("linux", Path::new("/home/a/notes/a.md")).unwrap();
         assert_eq!(program, "xdg-open");
         assert_eq!(args, vec![std::ffi::OsString::from("/home/a/notes")]);
+    }
+
+    #[test]
+    fn test_toast_queue_capacity_and_dismiss() {
+        use super::{ToastKind, Toasts};
+        let mut toasts = Toasts::default();
+        toasts.push(ToastKind::Info, "第 1 条".into());
+        toasts.push(ToastKind::Success, "第 2 条".into());
+        toasts.push(ToastKind::Warn, "第 3 条".into());
+        assert_eq!(toasts.items.len(), 3);
+
+        let second_id = toasts.items[1].id;
+        toasts.dismiss(second_id);
+        assert_eq!(toasts.items.len(), 2);
+        assert_eq!(toasts.items[0].text, "第 1 条");
+        assert_eq!(toasts.items[1].text, "第 3 条");
     }
 }

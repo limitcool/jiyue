@@ -586,11 +586,21 @@ pub fn render_card(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEleme
 
     let body_text: AnyElement = if card.output.is_empty() {
         div()
+            .flex()
+            .items_center()
+            .gap(px(8.0))
+            .py(px(12.0))
             .text_color(t.tx3)
+            .text_size(px(12.5))
+            .child(icon(
+                if card.streaming { "sparkles" } else { "info-circle" },
+                14.0,
+                t.ac,
+            ))
             .child(if card.streaming {
-                "等待回答…"
+                "AI 正在思考并生成优化内容…"
             } else {
-                ""
+                "暂无生成内容"
             })
             .into_any_element()
     } else {
