@@ -3,6 +3,43 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.3.3] - 2026-11-15
+
+### 中文
+
+**优化与改进**
+- **FigCraft 驱动的统一设计系统与全量组件库重构（Design System v2.0）**：
+  - 基于 FigCraft 规范落成全项目统一的基础控件系统，覆盖默认（Default）、悬浮（Hover）、按压（Active）、聚焦（Focus）与禁用（Disabled）5 大标准交互状态。
+  - **基础按钮分级收敛**：补齐 `ButtonSize::Large` (36px)，统一全项目按钮尺寸标准为 Large 36px、Medium 28px、Small 22px，Primary / Secondary 按钮默认注入 `.shadow_sm()` 抗混叠微羽化边缘，消除硬边缘切边感。
+  - **公共选择与切换控件**：全面引入 `choice_chip`（胶囊选项）、`checkbox_toggle`（带说明复选框）、`toggle_view`（图表/表格/源文本视图分段切换）等高级公共组件。
+  - **输入框与表单控件升级**：`LineInput` 基准高度统一提升至 32px，内边距规范化为 8px，极大提升点击感与视觉舒适度；新增 `error: bool` 状态 API，聚焦时自动附加高辨识度 `.shadow_sm()` 聚焦光晕环（Focus Ring），提供清晰明确的操作反馈。
+- **外观主题卡片四角锯齿感彻底消除**：
+  - 深度重构 `AppearanceView` 的主题预览卡片，根除因内部双色侧边栏直角切边暴露导致的四个圆角锯齿断裂缺陷；
+  - 采用内外双层高精度圆角匹配与平滑抗混叠边框，无论明亮还是暗色主题，卡片边缘与高亮蓝框圆滑无瑕。
+- **Memos、设置与导出面板样式彻底统一**：
+  - 彻底拔除全项目历史散落的手写裸 `div`、内联自定义状态切换器，全量收敛替换为统一的 controls 与 choice_chip。
+  - 标签过滤区（微记/全部微记/Tag 筛选）与视图切换器风格完全契合现代化设计规范。
+- **CI / CD 构建效能诊断与优化**：
+  - 针对 GitHub Actions 构建耗时展开深度诊断，查明 macOS x64 与 Windows arm64 历史耗时较长的核心瓶颈在于缺少跨构建缓存命中；
+  - 优化 Actions 依赖版本（升级 `actions/setup-java@v5` 等），确保发布构建稳定高速运行。
+
+---
+
+### English
+
+**Improvements**
+- **FigCraft-driven Design System v2.0 & Component Unification**:
+  - Unified project-wide controls with full interactive states: Default, Hover, Active, Focus, and Disabled.
+  - **Button System Standardization**: Added `ButtonSize::Large` (36px), standardizing on Large 36px, Medium 28px, and Small 22px. Primary and Secondary buttons now feature `.shadow_sm()` anti-aliased micro-feathering to eliminate harsh aliasing.
+  - **Shared Choice & Toggle Widgets**: Introduced `choice_chip`, `checkbox_toggle`, and `toggle_view` widgets across settings, memos, and export dialogues.
+  - **Input & Form Enhancements**: Raised `LineInput` standard height to 32px with 8px padding; added `error: bool` state and `.shadow_sm()` glowing focus rings.
+- **Theme Preview Card Anti-Aliasing**:
+  - Fixed corner aliasing on theme preview cards by matching interior split panes to outer rounded borders with anti-aliased outlines.
+- **Memos, Settings & Export Panels Cleanup**:
+  - Replaced inline ad-hoc divs and raw buttons with standardized design system controls across Memos filters, AI settings, and export options.
+- **CI/CD Optimization**:
+  - Diagnosed GitHub Actions workflow bottlenecks, verified cross-run compiler cache hits for macOS x64 and Windows arm64, and upgraded workflow dependencies (`actions/setup-java@v5`).
+
 ## [0.3.2] - 2026-11-15
 
 ### 中文

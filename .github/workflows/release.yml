@@ -374,7 +374,7 @@ jobs:
 
       - name: Set up Java
         if: steps.check_reuse.outputs.reused != 'true'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'

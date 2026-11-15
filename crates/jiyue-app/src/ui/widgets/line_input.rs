@@ -1002,7 +1002,7 @@ mod tests {
 
     #[test]
     fn test_input_error_flag() {
-        let mut state = TextState::new("error test");
+        let state = TextState::new("error test");
         assert_eq!(state.text(), "error test");
     }
 
