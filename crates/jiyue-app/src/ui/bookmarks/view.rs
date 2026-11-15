@@ -11,9 +11,9 @@ use gpui::{
 use super::logic::{self, Bookmark, Kind};
 use super::{Modal, MoveOpt};
 use crate::RustdianApp;
-use crate::theme::{ActiveTheme, ICON_GAP, ICON_GAP_TIGHT, ICON_SIZE};
+use crate::theme::{ActiveTheme, ICON_GAP, ICON_GAP_TIGHT, ICON_SIZE, RADIUS_S, ROW_HEIGHT};
 use crate::ui::icons::icon;
-use crate::ui::widgets::controls::PickIndex;
+use crate::ui::widgets::controls::{BadgeKind, PickIndex, badge, empty_state};
 use crate::ui::widgets::overlay::{MenuItem, context_menu};
 use crate::ui::widgets::{ButtonKind, LineInput, button, modal};
 
@@ -309,6 +309,77 @@ pub fn section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     col.into_any_element()
 }
 
+/// Renders the dedicated Bookmarks module panel inside the 236px left sidebar.
+pub fn render_sidebar_panel(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
+    let t = app.theme;
+    let st = &app.ext.bookmarks;
+    let count = logic::entry_count(&st.items);
+    let rows = logic::visible(&st.items, &st.collapsed_groups);
+
+    let top = div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_between()
+        .px(px(10.0))
+        .py(px(8.0))
+        .border_b_1()
+        .border_color(t.border_subtle)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .text_size(px(11.5))
+                .text_color(t.tx3)
+                .child("已保存书签")
+                .child(badge(&t, &count.to_string(), BadgeKind::Neutral)),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(t.tx3)
+                .child("右键编辑 / 拖拽分组"),
+        );
+
+    let mut list = div()
+        .id("sidebar-bookmark-list")
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .p(px(6.0))
+        .overflow_y_scroll()
+        .on_drop(cx.listener(|this, drag: &BookmarkDrag, _, cx| {
+            super::drop_on_root(this, &drag.id, cx);
+        }));
+
+    if rows.is_empty() {
+        list = list.child(empty_state(
+            &t,
+            "bookmark",
+            &crate::t!("sidebar-bookmarks"),
+            &crate::t!("sidebar-bookmarks-empty"),
+        ));
+    } else {
+        for row in rows {
+            if let Some(bm) = logic::find(&st.items, &row.id) {
+                list = list.child(item_row(app, cx, bm, row.depth));
+            }
+        }
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .child(top)
+        .child(list)
+        .into_any_element()
+}
+
 /// One row of the section: icon, title, the 文件已缺失 hint for a missing target.
 fn item_row(
     app: &RustdianApp,
@@ -351,10 +422,10 @@ fn item_row(
         .flex_none()
         .items_center()
         .gap(px(ICON_GAP))
-        .h(px(30.0))
+        .h(px(ROW_HEIGHT))
         .pl(px(8.0 + depth as f32 * 20.0))
         .pr(px(8.0))
-        .rounded(px(6.0))
+        .rounded(px(RADIUS_S))
         .whitespace_nowrap()
         .cursor_pointer()
         .text_color(if missing { t.tx3 } else { t.tx2 })

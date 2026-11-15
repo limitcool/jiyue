@@ -6,8 +6,9 @@ use gpui::{
 };
 
 use super::icons::icon;
+use super::widgets::{ButtonKind, ButtonSize, button_sized, empty_state};
 use crate::daily::{self, Date};
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, RADIUS_S, ROW_HEIGHT};
 use crate::{AppCommand, RustdianApp};
 
 /// State of the calendar widget. `year == 0 || month == 0` means "the current month".
@@ -102,14 +103,112 @@ impl RustdianApp {
         self.calendar.month = 0;
     }
 
-    /// The month calendar block shown in the sidebar under the quick actions.
-    pub(crate) fn render_calendar(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// Builds the interactive month calendar header, weekday strip, and 6x7 date grid.
+    fn render_month_calendar_body(&self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
         let today = Date::today();
         let (year, month) = shown_month(&self.calendar, today);
-        let collapsed = is_collapsed(self);
         let (prev_y, prev_m) = shift_month(year, month, -1);
         let (next_y, next_m) = shift_month(year, month, 1);
+
+        let nav_button = |name: &'static str| {
+            div()
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(22.0))
+                .rounded(px(RADIUS_S))
+                .cursor_pointer()
+                .hover(|s| s.bg(t.hover))
+                .child(icon(name, 14.0, t.tx3))
+        };
+        let header = div()
+            .flex()
+            .items_center()
+            .gap(px(2.0))
+            .h(px(26.0))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(13.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(t.tx)
+                    .child(SharedString::from(format!("{}年{}月", year, month))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .px(px(6.0))
+                    .h(px(22.0))
+                    .rounded(px(RADIUS_S))
+                    .text_size(px(12.0))
+                    .text_color(t.ac)
+                    .cursor_pointer()
+                    .hover(|s| s.bg(t.hover))
+                    .child("今天")
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.reset_calendar_month();
+                            cx.notify();
+                        }),
+                    ),
+            )
+            .child(nav_button("chevron-left").on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    this.calendar.year = prev_y;
+                    this.calendar.month = prev_m;
+                    cx.notify();
+                }),
+            ))
+            .child(nav_button("chevron-right").on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    this.calendar.year = next_y;
+                    this.calendar.month = next_m;
+                    cx.notify();
+                }),
+            ));
+
+        let mut weekdays = div()
+            .flex()
+            .items_center()
+            .h(px(18.0))
+            .text_size(px(11.0))
+            .text_color(t.tx3);
+        for name in WEEKDAYS {
+            weekdays = weekdays.child(div().flex_1().flex().justify_center().child(name));
+        }
+
+        let dots = self.vault.daily_dates_in_month(year, month);
+        let active = active_daily_date(self);
+        let cells = month_grid(year, month);
+        let mut grid = div().flex().flex_col().pt(px(2.0));
+        for week in cells.chunks(7) {
+            let mut row = div().flex().h(px(26.0));
+            for cell in week {
+                let has_note = cell.in_month && dots.contains(&cell.date.day);
+                row = row.child(day_cell(&t, *cell, today, active, has_note, cx));
+            }
+            grid = grid.child(row);
+        }
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(2.0))
+            .child(header)
+            .child(weekdays)
+            .child(grid)
+    }
+
+    /// The collapsible month calendar block (retained for inline use).
+    pub(crate) fn render_calendar(&self, cx: &mut Context<Self>) -> AnyElement {
+        let t = self.theme;
+        let collapsed = is_collapsed(self);
 
         let chevron = if collapsed {
             "chevron-right"
@@ -149,94 +248,148 @@ impl RustdianApp {
             return block.into_any_element();
         }
 
-        let nav_button = |name: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(px(22.0))
-                .rounded(px(6.0))
-                .cursor_pointer()
-                .hover(|s| s.bg(t.hover))
-                .child(icon(name, 14.0, t.tx3))
-        };
-        let header = div()
+        block = block.child(self.render_month_calendar_body(cx));
+        block.into_any_element()
+    }
+}
+
+/// Renders the dedicated Journal (日记) sidebar module: today's shortcut, persistent month
+/// calendar, and a reverse-chronological list of recent daily notes.
+pub fn render_journal_panel(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
+    let t = app.theme;
+    let today = Date::today();
+    let fmt = app.vault.daily_settings().date_format;
+    let active_idx = app.vault.active_note_index;
+
+    let mut daily_entries: Vec<(Option<Date>, usize, String, String)> = app
+        .vault
+        .notes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| app.vault.is_daily_note(n))
+        .map(|(idx, n)| {
+            let parsed = daily::parse_date(&n.title, &fmt);
+            (parsed, idx, n.title.clone(), n.path.clone())
+        })
+        .collect();
+    daily_entries.sort_by(|a, b| match (b.0, a.0) {
+        (Some(db), Some(da)) => db.cmp(&da),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => b.2.cmp(&a.2),
+    });
+
+    let today_btn = button_sized(
+        &t,
+        &crate::t!("sidebar-today-note"),
+        ButtonKind::Primary,
+        ButtonSize::Small,
+        Some("calendar-event"),
+        cx.listener(move |this, _, _, cx| {
+            this.reset_calendar_month();
+            this.run_command(AppCommand::OpenDaily(today));
+            cx.notify();
+        }),
+    )
+    .w_full();
+
+    let top = div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap(px(10.0))
+        .p(px(10.0))
+        .border_b_1()
+        .border_color(t.border_subtle)
+        .child(today_btn)
+        .child(app.render_month_calendar_body(cx));
+
+    let mut list = div()
+        .id("journal-recent-list")
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .p(px(6.0))
+        .overflow_y_scroll();
+
+    list = list.child(
+        div()
             .flex()
             .items_center()
-            .gap(px(2.0))
-            .h(px(26.0))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_size(px(13.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(t.tx)
-                    .child(SharedString::from(format!("{}年{}月", year, month))),
-            )
-            .child(
+            .justify_between()
+            .px(px(6.0))
+            .pt(px(4.0))
+            .pb(px(4.0))
+            .text_size(px(11.0))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(t.tx3)
+            .child("最近日记")
+            .child(SharedString::from(daily_entries.len().to_string())),
+    );
+
+    if daily_entries.is_empty() {
+        list = list.child(empty_state(
+            &t,
+            "calendar",
+            "暂无日记",
+            "点击上方按钮打开今日日记开始记录",
+        ));
+    } else {
+        for (_, idx, title, _) in daily_entries.into_iter().take(30) {
+            let selected = idx == active_idx;
+            list = list.child(
                 div()
                     .flex()
+                    .flex_none()
                     .items_center()
-                    .px(px(6.0))
-                    .h(px(22.0))
-                    .rounded(px(6.0))
-                    .text_size(px(12.0))
-                    .text_color(t.ac)
+                    .gap(px(6.0))
+                    .h(px(ROW_HEIGHT))
+                    .px(px(8.0))
+                    .rounded(px(RADIUS_S))
                     .cursor_pointer()
-                    .hover(|s| s.bg(t.hover))
-                    .child("今天")
+                    .when(selected, |d| {
+                        d.bg(t.selected)
+                            .text_color(t.ac)
+                            .font_weight(FontWeight::MEDIUM)
+                    })
+                    .when(!selected, |d| {
+                        d.text_color(t.tx2)
+                            .hover(|s| s.bg(t.hover).text_color(t.tx))
+                    })
+                    .child(icon(
+                        "calendar-event",
+                        14.0,
+                        if selected { t.ac } else { t.tx3 },
+                    ))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .truncate()
+                            .text_size(px(12.5))
+                            .child(SharedString::from(title)),
+                    )
                     .on_mouse_down(
                         MouseButton::Left,
-                        cx.listener(|this, _, _, cx| {
-                            this.reset_calendar_month();
+                        cx.listener(move |this, _, _, cx| {
+                            this.open_note_by_index(idx);
                             cx.notify();
                         }),
                     ),
-            )
-            .child(nav_button("chevron-left").on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _, cx| {
-                    this.calendar.year = prev_y;
-                    this.calendar.month = prev_m;
-                    cx.notify();
-                }),
-            ))
-            .child(nav_button("chevron-right").on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _, cx| {
-                    this.calendar.year = next_y;
-                    this.calendar.month = next_m;
-                    cx.notify();
-                }),
-            ));
-
-        let mut weekdays = div()
-            .flex()
-            .items_center()
-            .h(px(16.0))
-            .text_size(px(11.0))
-            .text_color(t.tx3);
-        for name in WEEKDAYS {
-            weekdays = weekdays.child(div().flex_1().flex().justify_center().child(name));
+            );
         }
-
-        let dots = self.vault.daily_dates_in_month(year, month);
-        let active = active_daily_date(self);
-        let cells = month_grid(year, month);
-        let mut grid = div().flex().flex_col().pt(px(2.0));
-        for week in cells.chunks(7) {
-            let mut row = div().flex().h(px(24.0));
-            for cell in week {
-                let has_note = cell.in_month && dots.contains(&cell.date.day);
-                row = row.child(day_cell(&t, *cell, today, active, has_note, cx));
-            }
-            grid = grid.child(row);
-        }
-
-        block = block.child(header).child(weekdays).child(grid);
-        block.into_any_element()
     }
+
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .child(top)
+        .child(list)
+        .into_any_element()
 }
 
 /// One day of the grid: number, then a 4px dot when that day has a daily note.

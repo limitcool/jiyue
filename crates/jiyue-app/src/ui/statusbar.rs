@@ -1,13 +1,9 @@
-//! Status bar (28px) at the bottom of the sheet.
+//! Status bar (24px) at the bottom of the workspace column.
 
 use crate::RustdianApp;
 use crate::session::{SaveStatus, ViewMode};
-use gpui::{Context, IntoElement, Rgba, SharedString, div, prelude::*, px, rgb};
-
-/// Warm amber for unsaved changes (saved uses the theme's `ok`).
-const UNSAVED_AMBER: u32 = 0xd9962b;
-/// Red for a failed save.
-const SAVE_FAILED_RED: u32 = 0xe5484d;
+use crate::theme::STATUSBAR_HEIGHT;
+use gpui::{Context, IntoElement, Rgba, SharedString, div, prelude::*, px};
 
 /// Renders the status bar: cursor position and encoding on the left, save state on the right.
 /// The cursor follows the active note's editor (the app caches it at each render).
@@ -29,19 +25,19 @@ pub fn render_statusbar(
         ),
         SaveStatus::Unsaved => (
             crate::t!("status-unsaved"),
-            div().size(px(6.0)).rounded_full().bg(rgb(UNSAVED_AMBER)),
+            div().size(px(6.0)).rounded_full().bg(t.warn),
         ),
         SaveStatus::Saving => (
             crate::t!("status-saving"),
-            div().size(px(6.0)).rounded_full().bg(rgb(UNSAVED_AMBER)),
+            div().size(px(6.0)).rounded_full().bg(t.warn),
         ),
         SaveStatus::Failed => (
             crate::t!("status-save-failed"),
-            div().size(px(6.0)).rounded_full().bg(rgb(SAVE_FAILED_RED)),
+            div().size(px(6.0)).rounded_full().bg(t.danger),
         ),
     };
     let label_color: Rgba = match status {
-        SaveStatus::Failed => rgb(SAVE_FAILED_RED),
+        SaveStatus::Failed => t.danger,
         _ => t.tx3,
     };
     // Feature modules' items sit before the save indicator, 12px apart (empty until wave 2).
@@ -51,13 +47,14 @@ pub fn render_statusbar(
         .flex()
         .items_center()
         .gap(px(16.0))
-        .h(px(28.0))
+        .h(px(STATUSBAR_HEIGHT))
         .flex_none()
-        .px(px(16.0))
+        .px(px(14.0))
+        .bg(t.panel)
         .border_t_1()
-        .border_color(t.line_soft)
+        .border_color(t.border_subtle)
         .font_family(crate::ui::fonts::ui_name())
-        .text_size(px(11.5))
+        .text_size(px(11.0))
         .text_color(t.tx3)
         .child(
             div()

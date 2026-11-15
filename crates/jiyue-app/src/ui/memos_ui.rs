@@ -3,20 +3,22 @@
 //! Provides a sidebar section for capturing thoughts and managing todo tasks,
 //! with seamless integration to Daily Notes (今日日记) and the active note editor.
 
+use std::rc::Rc;
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, Context, Entity, FontWeight, IntoElement, MouseButton, div, prelude::*, px,
+    AnyElement, Context, Div, Entity, FontWeight, IntoElement, MouseButton, div, prelude::*, px,
 };
 use jiyue_core::config::credentials::{self, MEMOS_TABLE};
 use jiyue_memos::{Memo, MemosClient, MemosConfig};
 
 use crate::RustdianApp;
-use crate::theme::RADIUS_S;
-use crate::ui::ext::ToastKind;
+use crate::theme::{RADIUS_M, RADIUS_S};
+use crate::ui::ext::{ExtEvent, ToastKind};
 use crate::ui::icons::icon;
 use crate::ui::widgets::controls::{
-    ButtonKind, IconBtnSize, button, choice_chip, icon_button_sized, toggle,
+    ButtonKind, IconBtnSize, button, choice_chip, empty_state, icon_button_sized, segmented_full,
+    toggle,
 };
 use crate::ui::widgets::form_row;
 use crate::ui::widgets::line_input::{LineInput, LineInputEvent};
@@ -82,6 +84,7 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     let input = cx.new(|cx| {
         let mut inp = LineInput::new(cx, crate::t!("memos-placeholder"));
         inp.set_theme(t, cx);
+        inp.set_borderless(true, cx);
         inp
     });
     let sub = cx.subscribe(
@@ -136,6 +139,22 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         }
     })
     .detach();
+}
+
+/// Handles broadcast app events (keeps embedded `LineInput`s in sync with the active theme).
+pub fn on_event(app: &mut RustdianApp, ev: &ExtEvent, cx: &mut Context<RustdianApp>) {
+    if matches!(ev, ExtEvent::ThemeChanged) {
+        let t = app.theme;
+        if let Some(inp) = &app.ext.memos.input {
+            inp.update(cx, |i, cx| i.set_theme(t, cx));
+        }
+        if let Some(inp) = &app.ext.memos.settings_url_input {
+            inp.update(cx, |i, cx| i.set_theme(t, cx));
+        }
+        if let Some(inp) = &app.ext.memos.settings_token_input {
+            inp.update(cx, |i, cx| i.set_theme(t, cx));
+        }
+    }
 }
 
 /// Loads the `[memos]` section from `<vault>/.jiyue/config.toml`.
@@ -454,14 +473,55 @@ pub fn insert_memo_to_active(
     }
 }
 
+/// Renders the full-height Memos sidebar panel (Linear / Zed modular sidebar).
+pub fn render_sidebar_panel(
+    app: &RustdianApp,
+    cx: &mut Context<RustdianApp>,
+) -> impl IntoElement + use<> {
+    let t = app.theme;
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .w_full()
+        .px(px(8.0))
+        .py(px(6.0))
+        .gap(px(4.0))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap(px(2.0))
+                .child(icon_button_sized(
+                    &t,
+                    "calendar-event",
+                    IconBtnSize::Small,
+                    cx.listener(|this, _, _, cx| {
+                        append_today_memos_to_daily(this, cx);
+                    }),
+                ))
+                .child(icon_button_sized(
+                    &t,
+                    "arrows-sort",
+                    IconBtnSize::Small,
+                    cx.listener(|this, _, _, cx| {
+                        refresh(this, cx);
+                    }),
+                )),
+        )
+        .child(render_memos_body(app, true, cx))
+}
+
 /// Renders the Memos sidebar section (collapsible).
+#[allow(dead_code)]
 pub fn render_sidebar_section(
     app: &RustdianApp,
     cx: &mut Context<RustdianApp>,
 ) -> impl IntoElement + use<> {
     let t = app.theme;
     let is_open = app.ext.memos.open;
-    let tab = app.ext.memos.tab;
 
     let mut section = div().flex().flex_col().w_full().my(px(4.0));
 
@@ -537,33 +597,31 @@ pub fn render_sidebar_section(
         return section;
     }
 
-    // Tab switcher: Todos / All
-    let tab_bar = div()
-        .flex()
-        .items_center()
-        .gap(px(6.0))
-        .px(px(4.0))
-        .py(px(4.0))
-        .child(choice_chip(
-            &t,
-            &crate::t!("memos-tab-todos"),
-            tab == Tab::Todos,
-            cx.listener(|this, _, _, cx| {
-                this.ext.memos.tab = Tab::Todos;
-                cx.notify();
-            }),
-        ))
-        .child(choice_chip(
-            &t,
-            &crate::t!("memos-tab-all"),
-            tab == Tab::All,
-            cx.listener(|this, _, _, cx| {
-                this.ext.memos.tab = Tab::All;
-                cx.notify();
-            }),
-        ));
+    section.child(render_memos_body(app, false, cx))
+}
 
-    section = section.child(tab_bar);
+fn render_memos_body(app: &RustdianApp, full_panel: bool, cx: &mut Context<RustdianApp>) -> Div {
+    let t = app.theme;
+    let tab = app.ext.memos.tab;
+
+    let mut body = div().flex().flex_col().w_full();
+    if full_panel {
+        body = body.flex_1().min_h_0();
+    }
+
+    // Tab switcher: Todos / All
+    let tab_todos = crate::t!("memos-tab-todos");
+    let tab_all = crate::t!("memos-tab-all");
+    let tab_bar = div().py(px(2.0)).child(segmented_full(
+        &t,
+        &[tab_todos.as_str(), tab_all.as_str()],
+        if tab == Tab::Todos { 0 } else { 1 },
+        Rc::new(cx.listener(|this, &idx, _, cx| {
+            this.ext.memos.tab = if idx == 0 { Tab::Todos } else { Tab::All };
+            cx.notify();
+        })),
+    ));
+    body = body.child(tab_bar);
 
     // Tags pill filter bar
     let mut all_tags: Vec<String> = Vec::new();
@@ -583,7 +641,6 @@ pub fn render_sidebar_section(
             .flex_wrap()
             .items_center()
             .gap(px(5.0))
-            .px(px(4.0))
             .py(px(4.0))
             .child(choice_chip(
                 &t,
@@ -612,10 +669,10 @@ pub fn render_sidebar_section(
                 }),
             ));
         }
-        section = section.child(tag_bar);
+        body = body.child(tag_bar);
     }
 
-    // Fast Input Box with Todo-mode Toggle (unified streamlined modern bar)
+    // Fast Input Box with Todo-mode Toggle
     let as_todo = app.ext.memos.as_todo;
     let input_el = if let Some(inp) = &app.ext.memos.input {
         inp.update(cx, |i, cx| {
@@ -625,21 +682,21 @@ pub fn render_sidebar_section(
         div()
             .flex()
             .items_center()
+            .flex_none()
             .h(px(32.0))
             .pl(px(4.0))
             .pr(px(3.0))
-            .my(px(6.0))
-            .bg(t.raised)
+            .my(px(4.0))
+            .bg(t.elevated)
             .border_1()
-            .border_color(t.line)
-            .rounded(px(8.0))
-            .shadow_sm()
+            .border_color(t.border_default)
+            .rounded(px(RADIUS_M))
             .overflow_hidden()
-            .hover(|d| d.border_color(t.ac_line))
+            .hover(|d| d.border_color(t.border_focus))
             .child(
                 div()
                     .size(px(24.0))
-                    .rounded(px(5.0))
+                    .rounded(px(RADIUS_S))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -665,16 +722,16 @@ pub fn render_sidebar_section(
                     .flex_none()
                     .h(px(24.0))
                     .px(px(10.0))
-                    .rounded(px(5.0))
+                    .rounded(px(RADIUS_S))
                     .bg(t.ac)
-                    .text_color(gpui::white())
+                    .text_color(t.ac_on)
                     .text_size(px(11.5))
                     .font_weight(FontWeight::MEDIUM)
                     .flex()
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .hover(|h| h.opacity(0.85))
+                    .hover(|h| h.bg(t.ac_hover))
                     .child("发送")
                     .on_mouse_down(
                         MouseButton::Left,
@@ -687,7 +744,7 @@ pub fn render_sidebar_section(
         div().h(px(0.0))
     };
 
-    section = section.child(input_el);
+    body = body.child(input_el);
 
     // Memos / Todos list
     let memos_list = app.ext.memos.memos.clone();
@@ -696,10 +753,14 @@ pub fn render_sidebar_section(
         .flex()
         .flex_col()
         .gap(px(4.0))
-        .max_h(px(260.0))
         .overflow_y_scroll()
         .px(px(2.0))
         .py(px(4.0));
+    if full_panel {
+        card_container = card_container.flex_1().min_h_0();
+    } else {
+        card_container = card_container.max_h(px(260.0));
+    }
 
     let mut displayed_count = 0;
     for memo in &memos_list {
@@ -783,10 +844,10 @@ pub fn render_sidebar_section(
                 .flex_col()
                 .p(px(6.0))
                 .rounded(px(RADIUS_S))
-                .bg(t.sheet)
+                .bg(t.surface)
                 .border_1()
-                .border_color(t.line_soft)
-                .hover(|d| d.border_color(t.line))
+                .border_color(t.border_subtle)
+                .hover(|d| d.border_color(t.border_default))
                 .child(
                     div()
                         .text_size(px(12.0))
@@ -846,29 +907,19 @@ pub fn render_sidebar_section(
         } else {
             crate::t!("memos-empty-all")
         };
-        card_container = card_container.child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .justify_center()
-                .py(px(20.0))
-                .gap(px(6.0))
-                .child(icon(
-                    if tab == Tab::Todos {
-                        "check"
-                    } else {
-                        "file-text"
-                    },
-                    18.0,
-                    t.tx3,
-                ))
-                .child(div().text_size(px(11.5)).text_color(t.tx3).child(empty_tip)),
-        );
+        card_container = card_container.child(empty_state(
+            &t,
+            if tab == Tab::Todos {
+                "check"
+            } else {
+                "file-text"
+            },
+            &empty_tip,
+            "",
+        ));
     }
 
-    section = section.child(card_container);
-    section
+    body.child(card_container)
 }
 
 /// Renders the Memos settings panel in the Settings dialog.

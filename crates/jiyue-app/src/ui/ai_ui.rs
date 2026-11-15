@@ -599,7 +599,7 @@ fn render_selection_capsule(
             .shadow_lg()
             .cursor_pointer()
             .hover(|s| s.bg(t.hover).border_color(t.ac))
-            .child(icon("sparkles", 14.0, t.ac))
+            .child(icon("bulb", 14.0, t.ac))
             .child(
                 div()
                     .font_weight(gpui::FontWeight::MEDIUM)

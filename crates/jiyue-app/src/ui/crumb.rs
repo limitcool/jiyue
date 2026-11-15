@@ -351,7 +351,7 @@ pub fn render_crumb(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl In
             .flex()
             .items_center()
             .justify_center()
-            .size(px(28.0))
+            .size(px(26.0))
             .rounded(px(RADIUS_S))
             .text_color(color)
             .cursor_pointer()
@@ -368,22 +368,29 @@ pub fn render_crumb(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl In
         )
     };
 
+    let is_reading = app.view_mode == crate::session::ViewMode::Read;
     right = right.child(
         div()
             .flex()
+            .items_center()
             .gap(px(2.0))
             .child(action(
-                "layout-columns",
-                app.layout.split.is_some(),
-                Box::new(|this, _| super::split::toggle(this)),
-            ))
-            // Reading-mode button: not wired yet (the pill's 阅读 item is a placeholder).
-            .child(action("book-2", false, Box::new(|_, _| {})))
-            .child(action(
-                "layout-sidebar-right",
-                app.right_sidebar_open,
+                "book-2",
+                is_reading,
                 Box::new(|this, _| {
-                    this.right_sidebar_open = !this.right_sidebar_open;
+                    let next = if this.view_mode == crate::session::ViewMode::Read {
+                        crate::session::ViewMode::from_live_preview(this.live_preview)
+                    } else {
+                        crate::session::ViewMode::Read
+                    };
+                    this.set_view_mode(next);
+                }),
+            ))
+            .child(action(
+                "bulb",
+                app.ext.ai.panel_open,
+                Box::new(|this, cx| {
+                    this.dispatch_ext(ExtCommand::Ai(super::ai_ui::Command::TogglePanel), cx);
                 }),
             ))
             .child(star_button(app, cx))
@@ -394,13 +401,14 @@ pub fn render_crumb(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl In
         .flex()
         .items_center()
         .gap(px(ICON_GAP_TIGHT))
-        .h(px(40.0))
+        .h(px(34.0))
         .flex_none()
         .pl(px(18.0))
         .pr(px(10.0))
+        .bg(t.surface)
         .border_b_1()
-        .border_color(t.line_soft)
-        .text_size(px(12.5))
+        .border_color(t.border_subtle)
+        .text_size(px(12.0))
         .text_color(t.tx3)
         .child(icon("folder-open", 16.0, t.tx3))
         .child(folder_row)
@@ -436,7 +444,7 @@ fn star_button(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .size(px(28.0))
+        .size(px(26.0))
         .rounded(px(RADIUS_S))
         .text_color(color)
         .cursor_pointer()
@@ -469,7 +477,7 @@ fn dots_button(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .size(px(28.0))
+        .size(px(26.0))
         .rounded(px(RADIUS_S))
         .text_color(color)
         .cursor_pointer()

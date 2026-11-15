@@ -336,7 +336,7 @@ fn render_right_column(t: &ActiveTheme, _cx: &mut Context<RustdianApp>) -> Div {
         .gap(px(8.0))
         .w_full()
         .child(tip_card(t, "link", &t!("welcome-tip-wikilink")))
-        .child(tip_card(t, "sparkles", &t!("welcome-tip-markdown")))
+        .child(tip_card(t, "bulb", &t!("welcome-tip-markdown")))
         .child(tip_card(t, "check", &t!("welcome-tip-local")));
 
     div()

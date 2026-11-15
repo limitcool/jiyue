@@ -9,18 +9,17 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, App, Div, FontWeight, IntoElement, MouseButton,
+    Animation, AnimationExt, AnyElement, App, Div, ElementId, FontWeight, IntoElement, MouseButton,
     MouseDownEvent, SharedString, Transformation, Window, div, percentage, prelude::*, px,
     relative, svg,
 };
 
 use crate::theme::{
-    ActiveTheme, ICON_GAP_TIGHT, ICON_SIZE, RADIUS_L, RADIUS_M, RADIUS_PILL, RADIUS_S,
+    ActiveTheme, CONTROL_LG, CONTROL_MD, CONTROL_SM, CONTROL_XS, FONT_BASE, FONT_MD, FONT_SM,
+    FONT_XS, ICON_GAP_TIGHT, ICON_SIZE, ICON_SM, ICON_XS, RADIUS_L, RADIUS_M, RADIUS_PILL,
+    RADIUS_S,
 };
 use crate::ui::icons::icon;
-
-/// Red used for every danger control and destructive menu row.
-pub const DANGER_RGB: u32 = 0xE5484D;
 
 /// Click handler for one mouse event.
 pub type Click = Rc<dyn Fn(&MouseDownEvent, &mut Window, &mut App)>;
@@ -61,10 +60,6 @@ pub enum BadgeKind {
     Danger,
 }
 
-fn danger_colour() -> gpui::Rgba {
-    gpui::rgb(DANGER_RGB)
-}
-
 /// Push button with configurable size, styling, and optional leading icon.
 pub fn button_sized(
     t: &ActiveTheme,
@@ -75,27 +70,22 @@ pub fn button_sized(
     on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
     let (bg, fg, border, hover) = match kind {
-        ButtonKind::Primary => (t.ac, t.ac_on, t.ac, t.ac),
-        ButtonKind::Secondary => (t.raised, t.tx, t.line, t.hover),
+        ButtonKind::Primary => (t.ac, t.ac_on, t.ac, t.ac_hover),
+        ButtonKind::Secondary => (t.elevated, t.tx, t.border_default, t.hover),
         ButtonKind::Ghost => (
-            gpui::rgba(0x00000000),
+            gpui::transparent_black().into(),
             t.tx2,
-            gpui::rgba(0x00000000),
+            gpui::transparent_black().into(),
             t.hover,
         ),
-        ButtonKind::Danger => (
-            danger_colour(),
-            gpui::rgb(0xFFFFFF),
-            danger_colour(),
-            danger_colour(),
-        ),
+        ButtonKind::Danger => (t.danger, t.ac_on, t.danger, t.danger),
     };
 
     let (height, padding_x, font_sz, radius, icon_sz) = match size {
-        ButtonSize::Large => (36.0, 16.0, 14.0, RADIUS_M, ICON_SIZE),
-        ButtonSize::Medium => (30.0, 12.0, 13.0, RADIUS_M, ICON_SIZE),
-        ButtonSize::Small => (26.0, 8.0, 12.0, RADIUS_S, 14.0),
-        ButtonSize::Xs => (22.0, 6.0, 11.0, RADIUS_S, 12.0),
+        ButtonSize::Large => (CONTROL_LG, 16.0, FONT_MD, RADIUS_M, ICON_SIZE),
+        ButtonSize::Medium => (CONTROL_MD, 12.0, FONT_BASE, RADIUS_M, ICON_SIZE),
+        ButtonSize::Small => (CONTROL_SM, 8.0, FONT_SM, RADIUS_S, ICON_SM),
+        ButtonSize::Xs => (CONTROL_XS, 6.0, FONT_XS, RADIUS_S, ICON_XS),
     };
 
     let mut el = div()
@@ -226,7 +216,7 @@ pub fn choice_chip(
         .justify_center()
         .h(px(24.0))
         .px(px(10.0))
-        .rounded(px(12.0))
+        .rounded(px(RADIUS_PILL))
         .border_1()
         .text_size(px(11.5))
         .cursor_pointer()
@@ -241,30 +231,123 @@ pub fn choice_chip(
             .text_color(t.ac)
             .font_weight(FontWeight::MEDIUM)
     } else {
-        el.bg(t.sheet)
-            .border_color(t.line_soft)
+        el.bg(t.surface)
+            .border_color(t.border_subtle)
             .text_color(t.tx2)
-            .hover(|s| s.bg(t.hover).text_color(t.tx))
+            .hover(|s| {
+                s.bg(t.hover)
+                    .border_color(t.border_default)
+                    .text_color(t.tx)
+            })
     }
 }
 
-/// Checkbox toggle item with an icon and label.
+/// Compact rectangular action/syntax chip used in AI quick actions and search syntax helpers.
+pub fn action_chip(
+    t: &ActiveTheme,
+    icon_name: Option<&str>,
+    label: &str,
+    on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    let mut el = div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(4.0))
+        .h(px(24.0))
+        .px(px(8.0))
+        .rounded(px(RADIUS_S))
+        .border_1()
+        .border_color(t.border_subtle)
+        .bg(t.elevated)
+        .font_family(crate::ui::fonts::ui_name())
+        .text_size(px(11.5))
+        .text_color(t.tx2)
+        .cursor_pointer()
+        .whitespace_nowrap()
+        .hover(|s| {
+            s.bg(t.hover)
+                .border_color(t.border_default)
+                .text_color(t.tx)
+        });
+    if let Some(name) = icon_name {
+        el = el.child(icon(name, ICON_XS, t.ac));
+    }
+    el.child(SharedString::from(label.to_string()))
+        .on_mouse_down(MouseButton::Left, on_click)
+}
+
+/// Tag chip with a leading label and a clickable remove button (`×`).
+pub fn removable_tag_chip(
+    t: &ActiveTheme,
+    id: ElementId,
+    label: &str,
+    on_open: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+    on_remove: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(4.0))
+        .h(px(22.0))
+        .pl(px(8.0))
+        .pr(px(5.0))
+        .rounded(px(RADIUS_PILL))
+        .bg(t.elevated)
+        .border_1()
+        .border_color(t.border_subtle)
+        .font_family(crate::ui::fonts::ui_name())
+        .text_size(px(11.5))
+        .text_color(t.tx2)
+        .child(
+            div()
+                .cursor_pointer()
+                .hover(|s| s.text_color(t.ac))
+                .child(SharedString::from(label.to_string()))
+                .on_mouse_down(MouseButton::Left, on_open),
+        )
+        .child(
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(14.0))
+                .rounded(px(RADIUS_PILL))
+                .cursor_pointer()
+                .hover(|s| s.bg(t.hover).text_color(t.danger))
+                .child(icon("x", 10.0, t.tx3))
+                .on_mouse_down(MouseButton::Left, on_remove),
+        )
+}
+
+/// Checkbox toggle item with a crisp 15px square checkbox and label.
 pub fn checkbox_toggle(
     t: &ActiveTheme,
     label: &str,
     checked: bool,
     on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
+    let mut box_el = div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(15.0))
+        .rounded(px(RADIUS_S))
+        .border_1()
+        .border_color(if checked { t.ac } else { t.border_default })
+        .bg(if checked { t.ac } else { t.elevated });
+    if checked {
+        box_el = box_el.child(icon("check", 11.0, t.ac_on));
+    }
     div()
         .flex()
         .items_center()
         .gap(px(6.0))
         .cursor_pointer()
-        .child(icon(
-            if checked { "check" } else { "circle" },
-            15.0,
-            if checked { t.ac } else { t.tx2 },
-        ))
+        .child(box_el)
         .child(
             div()
                 .text_size(px(12.0))
@@ -323,11 +406,11 @@ pub fn segmented(
     let mut control = div()
         .flex()
         .flex_none()
-        .h(px(30.0))
-        .rounded(px(8.0))
+        .h(px(CONTROL_MD))
+        .rounded(px(RADIUS_M))
         .border_1()
-        .border_color(t.line)
-        .bg(t.sheet)
+        .border_color(t.border_default)
+        .bg(t.panel)
         .overflow_hidden()
         .font_family(crate::ui::fonts::ui_name());
     for (i, name) in options.iter().enumerate() {
@@ -346,9 +429,7 @@ pub fn segmented(
                 FontWeight::NORMAL
             })
             .child(SharedString::from(name.as_ref().to_string()));
-        // The container clips only its rectangle, so the end segments round their own outer corners
-        // (inside the 1px border: radius minus the border width).
-        let inner = RADIUS_M - 1.0;
+        let inner = (RADIUS_M - 1.0).max(2.0);
         if i == 0 {
             seg = seg.rounded_l(px(inner));
         }
@@ -356,12 +437,60 @@ pub fn segmented(
             seg = seg.rounded_r(px(inner));
         }
         if on {
-            seg = seg.bg(t.active);
+            seg = seg.bg(t.elevated);
         } else {
             seg = seg.hover(|s| s.bg(t.hover));
         }
         if i > 0 {
-            seg = seg.border_l_1().border_color(t.line_soft);
+            seg = seg.border_l_1().border_color(t.border_subtle);
+        }
+        let pick = on_select.clone();
+        seg = seg.on_mouse_down(MouseButton::Left, move |_, window, cx| pick(&i, window, cx));
+        control = control.child(seg);
+    }
+    control
+}
+
+/// Full-width equal-split segmented control for sidebars and inspector panels.
+pub fn segmented_full(
+    t: &ActiveTheme,
+    options: &[impl AsRef<str>],
+    selected: usize,
+    on_select: PickIndex,
+) -> Div {
+    let mut control = div()
+        .flex()
+        .items_center()
+        .w_full()
+        .h(px(28.0))
+        .p(px(2.0))
+        .gap(px(2.0))
+        .rounded(px(RADIUS_M))
+        .border_1()
+        .border_color(t.border_subtle)
+        .bg(t.canvas)
+        .font_family(crate::ui::fonts::ui_name());
+    for (i, name) in options.iter().enumerate() {
+        let on = i == selected;
+        let mut seg = div()
+            .flex()
+            .flex_1()
+            .items_center()
+            .justify_center()
+            .h_full()
+            .rounded(px(RADIUS_S))
+            .text_size(px(12.0))
+            .cursor_pointer()
+            .whitespace_nowrap()
+            .child(SharedString::from(name.as_ref().to_string()));
+        if on {
+            seg = seg
+                .bg(t.elevated)
+                .text_color(t.tx)
+                .font_weight(FontWeight::MEDIUM)
+                .shadow_xs();
+        } else {
+            seg = seg.text_color(t.tx2).hover(|s| s.text_color(t.tx));
         }
         let pick = on_select.clone();
         seg = seg.on_mouse_down(MouseButton::Left, move |_, window, cx| pick(&i, window, cx));
@@ -507,8 +636,8 @@ pub fn badge(t: &ActiveTheme, text: &str, kind: BadgeKind) -> Div {
         BadgeKind::Neutral => (t.tx2, t.hover),
         BadgeKind::Accent => (t.ac, t.ac_soft),
         BadgeKind::Ok => (t.ok, t.ok_soft),
-        BadgeKind::Warn => (t.st, t.hover),
-        BadgeKind::Danger => (danger_colour(), gpui::rgba(0xE5484D1F)),
+        BadgeKind::Warn => (t.warn, t.warn_soft),
+        BadgeKind::Danger => (t.danger, t.danger_soft),
     };
     div()
         .flex_none()

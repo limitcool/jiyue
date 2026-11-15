@@ -818,7 +818,7 @@ fn rename_modal(
         body = body.child(
             div()
                 .text_size(px(11.5))
-                .text_color(gpui::rgb(0xE5484D))
+                .text_color(t.danger)
                 .child(SharedString::from(message.clone())),
         );
     }

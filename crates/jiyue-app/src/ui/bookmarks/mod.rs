@@ -26,6 +26,8 @@ use crate::ui::search_ui;
 use crate::ui::widgets::{LineInput, LineInputEvent, ListAction, is_escape, menu_action};
 use logic::{Bookmark, Kind, Toggle};
 
+pub use view::render_sidebar_panel;
+#[allow(unused_imports)]
 pub use view::section;
 
 /// Commands of this module (sent as `ExtCommand::Bookmarks`, palette rows and buttons).

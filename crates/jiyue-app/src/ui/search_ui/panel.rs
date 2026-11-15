@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use gpui::{
     AnyElement, App, Context, Entity, Focusable, FontWeight, HighlightStyle, KeyDownEvent,
-    MouseButton, ScrollHandle, StyledText, Subscription, Task, Window, div, prelude::*, px,
+    MouseButton, ScrollHandle, SharedString, StyledText, Subscription, Task, Window, div,
+    prelude::*, px,
 };
 use jiyue_search::Hit;
 
@@ -16,7 +17,7 @@ use super::logic::{self, MatchOpts, Scope};
 use super::{focus_soon, index};
 use crate::jobs::spawn_blocking;
 use crate::session::Debounce;
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, RADIUS_S};
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
 use crate::ui::widgets::{LineInput, LineInputEvent, controls};
@@ -114,6 +115,70 @@ fn ensure_history(app: &mut RustdianApp) {
     st.history_loaded = true;
 }
 
+/// Ensures the shared search `LineInput` exists and is bound, returning it.
+fn ensure_input(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) -> Entity<LineInput> {
+    let theme = app.theme;
+    if let Some(input) = app.ext.search.panel.input.clone() {
+        input.update(cx, |input, cx| input.set_theme(theme, cx));
+        return input;
+    }
+    let input = cx.new(|cx| LineInput::new(cx, crate::t!("search-placeholder")));
+    input.update(cx, |input, cx| input.set_theme(theme, cx));
+    let sub = cx.subscribe(
+        &input,
+        |app: &mut RustdianApp, _input, ev: &LineInputEvent, cx| match ev {
+            LineInputEvent::Changed(_) => on_query_changed(app, cx),
+            // Enter and Escape are bound by the field itself, so they arrive here, not in
+            // `handle_key`. Ctrl+Enter is not bound and still comes through `handle_key`.
+            LineInputEvent::Submit(_) => {
+                let ix = app.ext.search.panel.selected;
+                activate(app, ix, false, cx);
+            }
+            LineInputEvent::Cancel => {
+                if app.ext.search.panel.open {
+                    close(app, cx);
+                } else {
+                    set_query(app, "", cx);
+                }
+            }
+        },
+    );
+    app.ext.search.panel._input_sub = Some(sub);
+    app.ext.search.panel.input = Some(input.clone());
+    input
+}
+
+/// Ensures the sidebar Search panel's input and search history are initialized.
+pub fn ensure_sidebar_ready(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    ensure_history(app);
+    let _ = ensure_input(app, cx);
+}
+
+/// Focuses the sidebar search input when switching into the Search sidebar module.
+pub fn focus_sidebar_input(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    ensure_sidebar_ready(app, cx);
+    if !app.ext.search.panel.open
+        && let Some(input) = app.ext.search.panel.input.clone()
+    {
+        let handle = input.read(cx).focus_handle(cx);
+        focus_soon(cx, handle);
+    }
+}
+
+/// Sets the sidebar search query without opening the modal overlay.
+pub fn set_sidebar_query(app: &mut RustdianApp, query: &str, cx: &mut Context<RustdianApp>) {
+    ensure_sidebar_ready(app, cx);
+    set_query(app, query, cx);
+}
+
+/// Updates the shared search input's theme when the active theme changes.
+pub fn sync_theme(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    let theme = app.theme;
+    if let Some(input) = app.ext.search.panel.input.clone() {
+        input.update(cx, |input, cx| input.set_theme(theme, cx));
+    }
+}
+
 /// Opens the panel with an empty query. Opening it again only focuses the field.
 pub fn open(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     if app.ext.search.panel.open {
@@ -124,31 +189,8 @@ pub fn open(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         return;
     }
     ensure_history(app);
-    let theme = app.theme;
-    let input = match app.ext.search.panel.input.clone() {
-        Some(input) => input,
-        None => {
-            let input = cx.new(|cx| LineInput::new(cx, crate::t!("search-placeholder")));
-            let sub = cx.subscribe(
-                &input,
-                |app: &mut RustdianApp, _input, ev: &LineInputEvent, cx| match ev {
-                    LineInputEvent::Changed(_) => on_query_changed(app, cx),
-                    // Enter and Escape are bound by the field itself, so they arrive here, not in
-                    // `handle_key`. Ctrl+Enter is not bound and still comes through `handle_key`.
-                    LineInputEvent::Submit(_) => {
-                        let ix = app.ext.search.panel.selected;
-                        activate(app, ix, false, cx);
-                    }
-                    LineInputEvent::Cancel => close(app, cx),
-                },
-            );
-            app.ext.search.panel._input_sub = Some(sub);
-            app.ext.search.panel.input = Some(input.clone());
-            input
-        }
-    };
+    let input = ensure_input(app, cx);
     input.update(cx, |input, cx| {
-        input.set_theme(theme, cx);
         input.set_text("", cx);
     });
     let st = &mut app.ext.search.panel;
@@ -501,11 +543,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     let query_now = input.read(cx).text();
     let has_query = !query_now.trim().is_empty();
 
-    let scrim = if t.kind.is_dark() {
-        gpui::rgba(0x0000008C)
-    } else {
-        gpui::rgba(0x00000059)
-    };
+    let scrim = t.scrim;
 
     let view = cx.entity().downgrade();
     let on_scope: controls::PickIndex = Rc::new(move |ix: &usize, _: &mut Window, cx: &mut App| {
@@ -596,24 +634,12 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
             .pb(px(8.0));
         for (label, insert) in SYNTAX_CHIPS {
             let insert = insert.to_string();
-            chips = chips.child(
-                div()
-                    .px(px(8.0))
-                    .py(px(3.0))
-                    .rounded(px(6.0))
-                    .border_1()
-                    .border_color(t.line)
-                    .bg(t.sheet)
-                    .text_size(px(11.5))
-                    .text_color(t.tx3)
-                    .cursor_pointer()
-                    .hover(|s| s.bg(t.hover))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| append_query(this, &insert, cx)),
-                    )
-                    .child(label),
-            );
+            chips = chips.child(controls::action_chip(
+                &t,
+                None,
+                label,
+                cx.listener(move |this, _, _, cx| append_query(this, &insert, cx)),
+            ));
         }
         list = list.child(chips);
     } else if st.results.is_empty() {
@@ -714,6 +740,256 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
                 .justify_center()
                 .child(card),
         )
+        .into_any_element()
+}
+
+/// Compact search result row tailored for the 236px sidebar module.
+fn sidebar_result_row(
+    app: &RustdianApp,
+    cx: &mut Context<RustdianApp>,
+    ix: usize,
+    hit: &Hit,
+    selected: bool,
+) -> AnyElement {
+    let t = app.theme;
+    let terms = &app.ext.search.panel.terms;
+    let ranges = title_ranges(&hit.title, terms);
+    let folder = logic::folder_of(&hit.path);
+    let title = StyledText::new(hit.title.clone())
+        .with_highlights(highlights(&hit.title, &ranges, &t, selected));
+    let snippet = StyledText::new(hit.snippet.clone()).with_highlights(highlights(
+        &hit.snippet,
+        &hit.highlights,
+        &t,
+        selected,
+    ));
+    let mut row = div()
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .px(px(8.0))
+        .py(px(6.0))
+        .rounded(px(RADIUS_S))
+        .cursor_pointer()
+        .when(selected, |d| d.bg(t.selected))
+        .when(!selected, |d| d.hover(|s| s.bg(t.hover)))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _, _, cx| {
+                this.ext.search.panel.selected = ix;
+                activate(this, ix, false, cx);
+                cx.notify();
+            }),
+        )
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(icon("file-text", 13.0, if selected { t.ac } else { t.tx3 }))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .truncate()
+                        .text_size(px(12.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.tx)
+                        .child(title),
+                ),
+        );
+    if !folder.is_empty() {
+        row = row.child(
+            div()
+                .pl(px(19.0))
+                .truncate()
+                .text_size(px(10.5))
+                .text_color(t.tx3)
+                .child(folder),
+        );
+    }
+    row.child(
+        div()
+            .pl(px(19.0))
+            .max_h(px(32.0))
+            .overflow_hidden()
+            .text_size(px(11.5))
+            .line_height(px(16.0))
+            .text_color(t.tx2)
+            .child(snippet),
+    )
+    .into_any_element()
+}
+
+/// Renders the persistent global search view inside the 236px left sidebar.
+pub fn render_sidebar_panel(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
+    let t = app.theme;
+    let st = &app.ext.search.panel;
+    if st.open {
+        return div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .p(px(12.0))
+            .child(controls::empty_state(
+                &t,
+                "search",
+                "全局搜索浮窗已打开",
+                "关闭浮窗后可在此继续检索",
+            ))
+            .into_any_element();
+    }
+    let Some(input) = st.input.clone() else {
+        return div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .p(px(12.0))
+            .child(controls::empty_state(
+                &t,
+                "search",
+                &crate::t!("sidebar-search"),
+                "正在初始化搜索索引…",
+            ))
+            .into_any_element();
+    };
+    let query_now = input.read(cx).text();
+    let has_query = !query_now.trim().is_empty();
+
+    let view = cx.entity().downgrade();
+    let on_scope: controls::PickIndex = Rc::new(move |ix: &usize, _: &mut Window, cx: &mut App| {
+        let ix = *ix;
+        let _ = view.update(cx, |app, cx| set_scope(app, ix, cx));
+    });
+    let labels: Vec<&str> = Scope::ALL.iter().map(|s| s.label()).collect();
+
+    let top = div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap(px(8.0))
+        .p(px(10.0))
+        .border_b_1()
+        .border_color(t.border_subtle)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.0))
+                .child(div().flex_1().min_w_0().child(input))
+                .when(has_query, |d| {
+                    let save_query = query_now.clone();
+                    d.child(controls::icon_button_sized(
+                        &t,
+                        "bookmark",
+                        controls::IconBtnSize::Small,
+                        cx.listener(move |this, _, _, cx| {
+                            crate::ui::ext::bookmarks::add_search(this, &save_query);
+                            cx.notify();
+                        }),
+                    ))
+                    .child(controls::icon_button_sized(
+                        &t,
+                        "x",
+                        controls::IconBtnSize::Small,
+                        cx.listener(|this, _, _, cx| {
+                            set_query(this, "", cx);
+                        }),
+                    ))
+                }),
+        )
+        .child(controls::segmented_full(
+            &t,
+            &labels,
+            st.scope.index(),
+            on_scope,
+        ))
+        .when(has_query && st.searched, |d| {
+            d.child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(t.tx3)
+                    .child(SharedString::from(crate::t!(
+                        "search-results-count",
+                        count = st.results.len()
+                    ))),
+            )
+        });
+
+    let mut list = div()
+        .id("sidebar-search-list")
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .gap(px(2.0))
+        .p(px(6.0))
+        .overflow_y_scroll();
+
+    if !has_query {
+        list = list.child(section_label(&crate::t!("search-syntax"), &t));
+        let mut chips = div()
+            .flex()
+            .flex_wrap()
+            .gap(px(5.0))
+            .px(px(8.0))
+            .pb(px(8.0));
+        for (label, insert) in SYNTAX_CHIPS {
+            let insert = insert.to_string();
+            chips = chips.child(controls::action_chip(
+                &t,
+                None,
+                label,
+                cx.listener(move |this, _, _, cx| append_query(this, &insert, cx)),
+            ));
+        }
+        list = list.child(chips);
+        if !st.history.is_empty() {
+            list = list.child(section_label(&crate::t!("search-recent"), &t));
+            for query in &st.history {
+                list = list.child(history_row(&t, cx, query));
+            }
+        }
+    } else if st.results.is_empty() {
+        if st.searched {
+            list = list.child(controls::empty_state(
+                &t,
+                "search",
+                &crate::t!("search-no-results"),
+                &crate::t!("search-no-results-hint"),
+            ));
+        } else {
+            let text = if app.ext.search.service.index.is_some() {
+                crate::t!("search-searching")
+            } else {
+                crate::t!("search-indexing")
+            };
+            list = list.child(
+                div()
+                    .px(px(10.0))
+                    .py(px(16.0))
+                    .text_size(px(12.0))
+                    .text_color(t.tx3)
+                    .child(SharedString::from(text)),
+            );
+        }
+    } else {
+        for (ix, hit) in st.results.iter().enumerate() {
+            list = list.child(sidebar_result_row(app, cx, ix, hit, ix == st.selected));
+        }
+    }
+
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .child(top)
+        .child(list)
         .into_any_element()
 }
 

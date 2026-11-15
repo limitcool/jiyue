@@ -49,6 +49,26 @@ pub fn open_query(app: &mut RustdianApp, query: &str, cx: &mut Context<RustdianA
     panel::open_with_query(app, query, cx);
 }
 
+/// Ensures the sidebar search panel's input & history are initialized.
+pub fn ensure_sidebar_ready(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    panel::ensure_sidebar_ready(app, cx);
+}
+
+/// Focuses the persistent sidebar search input.
+pub fn focus_sidebar_input(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    panel::focus_sidebar_input(app, cx);
+}
+
+/// Sets the sidebar search query without opening the modal overlay.
+pub fn set_sidebar_query(app: &mut RustdianApp, query: &str, cx: &mut Context<RustdianApp>) {
+    panel::set_sidebar_query(app, query, cx);
+}
+
+/// Renders the persistent search view inside the left sidebar.
+pub fn render_sidebar_panel(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
+    panel::render_sidebar_panel(app, cx)
+}
+
 pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElement> {
     let mut out = Vec::new();
     if app.ext.search.panel.open {
@@ -87,7 +107,8 @@ pub fn on_event(app: &mut RustdianApp, ev: &ExtEvent, cx: &mut Context<RustdianA
         }
         ExtEvent::NoteOpened(path) => find::on_note_opened(app, path, cx),
         ExtEvent::VaultFilesChanged(paths) => index::files_changed(app, paths, cx),
-        ExtEvent::ThemeChanged | ExtEvent::Tick => {}
+        ExtEvent::ThemeChanged => panel::sync_theme(app, cx),
+        ExtEvent::Tick => {}
     }
 }
 

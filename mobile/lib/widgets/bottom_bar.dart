@@ -16,7 +16,7 @@ class JiyueBottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tabs = [
+    const tabs = [
       ('folder', '笔记库'),
       ('calendar', '速记'),
       ('search', '检索'),
@@ -24,43 +24,63 @@ class JiyueBottomBar extends StatelessWidget {
     ];
 
     return Container(
-      height: 64,
       decoration: BoxDecoration(
-        color: colors.chrome,
+        color: colors.panel,
         border: Border(
-          top: BorderSide(color: colors.border, width: 1),
+          top: BorderSide(color: colors.borderSubtle, width: 1),
         ),
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: List.generate(tabs.length, (index) {
-          final isSelected = currentIndex == index;
-          final (iconName, label) = tabs[index];
-          final color = isSelected ? colors.accent : colors.textMuted;
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 54,
+          child: Row(
+            children: List.generate(tabs.length, (index) {
+              final bool isSelected = currentIndex == index;
+              final (iconName, label) = tabs[index];
+              final Color fg = isSelected ? colors.accent : colors.textMuted;
 
-          return InkWell(
-            onTap: () => onTabSelected(index),
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  JiyueIcon(iconName, color: color, size: 22),
-                  const SizedBox(height: 3),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                      color: color,
+              return Expanded(
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => onTabSelected(index),
+                    borderRadius: BorderRadius.circular(JiyueTokens.radiusMd),
+                    splashColor: colors.active,
+                    highlightColor: colors.hover,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 24,
+                          height: 2,
+                          decoration: BoxDecoration(
+                            color: isSelected ? colors.accent : Colors.transparent,
+                            borderRadius: BorderRadius.circular(
+                              JiyueTokens.radiusPill,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        JiyueIcon(iconName, color: fg, size: 19),
+                        const SizedBox(height: 3),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: JiyueTokens.fontXs,
+                            fontWeight:
+                                isSelected ? FontWeight.w600 : FontWeight.w400,
+                            color: fg,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
-          );
-        }),
+                ),
+              );
+            }),
+          ),
+        ),
       ),
     );
   }

@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, ClipboardItem, Context, FontWeight, HighlightStyle, MouseButton,
-    MouseDownEvent, SharedString, StrikethroughStyle, StyledText, Window, div, prelude::*, px, rgb,
+    MouseDownEvent, SharedString, StrikethroughStyle, StyledText, Window, div, prelude::*, px,
 };
 use jiyue_ai::prompts::{self, Prompt};
 use jiyue_ai::{AiError, CancelToken, ChatMessage};
@@ -542,7 +542,7 @@ pub fn render_card(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEleme
     let status: (String, gpui::Rgba) = if card.streaming {
         ("生成中…".into(), t.tx3)
     } else if let Some(e) = &card.error {
-        (errors::describe(e), rgb(0xe5484d))
+        (errors::describe(e), t.danger)
     } else if card.output.trim().is_empty() {
         ("没有结果".into(), t.tx3)
     } else {
@@ -570,7 +570,7 @@ pub fn render_card(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEleme
                 .flex()
                 .items_center()
                 .gap(px(8.0))
-                .child(icon("sparkles", 15.0, t.ac))
+                .child(icon("bulb", 15.0, t.ac))
                 .child(
                     div()
                         .font_weight(FontWeight::SEMIBOLD)
@@ -594,7 +594,7 @@ pub fn render_card(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEleme
             .text_size(px(12.5))
             .child(icon(
                 if card.streaming {
-                    "sparkles"
+                    "bulb"
                 } else {
                     "info-circle"
                 },
@@ -615,10 +615,10 @@ pub fn render_card(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEleme
             .map(|(range, kind)| {
                 let style = match kind {
                     SegKind::Removed => HighlightStyle {
-                        color: Some(rgb(0xe5484d).into()),
+                        color: Some(t.danger.into()),
                         strikethrough: Some(StrikethroughStyle {
                             thickness: px(1.0),
-                            color: Some(rgb(0xe5484d).into()),
+                            color: Some(t.danger.into()),
                         }),
                         ..Default::default()
                     },

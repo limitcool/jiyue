@@ -5,6 +5,7 @@ import '../models/note.dart';
 import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
 import '../widgets/ai_polish_sheet.dart';
+import '../widgets/jiyue_controls.dart';
 import '../widgets/jiyue_icon.dart';
 import 'editor_page.dart';
 
@@ -45,7 +46,7 @@ class _ReaderPageState extends State<ReaderPage> {
     }
   }
 
-  void _openEditor() async {
+  Future<void> _openEditor() async {
     if (_note == null) return;
     final updated = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
@@ -78,13 +79,16 @@ class _ReaderPageState extends State<ReaderPage> {
         vaultService: widget.vaultService,
         themeProvider: widget.themeProvider,
         onApply: (polished, isReplace) async {
-          final newContent = isReplace ? polished : '${_note!.content}\n\n$polished';
+          final newContent =
+              isReplace ? polished : '${_note!.content}\n\n$polished';
           final ok = await widget.vaultService.saveNote(_note!.path, newContent);
           if (mounted) {
             if (ok) {
               _loadNote();
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(isReplace ? '已更新笔记内容' : '已插入内容到末尾')),
+                SnackBar(
+                  content: Text(isReplace ? '已更新笔记内容' : '已插入内容到末尾'),
+                ),
               );
             } else {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -103,7 +107,7 @@ class _ReaderPageState extends State<ReaderPage> {
 
     if (_loading) {
       return Scaffold(
-        backgroundColor: colors.chrome,
+        backgroundColor: colors.surface,
         body: Center(
           child: CircularProgressIndicator(color: colors.accent),
         ),
@@ -112,288 +116,324 @@ class _ReaderPageState extends State<ReaderPage> {
 
     if (_note == null) {
       return Scaffold(
-        backgroundColor: colors.chrome,
-        appBar: AppBar(backgroundColor: colors.chrome),
-        body: Center(
-          child: Text('笔记不存在', style: TextStyle(color: colors.textPrimary)),
+        backgroundColor: colors.surface,
+        appBar: AppBar(
+          backgroundColor: colors.panel,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          leading: Center(
+            child: JiyueIconButton(
+              colors: colors,
+              icon: 'chevron-left',
+              size: 34,
+              iconSize: 18,
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(1),
+            child: JiyueDivider(colors: colors),
+          ),
+        ),
+        body: JiyueEmptyState(
+          colors: colors,
+          icon: 'file-text',
+          title: '笔记不存在',
+          subtitle: '该笔记可能已被移动或删除',
         ),
       );
     }
 
     return Scaffold(
-      backgroundColor: colors.chrome,
+      backgroundColor: colors.surface,
       appBar: AppBar(
-        backgroundColor: colors.chrome,
+        backgroundColor: colors.panel,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
         elevation: 0,
-        leading: IconButton(
-          icon: JiyueIcon('chevron-left', color: colors.textPrimary, size: 24),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-        title: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-          decoration: BoxDecoration(
-            color: colors.sheet,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: colors.border),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // 阅读态胶囊 (选中)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: colors.accent,
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Row(
-                  children: [
-                    JiyueIcon('eye', color: colors.onAccent, size: 14),
-                    const SizedBox(width: 4),
-                    Text(
-                      '阅读',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        color: colors.onAccent,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // 编辑态胶囊 (点击切换)
-              InkWell(
-                onTap: _openEditor,
-                borderRadius: BorderRadius.circular(15),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  child: Row(
-                    children: [
-                      JiyueIcon('pencil', color: colors.textMuted, size: 14),
-                      const SizedBox(width: 4),
-                      Text(
-                        '编辑',
-                        style: TextStyle(fontSize: 12, color: colors.textMuted),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
         centerTitle: true,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: JiyueDivider(colors: colors),
+        ),
+        leading: Center(
+          child: JiyueIconButton(
+            colors: colors,
+            icon: 'chevron-left',
+            size: 34,
+            iconSize: 18,
+            tooltip: '返回',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+        ),
+        title: JiyueSegmented(
+          colors: colors,
+          items: const [
+            ('阅读', 'eye'),
+            ('编辑', 'pencil'),
+          ],
+          selectedIndex: 0,
+          onChanged: (idx) {
+            if (idx == 1) _openEditor();
+          },
+        ),
         actions: [
-          IconButton(
-            icon: JiyueIcon('sparkles', color: colors.accent, size: 20),
+          JiyueIconButton(
+            colors: colors,
+            icon: 'sparkles',
+            size: 32,
+            iconSize: 17,
             tooltip: 'AI 智能润色 / 摘要',
             onPressed: _openAiPolish,
           ),
-          IconButton(
-            icon: JiyueIcon('palette', color: colors.textSecondary, size: 20),
+          JiyueIconButton(
+            colors: colors,
+            icon: 'palette',
+            size: 32,
+            iconSize: 17,
+            tooltip: '切换墨/雾主题',
             onPressed: () {
-              // 快速在 墨 和 雾 之间切换
               final next = widget.themeProvider.themeId == JiyueThemeId.ink
                   ? JiyueThemeId.fog
                   : JiyueThemeId.ink;
               widget.themeProvider.setTheme(next);
             },
           ),
-          IconButton(
-            icon: JiyueIcon('dots', color: colors.textSecondary, size: 20),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('更多操作：导出、字数统计、历史版本')),
-              );
-            },
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: JiyueIconButton(
+              colors: colors,
+              icon: 'dots',
+              size: 32,
+              iconSize: 17,
+              tooltip: '更多操作',
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('更多操作：导出、字数统计、历史版本')),
+                );
+              },
+            ),
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          // 正文滚动区
-          SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 90),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 面包屑
+            Row(
               children: [
-                // 面包屑
-                Row(
-                  children: [
-                    JiyueIcon('folder', color: colors.textMuted, size: 13),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Jiyue 知识库',
-                      style: TextStyle(fontSize: 11, color: colors.textMuted),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-
-                // 大标题
+                JiyueIcon('folder', color: colors.textMuted, size: 13),
+                const SizedBox(width: 6),
                 Text(
-                  _note!.title,
+                  'Jiyue 知识库',
                   style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: colors.textPrimary,
+                    fontSize: JiyueTokens.fontXs,
+                    color: colors.textMuted,
                   ),
                 ),
-                const SizedBox(height: 8),
+              ],
+            ),
+            const SizedBox(height: 8),
 
-                // 元信息
-                Row(
-                  children: [
-                    JiyueIcon('clock', color: colors.textMuted, size: 12),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${_note!.content.length} 字符 · 包含 ${_note!.wikilinks.length} 个双向链接',
-                      style: TextStyle(fontSize: 11, color: colors.textMuted),
-                    ),
-                  ],
+            // 大标题
+            Text(
+              _note!.title,
+              style: TextStyle(
+                fontSize: JiyueTokens.fontXl,
+                fontWeight: FontWeight.w700,
+                color: colors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+
+            // 元信息
+            Row(
+              children: [
+                JiyueIcon('clock', color: colors.textMuted, size: 12),
+                const SizedBox(width: 6),
+                Text(
+                  '${_note!.content.length} 字符 · 包含 ${_note!.wikilinks.length} 个双向链接',
+                  style: TextStyle(
+                    fontSize: JiyueTokens.fontXs,
+                    color: colors.textMuted,
+                  ),
                 ),
-                const SizedBox(height: 16),
+              ],
+            ),
+            const SizedBox(height: 14),
 
-                // WikiLinks 双链胶囊横向流
-                if (_note!.wikilinks.isNotEmpty) ...[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: _note!.wikilinks.map((link) {
-                      return InkWell(
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => ReaderPage(
-                                notePath: '$link.md',
-                                themeProvider: widget.themeProvider,
-                                vaultService: widget.vaultService,
-                              ),
-                            ),
-                          );
-                        },
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: colors.accent.withAlpha(25),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: colors.accent.withAlpha(80)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              JiyueIcon('link', color: colors.accent, size: 13),
-                              const SizedBox(width: 6),
-                              Text(
-                                '[[$link]]',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                  color: colors.accent,
-                                ),
-                              ),
-                            ],
+            // WikiLinks 双链胶囊流
+            if (_note!.wikilinks.isNotEmpty) ...[
+              Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _note!.wikilinks.map((link) {
+                  return JiyueTagChip(
+                    colors: colors,
+                    icon: 'link',
+                    accent: true,
+                    label: '[[$link]]',
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ReaderPage(
+                            notePath: '$link.md',
+                            themeProvider: widget.themeProvider,
+                            vaultService: widget.vaultService,
                           ),
                         ),
                       );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 18),
-                ],
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 14),
+            ],
 
-                // Markdown 正文渲染
-                MarkdownBody(
-                  data: _note!.content,
-                  selectable: true,
-                  styleSheet: MarkdownStyleSheet(
-                    p: TextStyle(fontSize: 14, height: 1.6, color: colors.textPrimary),
-                    h1: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colors.textPrimary),
-                    h2: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: colors.textPrimary),
-                    h3: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: colors.textPrimary),
-                    code: TextStyle(
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                      backgroundColor: colors.raised,
-                      color: colors.accent,
-                    ),
-                    codeblockDecoration: BoxDecoration(
-                      color: colors.raised,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: colors.border),
-                    ),
-                    blockquoteDecoration: BoxDecoration(
-                      color: colors.sheet,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border(left: BorderSide(color: colors.accent, width: 4)),
-                    ),
-                    listBullet: TextStyle(color: colors.accent),
+            JiyueDivider(colors: colors),
+            const SizedBox(height: 14),
+
+            // Markdown 正文渲染
+            MarkdownBody(
+              data: _note!.content,
+              selectable: true,
+              styleSheet: MarkdownStyleSheet(
+                p: TextStyle(
+                  fontSize: JiyueTokens.fontMd,
+                  height: 1.65,
+                  color: colors.textPrimary,
+                ),
+                h1: TextStyle(
+                  fontSize: JiyueTokens.fontXl,
+                  fontWeight: FontWeight.w700,
+                  color: colors.textPrimary,
+                ),
+                h2: TextStyle(
+                  fontSize: JiyueTokens.fontLg,
+                  fontWeight: FontWeight.w600,
+                  color: colors.textPrimary,
+                ),
+                h3: TextStyle(
+                  fontSize: JiyueTokens.fontMd,
+                  fontWeight: FontWeight.w600,
+                  color: colors.textPrimary,
+                ),
+                code: TextStyle(
+                  fontSize: JiyueTokens.fontSm,
+                  fontFamily: 'monospace',
+                  backgroundColor: colors.elevated,
+                  color: colors.accent,
+                ),
+                codeblockDecoration: BoxDecoration(
+                  color: colors.elevated,
+                  borderRadius: BorderRadius.circular(JiyueTokens.radiusMd),
+                  border: Border.all(color: colors.borderSubtle, width: 1),
+                ),
+                blockquoteDecoration: BoxDecoration(
+                  color: colors.panel,
+                  borderRadius: BorderRadius.circular(JiyueTokens.radiusSm),
+                  border: Border(
+                    left: BorderSide(color: colors.accent, width: 3),
+                  ),
+                ),
+                listBullet: TextStyle(color: colors.accent),
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: colors.panel,
+          border: Border(
+            top: BorderSide(color: colors.borderSubtle, width: 1),
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                _readingAction(
+                  colors: colors,
+                  icon: 'hierarchy-2',
+                  label: '大纲',
+                  color: colors.textSecondary,
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('大纲结构导航就绪')),
+                    );
+                  },
+                ),
+                _readingAction(
+                  colors: colors,
+                  icon: _isBookmarked ? 'bookmark-filled' : 'bookmark',
+                  label: _isBookmarked ? '已收藏' : '收藏',
+                  color: _isBookmarked ? colors.accent : colors.textSecondary,
+                  onTap: () => setState(() => _isBookmarked = !_isBookmarked),
+                ),
+                _readingAction(
+                  colors: colors,
+                  icon: 'affiliate',
+                  label: '图谱',
+                  color: colors.textSecondary,
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已抽取当前笔记与其他笔记的拓扑关联')),
+                    );
+                  },
+                ),
+                _readingAction(
+                  colors: colors,
+                  icon: 'pencil',
+                  label: '编辑',
+                  color: colors.accent,
+                  onTap: _openEditor,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _readingAction({
+    required JiyueThemeColors colors,
+    required String icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(JiyueTokens.radiusMd),
+          splashColor: colors.active,
+          highlightColor: colors.hover,
+          child: SizedBox(
+            height: double.infinity,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                JiyueIcon(icon, color: color, size: 15),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: JiyueTokens.fontSm,
+                    fontWeight: FontWeight.w500,
+                    color: color,
                   ),
                 ),
               ],
             ),
           ),
-
-          // 底部悬浮阅读工具栏
-          Positioned(
-            left: 24,
-            right: 24,
-            bottom: 20,
-            child: Container(
-              height: 48,
-              decoration: BoxDecoration(
-                color: colors.sheet,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: colors.border),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withAlpha(colors.isDark ? 80 : 25),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _readingAction('hierarchy-2', '大纲', colors.textSecondary, () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('大纲结构导航就绪')),
-                    );
-                  }),
-                  _readingAction(
-                    _isBookmarked ? 'bookmark-filled' : 'bookmark',
-                    _isBookmarked ? '已收藏' : '收藏',
-                    _isBookmarked ? colors.accent : colors.textSecondary,
-                    () => setState(() => _isBookmarked = !_isBookmarked),
-                  ),
-                  _readingAction('affiliate', '图谱', colors.textSecondary, () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('已抽取当前笔记与其他笔记的拓扑关联')),
-                    );
-                  }),
-                  _readingAction('pencil', '快速编辑', colors.accent, _openEditor),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _readingAction(String icon, String label, Color color, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
-          children: [
-            JiyueIcon(icon, color: color, size: 16),
-            const SizedBox(width: 4),
-            Text(label, style: TextStyle(fontSize: 11, color: color)),
-          ],
         ),
       ),
     );

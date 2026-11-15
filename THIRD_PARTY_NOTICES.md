@@ -21,7 +21,7 @@ name (Noto Sans SC, Noto Serif SC, JetBrainsMono Nerd Font).
 
 ## Crates
 
-622 crates. Workspace crates are excluded (they are Jiyue itself).
+633 crates. Workspace crates are excluded (they are Jiyue itself).
 
 | Crate | Version | Licence | Repository |
 | --- | --- | --- | --- |
@@ -163,6 +163,9 @@ name (Noto Sans SC, Noto Serif SC, JetBrainsMono Nerd Font).
 | flate2 | 1.1.10 | MIT OR Apache-2.0 | https://github.com/rust-lang/flate2-rs |
 | float-cmp | 0.9.0 | MIT | https://github.com/mikedilger/float-cmp |
 | float_next_after | 1.0.0 | MIT | https://gitlab.com/bronsonbdevost/next_afterf |
+| fluent-bundle | 0.15.3 | Apache-2.0 OR MIT | https://github.com/projectfluent/fluent-rs |
+| fluent-langneg | 0.13.1 | Apache-2.0 OR MIT | https://github.com/projectfluent/fluent-langneg-rs |
+| fluent-syntax | 0.11.1 | Apache-2.0 OR MIT | https://github.com/projectfluent/fluent-rs |
 | flume | 0.11.1 | Apache-2.0/MIT | https://github.com/zesterer/flume |
 | fnv | 1.0.7 | Apache-2.0 / MIT | https://github.com/servo/rust-fnv |
 | foldhash | 0.1.5 | Zlib | https://github.com/orlp/foldhash |
@@ -247,6 +250,8 @@ name (Noto Sans SC, Noto Serif SC, JetBrainsMono Nerd Font).
 | imgref | 1.12.3 | CC0-1.0 OR Apache-2.0 | https://github.com/kornelski/imgref |
 | indexmap | 2.14.2 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/indexmap |
 | instant | 0.1.13 | BSD-3-Clause | https://github.com/sebcrozet/instant |
+| intl-memoizer | 0.5.3 | Apache-2.0 OR MIT | https://github.com/projectfluent/fluent-rs |
+| intl_pluralrules | 7.0.2 | Apache-2.0/MIT | https://github.com/zbraniecki/pluralrules |
 | inventory | 0.3.25 | MIT OR Apache-2.0 | https://github.com/dtolnay/inventory |
 | ipnet | 2.12.2 | MIT OR Apache-2.0 | https://github.com/krisprice/ipnet |
 | itertools | 0.14.0 | MIT OR Apache-2.0 | https://github.com/rust-itertools/itertools |
@@ -365,6 +370,7 @@ name (Noto Sans SC, Noto Serif SC, JetBrainsMono Nerd Font).
 | pulp-wasm-simd-flag | 0.1.1 | MIT | https://github.com/sarah-quinones/pulp/ |
 | pxfm | 0.1.30 | BSD-3-Clause OR Apache-2.0 | https://github.com/awxkee/pxfm |
 | qoi | 0.4.1 | MIT/Apache-2.0 | https://github.com/aldanor/qoi-rust |
+| qrcode | 0.14.1 | MIT OR Apache-2.0 | https://github.com/kennytm/qrcode-rust |
 | quick-error | 2.0.1 | MIT/Apache-2.0 | http://github.com/tailhook/quick-error |
 | quick-xml | 0.42.0 | MIT | https://github.com/tafia/quick-xml |
 | quinn | 0.11.12 | MIT OR Apache-2.0 | https://github.com/quinn-rs/quinn |
@@ -424,6 +430,8 @@ name (Noto Sans SC, Noto Serif SC, JetBrainsMono Nerd Font).
 | schemars_derive | 1.2.3 | MIT | https://github.com/GREsau/schemars |
 | scopeguard | 1.2.0 | MIT OR Apache-2.0 | https://github.com/bluss/scopeguard |
 | seahash | 4.1.0 | MIT | https://gitlab.redox-os.org/redox-os/seahash |
+| self_cell | 0.10.3 | Apache-2.0 | https://github.com/Voultapher/self_cell |
+| self_cell | 1.3.0 | Apache-2.0 OR GPL-2.0-only | https://github.com/Voultapher/self_cell |
 | serde | 1.0.229 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
 | serde-tuple-vec-map | 1.0.1 | MIT | https://github.com/daboross/serde-tuple-vec-map/ |
 | serde_core | 1.0.229 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
@@ -532,11 +540,14 @@ name (Noto Sans SC, Noto Serif SC, JetBrainsMono Nerd Font).
 | tracing-core | 0.1.36 | MIT | https://github.com/tokio-rs/tracing |
 | try-lock | 0.2.5 | MIT | https://github.com/seanmonstar/try-lock |
 | ttf-parser | 0.25.1 | MIT OR Apache-2.0 | https://github.com/harfbuzz/ttf-parser |
+| type-map | 0.5.1 | MIT/Apache-2.0 | https://github.com/kardeiz/type-map |
 | typeid | 1.0.3 | MIT OR Apache-2.0 | https://github.com/dtolnay/typeid |
 | typenum | 1.20.1 | MIT OR Apache-2.0 | https://github.com/paholg/typenum |
 | typetag | 0.2.23 | MIT OR Apache-2.0 | https://github.com/dtolnay/typetag |
 | typetag-impl | 0.2.23 | MIT OR Apache-2.0 | https://github.com/dtolnay/typetag |
 | ucd-trie | 0.1.7 | MIT OR Apache-2.0 | https://github.com/BurntSushi/ucd-generate |
+| unic-langid | 0.9.6 | MIT OR Apache-2.0 | https://github.com/zbraniecki/unic-locale |
+| unic-langid-impl | 0.9.6 | MIT OR Apache-2.0 | https://github.com/zbraniecki/unic-locale |
 | unicase | 2.10.0 | MIT OR Apache-2.0 | https://github.com/seanmonstar/unicase |
 | unicode-bidi | 0.3.18 | MIT OR Apache-2.0 | https://github.com/servo/unicode-bidi |
 | unicode-bidi-mirroring | 0.4.0 | MIT/Apache-2.0 | https://github.com/RazrFalcon/unicode-bidi-mirroring |

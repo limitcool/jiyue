@@ -3,6 +3,7 @@ import '../bridge/vault_service.dart';
 import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
 import '../widgets/ai_polish_sheet.dart';
+import '../widgets/jiyue_controls.dart';
 import '../widgets/jiyue_icon.dart';
 
 class EditorPage extends StatefulWidget {
@@ -41,7 +42,10 @@ class _EditorPageState extends State<EditorPage> {
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    final ok = await widget.vaultService.saveNote(widget.notePath, _controller.text);
+    final ok = await widget.vaultService.saveNote(
+      widget.notePath,
+      _controller.text,
+    );
     if (mounted) {
       setState(() => _saving = false);
       if (ok) {
@@ -62,16 +66,28 @@ class _EditorPageState extends State<EditorPage> {
       return;
     }
     final selectedText = text.substring(selection.start, selection.end);
-    final newText = text.replaceRange(selection.start, selection.end, '$prefix$selectedText$suffix');
+    final newText = text.replaceRange(
+      selection.start,
+      selection.end,
+      '$prefix$selectedText$suffix',
+    );
     _controller.text = newText;
-    _controller.selection = TextSelection.collapsed(offset: selection.start + prefix.length + selectedText.length);
+    _controller.selection = TextSelection.collapsed(
+      offset: selection.start + prefix.length + selectedText.length,
+    );
   }
 
   void _openAiPolish([String? customText]) {
     final text = _controller.text;
     final selection = _controller.selection;
-    final bool hasSelection = selection.isValid && !selection.isCollapsed && selection.start >= 0 && selection.end <= text.length;
-    final targetText = customText ?? (hasSelection ? text.substring(selection.start, selection.end) : text);
+    final bool hasSelection =
+        selection.isValid &&
+        !selection.isCollapsed &&
+        selection.start >= 0 &&
+        selection.end <= text.length;
+    final targetText =
+        customText ??
+        (hasSelection ? text.substring(selection.start, selection.end) : text);
 
     if (targetText.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -91,23 +107,36 @@ class _EditorPageState extends State<EditorPage> {
         onApply: (polished, isReplace) {
           if (isReplace) {
             if (hasSelection && customText == null) {
-              final newText = text.replaceRange(selection.start, selection.end, polished);
+              final newText = text.replaceRange(
+                selection.start,
+                selection.end,
+                polished,
+              );
               _controller.text = newText;
-              _controller.selection = TextSelection.collapsed(offset: selection.start + polished.length);
+              _controller.selection = TextSelection.collapsed(
+                offset: selection.start + polished.length,
+              );
             } else {
               _controller.text = polished;
-              _controller.selection = TextSelection.collapsed(offset: polished.length);
+              _controller.selection = TextSelection.collapsed(
+                offset: polished.length,
+              );
             }
           } else {
             if (hasSelection && customText == null) {
               final insertOffset = selection.end;
-              final newText = '${text.substring(0, insertOffset)}\n\n$polished\n${text.substring(insertOffset)}';
+              final newText =
+                  '${text.substring(0, insertOffset)}\n\n$polished\n${text.substring(insertOffset)}';
               _controller.text = newText;
-              _controller.selection = TextSelection.collapsed(offset: insertOffset + polished.length + 3);
+              _controller.selection = TextSelection.collapsed(
+                offset: insertOffset + polished.length + 3,
+              );
             } else {
               final newText = '${_controller.text}\n\n$polished';
               _controller.text = newText;
-              _controller.selection = TextSelection.collapsed(offset: newText.length);
+              _controller.selection = TextSelection.collapsed(
+                offset: newText.length,
+              );
             }
           }
         },
@@ -120,36 +149,49 @@ class _EditorPageState extends State<EditorPage> {
     final colors = widget.themeProvider.colors;
 
     return Scaffold(
-      backgroundColor: colors.chrome,
+      backgroundColor: colors.surface,
       appBar: AppBar(
-        backgroundColor: colors.chrome,
+        backgroundColor: colors.panel,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
         elevation: 0,
-        leading: IconButton(
-          icon: JiyueIcon('chevron-left', color: colors.textPrimary, size: 24),
-          onPressed: () => Navigator.of(context).pop(false),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: JiyueDivider(colors: colors),
+        ),
+        leading: Center(
+          child: JiyueIconButton(
+            colors: colors,
+            icon: 'chevron-left',
+            size: 34,
+            iconSize: 18,
+            tooltip: '返回',
+            onPressed: () => Navigator.of(context).pop(false),
+          ),
         ),
         title: Text(
           widget.notePath,
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: colors.textPrimary),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: JiyueTokens.fontMd,
+            fontWeight: FontWeight.w600,
+            color: colors.textPrimary,
+          ),
         ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: TextButton.icon(
-              style: TextButton.styleFrom(
-                foregroundColor: colors.accent,
-                backgroundColor: colors.accent.withAlpha(25),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Center(
+              child: JiyueButton(
+                colors: colors,
+                label: _saving ? '保存中' : '完成',
+                icon: 'check',
+                loading: _saving,
+                kind: JiyueButtonKind.primary,
+                size: JiyueControlSize.xs,
+                onPressed: _saving ? null : _save,
               ),
-              icon: _saving
-                  ? SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: colors.accent),
-                    )
-                  : JiyueIcon('check', color: colors.accent, size: 16),
-              label: Text(_saving ? '保存中' : '完成', style: const TextStyle(fontWeight: FontWeight.bold)),
-              onPressed: _saving ? null : _save,
             ),
           ),
         ],
@@ -158,22 +200,44 @@ class _EditorPageState extends State<EditorPage> {
         children: [
           // 快捷编辑栏
           Container(
-            height: 42,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            height: 40,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
             decoration: BoxDecoration(
-              color: colors.sheet,
-              border: Border(bottom: BorderSide(color: colors.border)),
+              color: colors.panel,
+              border: Border(
+                bottom: BorderSide(color: colors.borderSubtle, width: 1),
+              ),
             ),
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                _aiToolButton('✨ AI 润色', () => _openAiPolish(), colors),
-                _toolButton('[[ ]]', '双链', () => _insertMarkdown('[[', ']]'), colors),
+                _aiToolButton(colors, () => _openAiPolish()),
+                _toolButton(
+                  '[[ ]]',
+                  '双链',
+                  () => _insertMarkdown('[[', ']]'),
+                  colors,
+                ),
                 _toolButton('#', '大标题', () => _insertMarkdown('# '), colors),
                 _toolButton('##', '二级标题', () => _insertMarkdown('## '), colors),
-                _toolButton('- [ ]', '待办', () => _insertMarkdown('- [ ] '), colors),
-                _toolButton('**B**', '粗体', () => _insertMarkdown('**', '**'), colors),
-                _toolButton('`code`', '代码', () => _insertMarkdown('`', '`'), colors),
+                _toolButton(
+                  '- [ ]',
+                  '待办',
+                  () => _insertMarkdown('- [ ] '),
+                  colors,
+                ),
+                _toolButton(
+                  '**B**',
+                  '粗体',
+                  () => _insertMarkdown('**', '**'),
+                  colors,
+                ),
+                _toolButton(
+                  '`code`',
+                  '代码',
+                  () => _insertMarkdown('`', '`'),
+                  colors,
+                ),
                 _toolButton('> 引用', '引用块', () => _insertMarkdown('> '), colors),
               ],
             ),
@@ -181,18 +245,20 @@ class _EditorPageState extends State<EditorPage> {
           // 正文多行输入框
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: TextField(
                 controller: _controller,
                 maxLines: null,
                 expands: true,
+                cursorColor: colors.accent,
                 keyboardType: TextInputType.multiline,
                 contextMenuBuilder: (context, editableTextState) {
-                  final List<ContextMenuButtonItem> buttonItems = editableTextState.contextMenuButtonItems;
+                  final List<ContextMenuButtonItem> buttonItems =
+                      editableTextState.contextMenuButtonItems;
                   buttonItems.insert(
                     0,
                     ContextMenuButtonItem(
-                      label: '✨ AI 润色',
+                      label: 'AI 润色',
                       onPressed: () {
                         editableTextState.hideToolbar();
                         _openAiPolish();
@@ -205,15 +271,18 @@ class _EditorPageState extends State<EditorPage> {
                   );
                 },
                 style: TextStyle(
-                  fontSize: 15,
-                  height: 1.6,
+                  fontSize: JiyueTokens.fontMd,
+                  height: 1.65,
                   color: colors.textPrimary,
                   fontFamily: 'monospace',
                 ),
                 decoration: InputDecoration(
                   border: InputBorder.none,
                   hintText: '开始书写笔记正文 (支持标准 Markdown 及 [[双链]])...',
-                  hintStyle: TextStyle(color: colors.textMuted),
+                  hintStyle: TextStyle(
+                    fontSize: JiyueTokens.fontBase,
+                    color: colors.textMuted,
+                  ),
                 ),
               ),
             ),
@@ -223,26 +292,42 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
-  Widget _aiToolButton(String label, VoidCallback onTap, JiyueThemeColors colors) {
+  Widget _aiToolButton(JiyueThemeColors colors, VoidCallback onTap) {
+    final radius = BorderRadius.circular(JiyueTokens.radiusSm);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: colors.accent.withAlpha(30),
-            border: Border.all(color: colors.accent.withAlpha(80)),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: colors.accent,
+      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          splashColor: colors.active,
+          highlightColor: colors.hover,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: colors.accentSoft,
+              border: Border.all(
+                color: colors.accent.withAlpha(90),
+                width: 1,
+              ),
+              borderRadius: radius,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                JiyueIcon('sparkles', color: colors.accent, size: 12),
+                const SizedBox(width: 4),
+                Text(
+                  'AI 润色',
+                  style: TextStyle(
+                    fontSize: JiyueTokens.fontSm,
+                    fontWeight: FontWeight.w600,
+                    color: colors.accent,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -250,22 +335,41 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
-  Widget _toolButton(String label, String tooltip, VoidCallback onTap, JiyueThemeColors colors) {
+  Widget _toolButton(
+    String label,
+    String tooltip,
+    VoidCallback onTap,
+    JiyueThemeColors colors,
+  ) {
+    final radius = BorderRadius.circular(JiyueTokens.radiusSm);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: colors.raised,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: colors.textPrimary),
+      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 6),
+      child: Tooltip(
+        message: tooltip,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: radius,
+            splashColor: colors.active,
+            highlightColor: colors.hover,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: colors.elevated,
+                borderRadius: radius,
+                border: Border.all(color: colors.borderSubtle, width: 1),
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: JiyueTokens.fontSm,
+                  fontWeight: FontWeight.w500,
+                  color: colors.textPrimary,
+                ),
+              ),
+            ),
           ),
         ),
       ),

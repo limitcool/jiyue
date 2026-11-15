@@ -17,7 +17,6 @@ const RECENT_LIMIT: usize = 3;
 /// Upper bound on note matches for a typed query (keeps rendering cheap in big vaults).
 const SEARCH_LIMIT: usize = 50;
 const LIST_MAX_HEIGHT: f32 = 440.0;
-const DANGER_RGB: u32 = 0xE5484D;
 const RECENT_LABEL: &str = "最近笔记";
 const COMMAND_LABEL: &str = "命令";
 /// Command rows for an empty query in quick-switch mode (Ctrl+K), in display order.
@@ -473,11 +472,7 @@ impl RustdianApp {
         let selected = self.palette.selected.min(entries.len().saturating_sub(1));
         let cmds = commands();
 
-        let scrim = if t.kind.is_dark() {
-            gpui::rgba(0x0000008C)
-        } else {
-            gpui::rgba(0x00000059)
-        };
+        let scrim = t.scrim;
 
         let mut rows: Vec<AnyElement> = Vec::new();
         let mut flat = 0usize;
@@ -609,7 +604,7 @@ impl RustdianApp {
         selected: bool,
     ) -> AnyElement {
         let t = self.theme;
-        let danger = gpui::rgb(DANGER_RGB);
+        let danger = t.danger;
         let (icon_name, label, meta, shortcut, is_danger) = match entry {
             Entry::Note(idx) => {
                 let Some(note) = self.vault.notes.get(idx) else {

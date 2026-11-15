@@ -8,15 +8,15 @@ use super::{editing, effective_config, errors};
 use crate::RustdianApp;
 use crate::theme::ActiveTheme;
 use crate::ui::icons::icon;
-use crate::ui::widgets::{ButtonKind, button, icon_button};
+use crate::ui::widgets::{ButtonKind, action_chip, button, icon_button};
 use gpui::{
     AnyElement, App, ClickEvent, ClipboardItem, Context, Div, ElementId, FontWeight, MouseButton,
     MouseDownEvent, SharedString, Window, div, prelude::*, px,
 };
 
-/// Top and bottom offsets of the drawer, under the tab strip and above the status bar.
-const PANEL_TOP: f32 = 92.0;
-const PANEL_BOTTOM: f32 = 44.0;
+/// Top and bottom offsets of the drawer, under the tab strip and breadcrumb bar and above the status bar.
+const PANEL_TOP: f32 = 78.0;
+const PANEL_BOTTOM: f32 = 32.0;
 const PANEL_WIDTH: f32 = 380.0;
 
 /// Renders the drawer.
@@ -246,94 +246,38 @@ fn composer(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .flex_wrap()
         .gap(px(5.0))
         .pb(px(4.0))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(3.0))
-                .px(px(7.0))
-                .h(px(22.0))
-                .rounded(px(6.0))
-                .bg(t.sheet)
-                .hover(|s| s.bg(t.hover))
-                .cursor_pointer()
-                .text_size(px(11.0))
-                .text_color(t.tx)
-                .child(icon("bulb", 12.0, t.ac))
-                .child("✨ 润色笔记")
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                        super::notes::polish_note(this, cx);
-                    }),
-                ),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(3.0))
-                .px(px(7.0))
-                .h(px(22.0))
-                .rounded(px(6.0))
-                .bg(t.sheet)
-                .hover(|s| s.bg(t.hover))
-                .cursor_pointer()
-                .text_size(px(11.0))
-                .text_color(t.tx)
-                .child(icon("file-text", 12.0, t.ac))
-                .child("📝 提炼摘要")
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                        super::notes::ask_summarize(this, cx);
-                    }),
-                ),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(3.0))
-                .px(px(7.0))
-                .h(px(22.0))
-                .rounded(px(6.0))
-                .bg(t.sheet)
-                .hover(|s| s.bg(t.hover))
-                .cursor_pointer()
-                .text_size(px(11.0))
-                .text_color(t.tx)
-                .child(icon("tag", 12.0, t.ac))
-                .child("🏷️ 建议标签")
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                        super::notes::suggest_tags(this, cx);
-                    }),
-                ),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(3.0))
-                .px(px(7.0))
-                .h(px(22.0))
-                .rounded(px(6.0))
-                .bg(t.sheet)
-                .hover(|s| s.bg(t.hover))
-                .cursor_pointer()
-                .text_size(px(11.0))
-                .text_color(t.tx)
-                .child(icon("pencil", 12.0, t.ac))
-                .child("📌 建议标题")
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
-                        super::notes::suggest_title(this, cx);
-                    }),
-                ),
-        );
+        .child(action_chip(
+            &t,
+            Some("bulb"),
+            "润色笔记",
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                super::notes::polish_note(this, cx);
+            }),
+        ))
+        .child(action_chip(
+            &t,
+            Some("file-text"),
+            "提炼摘要",
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                super::notes::ask_summarize(this, cx);
+            }),
+        ))
+        .child(action_chip(
+            &t,
+            Some("tag"),
+            "建议标签",
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                super::notes::suggest_tags(this, cx);
+            }),
+        ))
+        .child(action_chip(
+            &t,
+            Some("pencil"),
+            "建议标题",
+            cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                super::notes::suggest_title(this, cx);
+            }),
+        ));
 
     let mut footer = div()
         .flex()
@@ -547,11 +491,7 @@ fn render_message(app: &RustdianApp, m: &UiMessage, cx: &mut Context<RustdianApp
                         .p(px(10.0))
                         .rounded(px(8.0))
                         .bg(t.sheet)
-                        .child(
-                            div()
-                                .text_color(gpui::rgb(0xe5484d))
-                                .child(errors::describe(e)),
-                        )
+                        .child(div().text_color(t.danger).child(errors::describe(e)))
                         .when(errors::can_retry(e), |d| {
                             d.child(div().flex().child(small_button(
                                 &t,
@@ -739,7 +679,7 @@ fn render_message(app: &RustdianApp, m: &UiMessage, cx: &mut Context<RustdianApp
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(t.ac)
                     .child(icon("bulb", 14.0, t.ac))
-                    .child("✨ 智能润色结果"),
+                    .child("智能润色结果"),
             );
             col = col.child(render_blocks(app, &m.text, cx));
             let text = m.text.clone();

@@ -901,7 +901,7 @@ impl Render for LineInput {
             .w_full()
             .font_family(crate::ui::fonts::ui_name())
             .text_size(px(FONT_SIZE))
-            .text_color(if disabled { t.tx3 } else { t.tx })
+            .text_color(if disabled { t.fg_disabled } else { t.tx })
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
             .cursor(if disabled {
@@ -914,11 +914,11 @@ impl Render for LineInput {
             row = row.h_full().px(px(4.0)).overflow_hidden();
         } else {
             let (bg, border_col) = if self.error {
-                (gpui::rgba(0xDC262612), gpui::rgb(0xDC2626))
+                (t.danger_soft, t.danger)
             } else if focused && !disabled {
-                (t.raised, t.ac)
+                (t.elevated, t.border_focus)
             } else {
-                (t.raised, t.line)
+                (t.elevated, t.border_default)
             };
 
             row = row

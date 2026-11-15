@@ -1,4 +1,4 @@
-//! Tab strips (42px title bar). In a split view each pane has its own strip: the left (or top)
+//! Tab strips (38px flat header bar). In a split view each pane has its own strip: the left (or top)
 //! strip shows the first pane's tabs, the other one the second pane's, and a 2px accent line
 //! marks the strip of the focused pane. The empty space after the tabs drags the window and
 //! double-click maximizes (OS behaviour); the caption buttons float over the right end
@@ -14,18 +14,17 @@ use super::icons::icon;
 use super::split;
 use crate::RustdianApp;
 use crate::session;
-use crate::theme::ActiveTheme;
+use crate::theme::{ActiveTheme, HEADER_HEIGHT, RADIUS_M, RADIUS_S};
 use gpui::{
     AnyElement, App, Bounds, Context, DragMoveEvent, ElementId, Entity, FontWeight, IntoElement,
     MouseButton, MouseDownEvent, Pixels, Point, Rgba, ScrollHandle, ScrollWheelEvent, SharedString,
-    Svg, Window, WindowControlArea, div, point, prelude::*, px, relative, rgb, svg,
+    Svg, Window, WindowControlArea, div, point, prelude::*, px, relative, svg,
 };
 
 const CAPTION_W: f32 = 46.0;
-const CAPTION_H: f32 = 30.0;
-/// Width of the three caption buttons; the strips leave this room at the right end.
+const CAPTION_H: f32 = HEADER_HEIGHT;
+/// Width of the three caption buttons; the title bar reserves this room at the right end.
 const CAPTION_AREA_W: f32 = CAPTION_W * 3.0;
-const CLOSE_HOVER: u32 = 0xe81123;
 /// Linux draws its own title bar (client-side decorations), and gpui hit-tests the caption and
 /// drag areas only on Windows. So there the buttons and the empty bar act on click instead.
 const LINUX_TITLEBAR: bool = cfg!(target_os = "linux");
@@ -95,10 +94,10 @@ impl gpui::Render for TabChip {
             .px(px(10.0))
             .flex()
             .items_center()
-            .rounded(px(8.0))
-            .bg(t.raised)
+            .rounded(px(RADIUS_M))
+            .bg(t.elevated)
             .border_1()
-            .border_color(t.line)
+            .border_color(t.border_default)
             .text_size(px(12.5))
             .text_color(t.tx)
             .child(self.label.clone())
@@ -157,7 +156,7 @@ fn close_button(
     t: &ActiveTheme,
     cx: &mut Context<RustdianApp>,
 ) -> impl IntoElement + use<> {
-    let glyph_color = if hovered { rgb(0xffffff) } else { t.tx2 };
+    let glyph_color: Rgba = if hovered { gpui::white().into() } else { t.tx2 };
     div()
         .id("caption_close")
         .flex()
@@ -171,7 +170,7 @@ fn close_button(
         .when(LINUX_TITLEBAR, |d| {
             d.on_mouse_down(MouseButton::Left, caption_click(WindowControlArea::Close))
         })
-        .when(hovered, |d| d.bg(rgb(CLOSE_HOVER)))
+        .when(hovered, |d| d.bg(t.danger))
         .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
             this.close_hovered = *hovered;
             cx.notify();
@@ -180,7 +179,7 @@ fn close_button(
 }
 
 /// The window caption buttons (minimize, maximize-restore, close). They float over the right
-/// end of the title bar, where the last strip leaves room for them.
+/// end of the title bar flush with the top-right window edge.
 pub fn render_captions(
     app: &RustdianApp,
     window: &Window,
@@ -195,12 +194,11 @@ pub fn render_captions(
     div()
         .absolute()
         .top_0()
-        .right(px(8.0))
-        .h(px(42.0))
+        .right_0()
+        .h(px(HEADER_HEIGHT))
         .flex()
         .flex_row()
-        .items_start()
-        .pt(px(6.0))
+        .items_center()
         .when(!MAC_TITLEBAR, |d| {
             d.child(caption_button(WindowControlArea::Min, "minus", &t))
                 .child(caption_button(WindowControlArea::Max, max_glyph, &t))
@@ -208,8 +206,8 @@ pub fn render_captions(
         })
 }
 
-/// Renders the title bar: one strip per pane (one when not split). The strips span the editor
-/// column, so each strip sits over its pane; above the right panel a drag area takes the room.
+/// Renders the flat 38px title bar: sidebar reveal (when collapsed), tab strips, window drag
+/// spacer, split & right-panel toggles, and caption reservation.
 pub fn render_tabbar(
     app: &RustdianApp,
     _window: &Window,
@@ -218,7 +216,6 @@ pub fn render_tabbar(
     let t = app.theme;
     let ratio = app.layout.split.as_ref().map(|s| s.ratio);
     let count = if ratio.is_some() { 2 } else { 1 };
-    let right_open = app.right_sidebar_open;
     let mut strips = div().flex().flex_row().flex_1().min_w_0().h_full();
     for pane in 0..count {
         if pane > 0 {
@@ -228,47 +225,92 @@ pub fn render_tabbar(
                     .w(px(1.0))
                     .h(px(18.0))
                     .my_auto()
-                    .bg(gpui::Rgba { a: 0.18, ..t.tx }),
+                    .bg(t.border_subtle),
             );
         }
-        // The caption buttons sit over the right panel's column when it is open (see below).
-        let reserve_captions = pane + 1 == count && !right_open;
-        strips = strips.child(render_strip(app, pane, ratio, reserve_captions, cx));
+        strips = strips.child(render_strip(app, pane, ratio, cx));
     }
+
+    let split_on = app.layout.split.is_some();
+    let right_on = app.right_sidebar_open;
+    let tool_btn = |id: &'static str, icon_name: &'static str, on: bool| {
+        div()
+            .id(id)
+            .flex()
+            .items_center()
+            .justify_center()
+            .size(px(26.0))
+            .rounded(px(RADIUS_S))
+            .cursor_pointer()
+            .when(on, |d| d.bg(t.ac_soft))
+            .when(!on, |d| d.hover(|s| s.bg(t.hover)))
+            .child(icon(icon_name, 15.0, if on { t.ac } else { t.tx2 }))
+    };
+
+    let tools = div()
+        .flex()
+        .items_center()
+        .flex_none()
+        .px(px(6.0))
+        .gap(px(2.0))
+        .child(
+            tool_btn("tabbar_split", "layout-columns", split_on).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    super::split::toggle(this);
+                    cx.notify();
+                }),
+            ),
+        )
+        .child(
+            tool_btn("tabbar_right_panel", "layout-sidebar-right", right_on).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.right_sidebar_open = !this.right_sidebar_open;
+                    crate::config_store::sync_ui(this);
+                    cx.notify();
+                }),
+            ),
+        );
+
     let mut row = div()
         .flex()
         .flex_row()
+        .items_center()
         .flex_none()
         .w_full()
-        .h(px(42.0))
-        .pr(px(8.0))
+        .h(px(HEADER_HEIGHT))
         .when(MAC_TITLEBAR, |d| d.pl(px(MAC_TRAFFIC_LIGHT_INSET)))
-        .bg(t.chrome)
-        .child(strips);
-    if right_open {
-        row = row.child(
-            div()
-                .flex_none()
-                .w(px(super::RIGHT_PANEL_W))
-                .mt(px(6.0))
-                .h(px(36.0))
-                .occlude()
-                .window_control_area(WindowControlArea::Drag)
-                .when(!cfg!(windows), |d| {
-                    d.on_mouse_down(MouseButton::Left, title_click())
+        .bg(t.panel)
+        .border_b_1()
+        .border_color(t.border_subtle);
+
+    if !app.left_sidebar_open {
+        row = row.child(div().flex().items_center().flex_none().pl(px(6.0)).child(
+            tool_btn("tabbar_open_sidebar", "layout-sidebar", false).on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    this.left_sidebar_open = true;
+                    crate::config_store::sync_ui(this);
+                    cx.notify();
                 }),
-        );
+            ),
+        ));
+    }
+
+    row = row.child(strips).child(tools);
+    if !MAC_TITLEBAR {
+        row = row.child(div().flex_none().w(px(CAPTION_AREA_W)).h_full());
     }
     row
 }
 
 /// One pane's strip: the tabs (a scroller as wide as its content, at most the strip) and the
-/// drag area that takes the rest. `reserve_captions` leaves the caption buttons' room at its end.
+/// drag area that takes the rest.
 fn render_strip(
     app: &RustdianApp,
     pane: usize,
     split_ratio: Option<f32>,
-    reserve_captions: bool,
     cx: &mut Context<RustdianApp>,
 ) -> AnyElement {
     let t = app.theme;
@@ -302,14 +344,14 @@ fn render_strip(
             .items_center()
             .justify_center()
             .flex_none()
-            .size(px(30.0))
-            .mb(px(2.0))
+            .size(px(26.0))
+            .mb(px(4.0))
             .ml(px(4.0))
-            .rounded(px(8.0))
+            .rounded(px(RADIUS_S))
             .text_color(t.tx3)
             .cursor_pointer()
             .hover(|s| s.bg(t.hover).text_color(t.tx2))
-            .child(icon("plus", 16.0, t.tx3))
+            .child(icon("plus", 15.0, t.tx3))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
@@ -347,8 +389,8 @@ fn render_strip(
         .gap(px(2.0))
         .flex_shrink()
         .min_w_0()
-        .mt(px(6.0))
-        .h(px(36.0))
+        .mt(px(4.0))
+        .h(px(34.0))
         .font_family(crate::ui::fonts::ui_name())
         .overflow_x_scroll()
         .track_scroll(&handle)
@@ -399,9 +441,9 @@ fn render_strip(
             .justify_center()
             .flex_none()
             .w(px(20.0))
-            .h(px(36.0))
-            .mt(px(6.0))
-            .rounded(px(6.0))
+            .h(px(34.0))
+            .mt(px(4.0))
+            .rounded(px(RADIUS_S))
             .cursor_pointer()
             .hover(|s| s.bg(t.hover))
             .child(icon(
@@ -422,20 +464,15 @@ fn render_strip(
             )
     };
 
-    // The drag area: the empty title bar. It stays clear of the tabs (window control areas are
-    // hit-tested apart from the elements), and the last strip leaves the caption buttons' room.
+    // The drag area: the empty title bar. It stays clear of the tabs and topbar controls.
     let drag_area = div()
         .flex_1()
         .min_w_0()
-        .mt(px(6.0))
-        .h(px(36.0))
+        .h_full()
         .occlude()
         .window_control_area(WindowControlArea::Drag)
         .when(!cfg!(windows), |d| {
             d.on_mouse_down(MouseButton::Left, title_click())
-        })
-        .when(reserve_captions && !MAC_TITLEBAR, |d| {
-            d.mr(px(CAPTION_AREA_W))
         });
 
     let mut wrap = div()
@@ -524,6 +561,7 @@ fn tab_el(
             SharedString::from(format!("tab{pane}")),
             pos as u64,
         ))
+        .relative()
         .flex()
         .flex_none()
         .items_center()
@@ -532,7 +570,7 @@ fn tab_el(
         .max_w(px(176.0))
         .pl(px(12.0))
         .pr(px(10.0))
-        .rounded_t(px(9.0))
+        .rounded_t(px(RADIUS_M))
         .text_size(px(12.5))
         .whitespace_nowrap()
         .cursor_pointer()
@@ -551,7 +589,21 @@ fn tab_el(
     // The active clean tab always shows the x.
     let dirty = app.is_dirty(&note.path, cx);
     if on {
-        tab = tab.bg(t.sheet).font_weight(FontWeight::MEDIUM);
+        tab = tab
+            .bg(t.surface)
+            .border_l_1()
+            .border_r_1()
+            .border_color(t.border_subtle)
+            .font_weight(FontWeight::MEDIUM)
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(2.0))
+                    .bg(t.ac),
+            );
     }
     if on || dirty {
         let group = SharedString::from(format!("tab-close-{pane}-{pos}"));

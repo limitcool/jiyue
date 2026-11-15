@@ -5,6 +5,7 @@ import '../models/exported_config.dart';
 import '../services/ai_service.dart';
 import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
+import 'jiyue_controls.dart';
 import 'jiyue_icon.dart';
 
 class AiPolishSheet extends StatefulWidget {
@@ -97,7 +98,10 @@ class _AiPolishSheetState extends State<AiPolishSheet> {
     if (_resultText == null) return;
     Clipboard.setData(ClipboardData(text: _resultText!));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('已复制润色内容到剪贴板'), duration: Duration(seconds: 1)),
+      const SnackBar(
+        content: Text('已复制润色内容到剪贴板'),
+        duration: Duration(seconds: 1),
+      ),
     );
   }
 
@@ -106,126 +110,88 @@ class _AiPolishSheetState extends State<AiPolishSheet> {
     final colors = widget.themeProvider.colors;
     final aiConfig = widget.vaultService.aiConfig;
 
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.85,
-      ),
-      decoration: BoxDecoration(
-        color: colors.sheet,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 顶部拖拽手柄
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: colors.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+    final Widget? providerPicker =
+        (aiConfig != null && aiConfig.providers.isNotEmpty)
+            ? Container(
+                height: JiyueTokens.controlSm,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: colors.elevated,
+                  borderRadius: BorderRadius.circular(JiyueTokens.radiusSm),
+                  border: Border.all(color: colors.border, width: 1),
                 ),
-              ),
-
-              // 标题与模型选择器
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: colors.accent.withAlpha(30),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: JiyueIcon('sparkles', color: colors.accent, size: 18),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'AI 智能润色 / 助手',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (aiConfig != null && aiConfig.providers.isNotEmpty)
-                    DropdownButtonHideUnderline(
-                      child: DropdownButton<ExportedAiProvider>(
-                        value: _selectedProvider,
-                        icon: JiyueIcon('chevron-down', color: colors.textMuted, size: 14),
-                        dropdownColor: colors.raised,
-                        borderRadius: BorderRadius.circular(12),
-                        style: TextStyle(fontSize: 12, color: colors.textPrimary),
-                        items: aiConfig.providers.map((p) {
-                          return DropdownMenuItem(
-                            value: p,
-                            child: Text(
-                              '${p.name} (${p.chatModel})',
-                              style: TextStyle(fontSize: 12, color: colors.textPrimary),
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: (p) {
-                          if (p != null) {
-                            setState(() => _selectedProvider = p);
-                            _startPolishing();
-                          }
-                        },
-                      ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<ExportedAiProvider>(
+                    value: _selectedProvider,
+                    isDense: true,
+                    icon: JiyueIcon(
+                      'chevron-down',
+                      color: colors.textMuted,
+                      size: 13,
                     ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // 未配置 AI 提示
-              if (_selectedProvider == null) ...[
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  margin: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    color: colors.raised,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: colors.border),
-                  ),
-                  child: Column(
-                    children: [
-                      JiyueIcon('info', color: colors.accent, size: 28),
-                      const SizedBox(height: 8),
-                      Text(
-                        '未检测到已配置的 AI 服务商',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: colors.textPrimary,
+                    dropdownColor: colors.elevated,
+                    borderRadius: BorderRadius.circular(JiyueTokens.radiusMd),
+                    style: TextStyle(
+                      fontSize: JiyueTokens.fontXs,
+                      color: colors.textPrimary,
+                    ),
+                    items: aiConfig.providers.map((p) {
+                      return DropdownMenuItem(
+                        value: p,
+                        child: Text(
+                          '${p.name} (${p.chatModel})',
+                          style: TextStyle(
+                            fontSize: JiyueTokens.fontXs,
+                            color: colors.textPrimary,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '请在右侧边栏设置中配置，或使用「手机扫码同步」导入 PC 端的配置。',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 12, color: colors.textMuted, height: 1.4),
-                      ),
-                    ],
+                      );
+                    }).toList(),
+                    onChanged: (p) {
+                      if (p != null) {
+                        setState(() => _selectedProvider = p);
+                        _startPolishing();
+                      }
+                    },
                   ),
                 ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text('关闭', style: TextStyle(color: colors.textMuted)),
+              )
+            : null;
+
+    return JiyueModalSheet(
+      colors: colors,
+      icon: 'sparkles',
+      title: 'AI 智能润色',
+      headerTrailing: providerPicker,
+      scrollable: false,
+      maxHeightFactor: 0.85,
+      child: _selectedProvider == null
+          ? Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                JiyueSectionCard(
+                  colors: colors,
+                  child: JiyueEmptyState(
+                    colors: colors,
+                    icon: 'info-circle',
+                    title: '未检测到已配置的 AI 服务商',
+                    subtitle: '请在设置中配置服务商，或使用「扫码导入」同步 PC 端配置',
+                  ),
                 ),
-              ] else ...[
-                // 风格选择选项卡
+                const SizedBox(height: 12),
+                JiyueButton(
+                  colors: colors,
+                  label: '关闭',
+                  kind: JiyueButtonKind.secondary,
+                  expand: true,
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            )
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -233,31 +199,14 @@ class _AiPolishSheetState extends State<AiPolishSheet> {
                       final isSelected = style == _currentStyle;
                       return Padding(
                         padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          showCheckmark: false,
-                          avatar: Text(style.icon, style: const TextStyle(fontSize: 13)),
-                          label: Text(
-                            style.label,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                              color: isSelected ? colors.onAccent : colors.textPrimary,
-                            ),
-                          ),
+                        child: JiyueChoiceChip(
+                          colors: colors,
+                          icon: style.icon,
+                          label: style.label,
                           selected: isSelected,
-                          selectedColor: colors.accent,
-                          backgroundColor: colors.raised,
-                          side: BorderSide(
-                            color: isSelected ? colors.accent : colors.border,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          onSelected: (val) {
-                            if (val) {
-                              setState(() => _currentStyle = style);
-                              _startPolishing();
-                            }
+                          onTap: () {
+                            setState(() => _currentStyle = style);
+                            _startPolishing();
                           },
                         ),
                       );
@@ -265,76 +214,61 @@ class _AiPolishSheetState extends State<AiPolishSheet> {
                   ),
                 ),
                 const SizedBox(height: 12),
-
-                // 结果区 / 加载中 / 错误展示
                 Flexible(
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: colors.raised,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: colors.border),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 160),
+                    child: JiyueSectionCard(
+                      colors: colors,
+                      padding: const EdgeInsets.all(12),
+                      child: _buildContentArea(colors),
                     ),
-                    child: _buildContentArea(colors),
                   ),
                 ),
-                const SizedBox(height: 14),
-
-                // 底部操作按钮栏
-                if (_resultText != null && !_isLoading) ...[
+                const SizedBox(height: 12),
+                if (_resultText != null && !_isLoading)
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: colors.textPrimary,
-                            side: BorderSide(color: colors.border),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
+                        child: JiyueButton(
+                          colors: colors,
+                          label: '插入下方',
+                          icon: 'arrow-down',
+                          kind: JiyueButtonKind.secondary,
+                          expand: true,
                           onPressed: () {
                             widget.onApply(_resultText!, false);
                             Navigator.of(context).pop();
                           },
-                          child: const Text('⬇️ 插入下方', style: TextStyle(fontSize: 13)),
                         ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: colors.accent,
-                            foregroundColor: colors.onAccent,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
+                        child: JiyueButton(
+                          colors: colors,
+                          label: '替换原内容',
+                          icon: 'check',
+                          kind: JiyueButtonKind.primary,
+                          expand: true,
                           onPressed: () {
                             widget.onApply(_resultText!, true);
                             Navigator.of(context).pop();
                           },
-                          child: const Text('✨ 替换原内容', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
                         ),
                       ),
                     ],
-                  ),
-                ] else if (_isLoading) ...[
+                  )
+                else if (_isLoading)
                   Center(
                     child: Text(
-                      'AI 正在进行 ${_currentStyle.label}，请稍候...',
-                      style: TextStyle(fontSize: 12, color: colors.textMuted),
+                      '正在使用 ${_currentStyle.label} 模式生成，请稍候...',
+                      style: TextStyle(
+                        fontSize: JiyueTokens.fontSm,
+                        color: colors.textMuted,
+                      ),
                     ),
                   ),
-                ],
               ],
-            ],
-          ),
-        ),
-      ),
+            ),
     );
   }
 
@@ -345,14 +279,20 @@ class _AiPolishSheetState extends State<AiPolishSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(strokeWidth: 2.5, color: colors.accent),
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: colors.accent,
+              ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Text(
-              '${_currentStyle.icon} 正在分析并重塑语言结构...',
-              style: TextStyle(fontSize: 13, color: colors.textMuted),
+              '正在以「${_currentStyle.label}」风格重塑文本...',
+              style: TextStyle(
+                fontSize: JiyueTokens.fontBase,
+                color: colors.textMuted,
+              ),
             ),
           ],
         ),
@@ -360,36 +300,39 @@ class _AiPolishSheetState extends State<AiPolishSheet> {
     }
 
     if (_errorMessage != null) {
-      const dangerColor = Color(0xFFEF4444);
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            JiyueIcon('alert-triangle', color: dangerColor, size: 28),
+            JiyueIcon('alert-triangle', color: colors.danger, size: 26),
             const SizedBox(height: 8),
             Text(
               '润色请求失败',
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: dangerColor),
+              style: TextStyle(
+                fontSize: JiyueTokens.fontBase,
+                fontWeight: FontWeight.w600,
+                color: colors.danger,
+              ),
             ),
             const SizedBox(height: 4),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
                 _errorMessage!,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 11, color: colors.textMuted),
+                style: TextStyle(
+                  fontSize: JiyueTokens.fontXs,
+                  color: colors.textMuted,
+                ),
               ),
             ),
-            const SizedBox(height: 10),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: colors.accent,
-                foregroundColor: colors.onAccent,
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              icon: JiyueIcon('refresh-cw', color: colors.onAccent, size: 14),
-              label: const Text('重试', style: TextStyle(fontSize: 12)),
+            const SizedBox(height: 12),
+            JiyueButton(
+              colors: colors,
+              label: '重试',
+              icon: 'refresh',
+              kind: JiyueButtonKind.primary,
+              size: JiyueControlSize.sm,
               onPressed: _startPolishing,
             ),
           ],
@@ -401,10 +344,11 @@ class _AiPolishSheetState extends State<AiPolishSheet> {
       return Stack(
         children: [
           SingleChildScrollView(
+            padding: const EdgeInsets.only(right: 32),
             child: SelectableText(
               _resultText!,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: JiyueTokens.fontMd,
                 height: 1.6,
                 color: colors.textPrimary,
                 fontFamily: 'monospace',
@@ -414,8 +358,11 @@ class _AiPolishSheetState extends State<AiPolishSheet> {
           Positioned(
             top: 0,
             right: 0,
-            child: IconButton(
-              icon: JiyueIcon('copy', color: colors.textMuted, size: 16),
+            child: JiyueIconButton(
+              colors: colors,
+              icon: 'copy',
+              size: 28,
+              iconSize: 15,
               tooltip: '复制内容',
               onPressed: _copyResult,
             ),
@@ -425,7 +372,13 @@ class _AiPolishSheetState extends State<AiPolishSheet> {
     }
 
     return Center(
-      child: Text('准备就绪，选择风格开始润色', style: TextStyle(color: colors.textMuted)),
+      child: Text(
+        '选择上方风格后开始润色',
+        style: TextStyle(
+          fontSize: JiyueTokens.fontSm,
+          color: colors.textMuted,
+        ),
+      ),
     );
   }
 }

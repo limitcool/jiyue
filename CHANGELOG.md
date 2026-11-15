@@ -3,6 +3,44 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.3.4] - 2026-11-15
+
+### 中文
+
+**核心重构与视觉升级**
+- **跨端单一事实来源设计系统（Jiyue Design System v3.0 & SSOT Tokens）**：
+  - 建立跨桌面端（GPUI）与移动端（Flutter）的统一设计令牌工程体系，自动同步生成 [`theme_tokens.rs`](crates/jiyue-app/src/theme_tokens.rs) 与 [`jiyue_theme.dart`](mobile/lib/theme/jiyue_theme.dart)。
+  - 全面规范雾白（Fog）、宣纸（Paper）、苔影（Moss）、玄墨（Ink）、深夜（Dusk）5 套内置主题的表面层级（Canvas / Chrome / Elevated / Floating / Scrim）、高对比文本色阶、`1px` 细腻边框、圆角、间距与字阶令牌。
+- **桌面端 Linear / Zed 克制现代工具风重构**：
+  - 彻底移除外层冗余留白与悬浮套娃卡片，重构为零间隙（0px gap）平铺分栏与 `1px border_subtle` 精准分割的现代工作区架构。
+  - 统一 `40px` 顶栏（面包屑与动作区）与 `24px` 底部状态栏视觉节奏；将左侧栏多模式切换收敛整合为高辨识度的分段控制器。
+  - 扩充 `controls.rs` 母版组件库（新增 `segmented`、`segmented_full`、`badge_tag`、`kbd_hint` 等标准件），全量清理 `ai_ui`、`memos_ui`、`settings`、`export_config`、`bookmarks`、`history_ui`、`search_ui` 等面板中的硬编码色值与手写裸 `div`。
+- **移动端母版控件库落成与全页面重构**：
+  - 新建 [`jiyue_controls.dart`](mobile/lib/widgets/jiyue_controls.dart)，统一封装 16 个高频标准控件（`JiyueButton`、`JiyueIconButton`、`JiyueBadge`、`JiyueChoiceChip`、`JiyueTagChip`、`JiyueSegmented`、`JiyueSwitch`、`JiyueSwitchRow`、`JiyueTextField`、`JiyueSectionHeader`、`JiyueSectionCard`、`JiyueDivider`、`JiyueBanner`、`JiyueEmptyState`、`JiyueModalSheet`、`JiyueDialog`）。
+  - 全量重构知识库主页、阅读页、编辑页、扫码页以及设置抽屉、S3/Memos/AI 配置抽屉、AI 润色面板与版本自更新弹窗，消除散落的硬编码 `Color(...)`、未封装原生 Material 表单控件与非规范 Emoji 装饰。
+- **双端 Tabler SVG 图标同步与自动化防回归审计**：
+  - 在桌面端与移动端同步补齐并注册 `layout-sidebar`、`bolt`、`camera-rotate`、`download`、`qrcode`、`refresh`、`sparkles` 7 枚标准 SVG 图标，根除历史幽灵图标引用问题。
+  - 新增 [`ui_ssot_test.dart`](mobile/test/ui_ssot_test.dart) 静态红线测试并对齐 [`unit_test.dart`](mobile/test/unit_test.dart) 全主题令牌断言，防止未来引入硬编码色值或失效图标资源。
+
+---
+
+### English
+
+**Design System & Cross-Platform UI Overhaul**
+- **Single Source of Truth Design System (Jiyue Design System v3.0 & SSOT Tokens)**:
+  - Established a unified design token pipeline syncing both desktop (GPUI) and mobile (Flutter) themes via [`theme_tokens.rs`](crates/jiyue-app/src/theme_tokens.rs) and [`jiyue_theme.dart`](mobile/lib/theme/jiyue_theme.dart).
+  - Standardized surface layering (Canvas / Chrome / Elevated / Floating / Scrim), typography scales, spacing, radii, and `1px` crisp borders across all 5 built-in themes: Fog, Paper, Moss, Ink, and Dusk.
+- **Desktop Linear / Zed Modern Workspace Overhaul**:
+  - Replaced nested floating cards and excess outer margins with a zero-gap tiled workspace separated by crisp `1px border_subtle` hairlines.
+  - Unified the `40px` header/breadcrumb bar and `24px` bottom status bar rhythm, and consolidated sidebar view switching into a segmented control.
+  - Expanded the shared `controls.rs` primitive library (`segmented`, `segmented_full`, `badge_tag`, `kbd_hint`, etc.) and eliminated ad-hoc styled divs and hardcoded colors across AI, Memos, Settings, Export, Bookmarks, History, and Search panels.
+- **Mobile Shared Component Library & Full View Refactor**:
+  - Introduced [`jiyue_controls.dart`](mobile/lib/widgets/jiyue_controls.dart) with 16 standardized UI primitives (`JiyueButton`, `JiyueIconButton`, `JiyueBadge`, `JiyueChoiceChip`, `JiyueTagChip`, `JiyueSegmented`, `JiyueSwitchRow`, `JiyueTextField`, `JiyueSectionCard`, `JiyueModalSheet`, `JiyueDialog`, etc.).
+  - Refactored Vault, Reader, Editor, and QR Scanner pages along with Settings, S3/Memos/AI config sheets, AI Polish sheet, and Update dialog to eliminate hardcoded colors, unstyled Material form widgets, and emoji decorations.
+- **Cross-Platform Tabler SVG Sync & Automated SSOT Guardrails**:
+  - Synced and registered 7 missing standard SVG icons (`layout-sidebar`, `bolt`, `camera-rotate`, `download`, `qrcode`, `refresh`, `sparkles`) across both desktop and mobile asset bundles, fixing broken icon references.
+  - Added [`ui_ssot_test.dart`](mobile/test/ui_ssot_test.dart) static audit tests and updated [`unit_test.dart`](mobile/test/unit_test.dart) to enforce SSOT color, radius, and asset integrity.
+
 ## [0.3.3] - 2026-11-15
 
 ### 中文

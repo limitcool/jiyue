@@ -25,7 +25,6 @@ const REPLACE_PLACEHOLDER: &str = "替换为";
 const BAR_WIDTH: f32 = 420.0;
 const BAR_TOP: f32 = 92.0;
 const BAR_RIGHT: f32 = 24.0;
-const RIGHT_PANEL_W: f32 = 272.0;
 
 /// State of the find bar (owned by `search_ui::State`).
 #[derive(Default)]
@@ -483,7 +482,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
     );
 
     let right = if app.right_sidebar_open {
-        BAR_RIGHT + RIGHT_PANEL_W
+        BAR_RIGHT + crate::ui::RIGHT_PANEL_W
     } else {
         BAR_RIGHT
     };

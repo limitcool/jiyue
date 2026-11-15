@@ -27,7 +27,6 @@ use crate::ui::widgets::{
 
 /// Height of the scrolling part of the settings page (the dialog is 540 px high).
 const SCROLL_HEIGHT: f32 = 440.0;
-const RED: u32 = 0xe5484d;
 
 /// Outcome of the connection test shown next to its button.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -497,7 +496,7 @@ pub fn quick_test_provider(
                     app.toast(
                         ToastKind::Success,
                         format!(
-                            "✓ 服务「{}」连接成功 ({}ms) · 模型 {}",
+                            "服务「{}」连接成功 ({}ms) · 模型 {}",
                             p_name,
                             duration.as_millis(),
                             model
@@ -507,7 +506,7 @@ pub fn quick_test_provider(
                 Err(e) => {
                     app.toast(
                         ToastKind::Error,
-                        format!("✕ 服务「{}」测试失败：{}", p_name, e),
+                        format!("服务「{}」测试失败：{}", p_name, e),
                     );
                 }
             }
@@ -598,7 +597,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
             div()
                 .py(px(6.0))
                 .text_size(px(12.0))
-                .text_color(gpui::rgb(RED))
+                .text_color(t.danger)
                 .child(format!("AI 设置文件无法读取，已使用默认设置：{err}")),
         );
     }
@@ -735,7 +734,7 @@ pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
         div()
             .py(px(4.0))
             .text_size(px(12.5))
-            .text_color(if is_error { gpui::rgb(RED) } else { t.tx2 })
+            .text_color(if is_error { t.danger } else { t.tx2 })
             .child(status),
     );
     col = col.child(
@@ -787,8 +786,8 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
     let is_quick_testing = app.ext.ai.settings.quick_testing.as_deref() == Some(&p.id);
 
     let (kind_label, kind_bg, kind_fg) = match p.kind {
-        ProviderKind::OpenAiCompatible => ("OpenAI", gpui::rgba(0x10b98125), gpui::rgb(0x10b981)),
-        ProviderKind::Anthropic => ("Anthropic", gpui::rgba(0x9d4edd25), gpui::rgb(0x9d4edd)),
+        ProviderKind::OpenAiCompatible => ("OpenAI", t.ok_soft, t.ok),
+        ProviderKind::Anthropic => ("Anthropic", t.ac_soft, t.ac),
     };
 
     let edit_id = p.id.clone();
@@ -853,10 +852,10 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
                                     .px(px(6.0))
                                     .py(px(1.5))
                                     .rounded(px(4.0))
-                                    .bg(gpui::rgba(0x3b82f625))
+                                    .bg(t.ac_soft)
                                     .text_size(px(10.5))
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_color(gpui::rgb(0x3b82f6))
+                                    .text_color(t.ac)
                                     .child("当前嵌入"),
                             )
                         }),
@@ -874,7 +873,7 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
                                 "测试"
                             },
                             ButtonKind::Secondary,
-                            Some("zap"),
+                            Some("bulb"),
                             cx.listener(move |this, _: &MouseDownEvent, _, cx| {
                                 quick_test_provider(this, test_provider.clone(), cx);
                             }),
@@ -909,11 +908,11 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
                 .child(icon("link", 12.0, t.tx3))
                 .child(host_of(&p.base_url))
                 .child(div().text_color(t.tx3).child("·"))
-                .child(icon("message-square", 12.0, t.tx3))
+                .child(icon("file-text", 12.0, t.tx3))
                 .child(p.chat_model.clone())
                 .when_some(p.embedding_model.as_ref(), |el, embed| {
                     el.child(div().text_color(t.tx3).child("·"))
-                        .child(icon("layers", 12.0, t.tx3))
+                        .child(icon("hierarchy-2", 12.0, t.tx3))
                         .child(embed.clone())
                 }),
         )
@@ -930,16 +929,15 @@ fn provider_row(app: &RustdianApp, p: &ProviderEntry, cx: &mut Context<RustdianA
                         .items_center()
                         .gap(px(4.0))
                         .text_color(t.ok)
-                        .child(icon("check-circle-2", 12.0, t.ok))
+                        .child(icon("check", 12.0, t.ok))
                         .child("API 密钥已安全存储于系统凭据中")
                 } else {
-                    let warn_color = gpui::rgb(0xd97706);
                     div()
                         .flex()
                         .items_center()
                         .gap(px(4.0))
-                        .text_color(warn_color)
-                        .child(icon("alert-circle", 12.0, warn_color))
+                        .text_color(t.warn)
+                        .child(icon("alert-triangle", 12.0, t.warn))
                         .child("未配置密钥（请编辑以补充 API Key）")
                 }),
         )
@@ -1008,7 +1006,7 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                         .flex()
                         .items_center()
                         .gap(px(6.0))
-                        .child(icon("zap", 13.0, t.ac))
+                        .child(icon("bulb", 13.0, t.ac))
                         .child(
                             div()
                                 .text_size(px(12.0))
@@ -1044,7 +1042,7 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                         .border_color(t.line_soft)
                         .text_size(px(12.0))
                         .text_color(t.tx2)
-                        .child(icon("refresh-cw", 12.0, t.ac))
+                        .child(icon("arrows-sort", 12.0, t.ac))
                         .child("正在连接端点并测试模型响应..."),
                 ),
                 TestState::Ok { latency_ms, model } => Some(
@@ -1059,9 +1057,9 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                         .border_color(t.ok)
                         .text_size(px(12.0))
                         .text_color(t.ok)
-                        .child(icon("check-circle-2", 13.0, t.ok))
+                        .child(icon("check", 13.0, t.ok))
                         .child(format!(
-                            "✓ 握手成功 · 耗时 {}ms · 模型「{}」响应正常",
+                            "握手成功 · 耗时 {}ms · 模型「{}」响应正常",
                             latency_ms, model
                         )),
                 ),
@@ -1072,13 +1070,13 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                         .gap(px(6.0))
                         .p(px(8.0))
                         .rounded(px(6.0))
-                        .bg(gpui::rgba(0xe5484d18))
+                        .bg(t.danger_soft)
                         .border_1()
-                        .border_color(gpui::rgb(RED))
+                        .border_color(t.danger)
                         .text_size(px(12.0))
-                        .text_color(gpui::rgb(RED))
-                        .child(icon("alert-circle", 13.0, gpui::rgb(RED)))
-                        .child(format!("✕ 测试失败：{err}")),
+                        .text_color(t.danger)
+                        .child(icon("alert-triangle", 13.0, t.danger))
+                        .child(format!("测试失败：{err}")),
                 ),
             },
             |el, status_widget| el.child(status_widget),
@@ -1155,7 +1153,7 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         col = col.child(
             div()
                 .text_size(px(12.5))
-                .text_color(gpui::rgb(RED))
+                .text_color(t.danger)
                 .child(err.clone()),
         );
     }
@@ -1177,7 +1175,7 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 &t,
                 &crate::t!("ai-test-btn"),
                 ButtonKind::Secondary,
-                Some("zap"),
+                Some("bulb"),
                 cx.listener(|this, _: &MouseDownEvent, _, cx| test_connection(this, cx)),
             ))
             .child(button(

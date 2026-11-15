@@ -9,19 +9,44 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('Jiyue Mobile Theme Tests', () {
-    test('All 5 themes are configured with correct accent colors', () {
+  group('Jiyue Mobile Theme & SSOT Token Tests', () {
+    test('All 5 themes and SSOT semantic slots are correctly configured', () {
       expect(JiyueThemeColors.allThemes.length, 5);
 
-      final ink = JiyueThemeColors.ink;
+      const ink = JiyueThemeColors.ink;
       expect(ink.id, JiyueThemeId.ink);
       expect(ink.isDark, isTrue);
-      expect(ink.accent, const Color(0xFF6BB2FF));
+      expect(ink.accent, const Color(0xFF5AA9FF));
+      expect(ink.canvas, const Color(0xFF070A10));
+      expect(ink.panel, const Color(0xFF0B0F17));
+      expect(ink.surface, const Color(0xFF0F141E));
+      expect(ink.elevated, const Color(0xFF161D2A));
 
-      final fog = JiyueThemeColors.fog;
+      const fog = JiyueThemeColors.fog;
       expect(fog.id, JiyueThemeId.fog);
       expect(fog.isDark, isFalse);
       expect(fog.accent, const Color(0xFF2563EB));
+      expect(fog.surface, const Color(0xFFFFFFFF));
+
+      for (final theme in JiyueThemeColors.allThemes) {
+        expect(theme.name.isNotEmpty, isTrue);
+        expect(theme.canvas.a, greaterThan(0));
+        expect(theme.panel.a, greaterThan(0));
+        expect(theme.surface.a, greaterThan(0));
+        expect(theme.elevated.a, greaterThan(0));
+        expect(theme.ok.a, greaterThan(0));
+        expect(theme.warn.a, greaterThan(0));
+        expect(theme.danger.a, greaterThan(0));
+      }
+
+      // Verify shared Linear/Zed geometry & typography tokens
+      expect(JiyueTokens.radiusSm, 4.0);
+      expect(JiyueTokens.radiusMd, 6.0);
+      expect(JiyueTokens.radiusLg, 10.0);
+      expect(JiyueTokens.radiusXl, 12.0);
+      expect(JiyueTokens.radiusPill, 999.0);
+      expect(JiyueTokens.controlMd, 30.0);
+      expect(JiyueTokens.controlLg, 36.0);
     });
 
     test('ThemeProvider switches themes and saves preference', () async {
@@ -51,7 +76,10 @@ void main() {
       expect(notes.any((n) => n.title == '欢迎使用 Jiyue'), isTrue);
 
       // Create new note
-      final created = await service.createNote('单元测试笔记', '# 单元测试\n\n正文内容 [[欢迎使用 Jiyue]]');
+      final created = await service.createNote(
+        '单元测试笔记',
+        '# 单元测试\n\n正文内容 [[欢迎使用 Jiyue]]',
+      );
       expect(created, isNotNull);
       expect(created!.title, '单元测试笔记');
 

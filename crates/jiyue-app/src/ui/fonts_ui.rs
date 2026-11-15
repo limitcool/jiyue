@@ -19,7 +19,6 @@ use crate::theme::ActiveTheme;
 use crate::ui::ext::ToastKind;
 use crate::ui::fonts::{self, Slot};
 use crate::ui::settings::setting_row;
-use crate::ui::widgets::controls::DANGER_RGB;
 use crate::ui::widgets::{LineInput, LineInputEvent};
 
 /// Pause after the last change before the file is written.
@@ -118,8 +117,8 @@ pub fn render_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         .child(ui_row)
         .child(editor_row)
         .child(code_row)
-        .children(missing_lines(&snapshot.missing))
-        .children(missing_lines(&snapshot.clamp_warnings));
+        .children(missing_lines(&t, &snapshot.missing))
+        .children(missing_lines(&t, &snapshot.clamp_warnings));
 
     // Sizes.
     block = block
@@ -711,39 +710,21 @@ fn chip(
     on: bool,
     on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
-    let mut chip = div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .h(px(24.0))
-        .px(px(9.0))
-        .rounded(px(12.0))
-        .border_1()
-        .border_color(if on { t.ac } else { t.line })
-        .text_size(px(12.0))
-        .cursor_pointer()
-        .text_color(if on { t.ac } else { t.tx2 })
-        .child(SharedString::from(label.to_string()));
-    if on {
-        chip = chip.bg(t.active);
-    } else {
-        chip = chip.hover(|s| s.bg(t.hover));
-    }
-    chip.on_mouse_down(MouseButton::Left, on_click)
+    crate::ui::widgets::controls::choice_chip(t, label, on, on_click)
 }
 
 // ---------------------------------------------------------------------------
 // Preview, warnings and resets
 // ---------------------------------------------------------------------------
 
-fn missing_lines(messages: &[String]) -> Vec<Div> {
+fn missing_lines(t: &ActiveTheme, messages: &[String]) -> Vec<Div> {
     messages
         .iter()
         .map(|m| {
             div()
                 .pt(px(4.0))
                 .text_size(px(12.0))
-                .text_color(gpui::rgb(DANGER_RGB))
+                .text_color(t.danger)
                 .child(SharedString::from(m.clone()))
         })
         .collect()

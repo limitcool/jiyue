@@ -1,4 +1,6 @@
-//! Right panel (272px): 大纲 timeline, 反向链接 cards and 未链接的提及.
+//! Right panel (264px): segmented inspector switching between Outline/Properties and Backlinks.
+
+use std::rc::Rc;
 
 use gpui::{
     AnyElement, ClickEvent, Context, ElementId, FontWeight, IntoElement, MouseButton, SharedString,
@@ -11,13 +13,21 @@ use super::attach_ui;
 use super::attach_ui::props::{self, Block};
 use super::icons::icon;
 use super::inline::rich_text;
+use super::sidebar::SidebarTab;
+use super::widgets::controls::{empty_state, removable_tag_chip, segmented_full};
 use super::widgets::{LineInput, LineInputEvent};
 use crate::RustdianApp;
+use crate::ViewportMode;
 use crate::buffer::HeadingItem;
 use crate::theme::{ActiveTheme, ICON_GAP_TIGHT, ICON_SIZE, RADIUS_M, RADIUS_S};
 
-/// Red of the inline hint (the same red as the palette's danger rows).
-const DANGER_RGB: u32 = 0xE5484D;
+/// Active tab inside the right inspector panel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RightPanelTab {
+    #[default]
+    Outline,
+    Backlinks,
+}
 
 /// Renders the right panel column.
 pub fn render_right_panel(
@@ -25,6 +35,7 @@ pub fn render_right_panel(
     cx: &mut Context<RustdianApp>,
 ) -> impl IntoElement + use<> {
     let t = app.theme;
+    let tab = app.right_panel_tab;
     let (headings, title) = match app.vault.active_note() {
         Some(n) => {
             // A `# comment` inside the frontmatter block is not a heading.
@@ -41,6 +52,81 @@ pub fn render_right_panel(
     let backlinks = app.vault.get_backlinks(&title);
     let unlinked = unlinked_mentions(app, &title, &backlinks);
 
+    let tab_outline = crate::t!("panel-outline");
+    let tab_backlinks = crate::t!("panel-backlinks");
+    let tab_bar = div()
+        .flex_none()
+        .px(px(10.0))
+        .py(px(5.0))
+        .border_b_1()
+        .border_color(t.border_subtle)
+        .child(segmented_full(
+            &t,
+            &[tab_outline.as_str(), tab_backlinks.as_str()],
+            if tab == RightPanelTab::Outline { 0 } else { 1 },
+            Rc::new(cx.listener(|this, &idx, _, cx| {
+                this.right_panel_tab = if idx == 0 {
+                    RightPanelTab::Outline
+                } else {
+                    RightPanelTab::Backlinks
+                };
+                cx.notify();
+            })),
+        ));
+
+    let mut content = div()
+        .id("right_panel_scroll")
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .px(px(12.0))
+        .py(px(10.0))
+        .flex()
+        .flex_col();
+
+    match tab {
+        RightPanelTab::Outline => {
+            content = content
+                .child(properties_section(app, cx))
+                .child(section_title(
+                    &t,
+                    &crate::t!("panel-outline"),
+                    headings.len(),
+                    0.0,
+                ))
+                .child(outline(app, &headings, cx));
+        }
+        RightPanelTab::Backlinks => {
+            content = content
+                .child(section_title(
+                    &t,
+                    &crate::t!("panel-backlinks"),
+                    backlinks.len(),
+                    0.0,
+                ))
+                .child(cards(
+                    app,
+                    &backlinks,
+                    0,
+                    &crate::t!("panel-backlinks-empty"),
+                    cx,
+                ))
+                .child(section_title(
+                    &t,
+                    &crate::t!("panel-unlinked"),
+                    unlinked.len(),
+                    12.0,
+                ))
+                .child(cards(
+                    app,
+                    &unlinked,
+                    10_000,
+                    &crate::t!("panel-unlinked-empty"),
+                    cx,
+                ));
+        }
+    }
+
     div()
         .flex()
         .flex_col()
@@ -48,46 +134,12 @@ pub fn render_right_panel(
         .flex_none()
         .h_full()
         .overflow_hidden()
-        .px(px(14.0))
-        .pt(px(16.0))
-        .pb(px(12.0))
+        .bg(t.panel)
         .border_l_1()
-        .border_color(t.line_soft)
+        .border_color(t.border_subtle)
         .font_family(crate::ui::fonts::ui_name())
-        .child(properties_section(app, cx))
-        .child(section_title(
-            &t,
-            &crate::t!("panel-outline"),
-            headings.len(),
-            0.0,
-        ))
-        .child(outline(app, &headings, cx))
-        .child(section_title(
-            &t,
-            &crate::t!("panel-backlinks"),
-            backlinks.len(),
-            0.0,
-        ))
-        .child(cards(
-            app,
-            &backlinks,
-            0,
-            &crate::t!("panel-backlinks-empty"),
-            cx,
-        ))
-        .child(section_title(
-            &t,
-            &crate::t!("panel-unlinked"),
-            unlinked.len(),
-            12.0,
-        ))
-        .child(cards(
-            app,
-            &unlinked,
-            10_000,
-            &crate::t!("panel-unlinked-empty"),
-            cx,
-        ))
+        .child(tab_bar)
+        .child(content)
 }
 
 /// Section heading row: title on the left, item count on the right.
@@ -322,45 +374,42 @@ fn chip_row(
     cx: &mut Context<RustdianApp>,
 ) -> AnyElement {
     let t = app.theme;
+    let is_tags_key = key.eq_ignore_ascii_case("tags") || key.eq_ignore_ascii_case("tag");
     let mut chips = div().flex().flex_wrap().gap(px(5.0));
     for (j, item) in items.iter().enumerate() {
-        let item_text = item.clone();
-        let key = key.to_string();
-        chips = chips.child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.0))
-                .h(px(20.0))
-                .pl(px(8.0))
-                .pr(px(4.0))
-                .rounded_full()
-                .bg(t.ac_soft)
-                .text_size(px(12.0))
-                .text_color(t.ac)
-                .child(SharedString::from(item.clone()))
-                .child(
-                    div()
-                        .id(ElementId::NamedInteger(
-                            SharedString::from("prop-chip"),
-                            (idx * 1000 + j) as u64,
-                        ))
-                        .px(px(3.0))
-                        .rounded_full()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(t.hover))
-                        .child(icon("x", 10.0, t.ac))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            let key = key.clone();
-                            let item_text = item_text.clone();
-                            attach_ui::edit_active_text(
-                                this,
-                                move |text| frontmatter::remove_tag(text, &key, &item_text),
-                                cx,
-                            );
-                        })),
-                ),
-        );
+        let open_item = item.clone();
+        let remove_item = item.clone();
+        let key_rm = key.to_string();
+        let label = if is_tags_key {
+            format!("#{item}")
+        } else {
+            item.clone()
+        };
+        chips = chips.child(removable_tag_chip(
+            &t,
+            ElementId::NamedInteger(SharedString::from("prop-chip"), (idx * 1000 + j) as u64),
+            &label,
+            cx.listener(move |this, _, _, cx| {
+                if is_tags_key {
+                    let q = format!("tag:{open_item}");
+                    this.viewport_mode = ViewportMode::Editor;
+                    this.sidebar_tab = SidebarTab::Search;
+                    this.left_sidebar_open = true;
+                    crate::config_store::sync_ui(this);
+                    super::search_ui::set_sidebar_query(this, &q, cx);
+                    cx.notify();
+                }
+            }),
+            cx.listener(move |this, _, _, cx| {
+                let key = key_rm.clone();
+                let item_text = remove_item.clone();
+                attach_ui::edit_active_text(
+                    this,
+                    move |text| frontmatter::remove_tag(text, &key, &item_text),
+                    cx,
+                );
+            }),
+        ));
     }
     chips.into_any_element()
 }
@@ -380,12 +429,7 @@ fn key_label(
             .gap(px(3.0))
             .child(edit.input.clone());
         if let Some(msg) = edit.error {
-            col = col.child(
-                div()
-                    .text_size(px(11.5))
-                    .text_color(gpui::rgb(DANGER_RGB))
-                    .child(msg),
-            );
+            col = col.child(div().text_size(px(11.5)).text_color(t.danger).child(msg));
         }
         return col.into_any_element();
     }
@@ -500,12 +544,7 @@ fn inline_value(
             .gap(px(3.0))
             .child(edit.input.clone());
         if let Some(msg) = edit.error {
-            col = col.child(
-                div()
-                    .text_size(px(11.5))
-                    .text_color(gpui::rgb(DANGER_RGB))
-                    .child(msg),
-            );
+            col = col.child(div().text_size(px(11.5)).text_color(t.danger).child(msg));
         }
         return col.into_any_element();
     }
@@ -688,12 +727,7 @@ fn outline(
 ) -> impl IntoElement + use<> {
     let t = app.theme;
     if headings.is_empty() {
-        return div()
-            .mb(px(14.0))
-            .text_size(px(12.5))
-            .text_color(t.tx3)
-            .child(SharedString::from(crate::t!("panel-outline-empty")))
-            .into_any_element();
+        return empty_state(&t, "list", &crate::t!("panel-outline-empty"), "").into_any_element();
     }
     let active_line = headings
         .iter()
@@ -709,7 +743,7 @@ fn outline(
             .top(px(6.0))
             .bottom(px(6.0))
             .w(px(1.0))
-            .bg(t.line),
+            .bg(t.border_subtle),
     );
     for (idx, h) in headings.iter().enumerate() {
         let on = h.line_number == active_line;
@@ -741,8 +775,8 @@ fn outline(
                         .size(px(7.0))
                         .rounded_full()
                         .border_1()
-                        .border_color(if on { t.ac } else { t.line })
-                        .bg(if on { t.ac } else { t.sheet }),
+                        .border_color(if on { t.ac } else { t.border_default })
+                        .bg(if on { t.ac } else { t.panel }),
                 )
                 .child(
                     div()
@@ -787,7 +821,7 @@ fn cards(
         .map(|n| n.title.clone())
         .unwrap_or_default();
 
-    let mut col = div().flex().flex_col().gap(px(2.0)).mb(px(6.0));
+    let mut col = div().flex().flex_col().gap(px(6.0)).mb(px(6.0));
     for (idx, (title, line)) in items.iter().enumerate() {
         let key = key_base + idx as u64;
         let snippet = snippet_around(line, &target);
@@ -799,9 +833,12 @@ fn cards(
                 .flex_col()
                 .px(px(10.0))
                 .py(px(9.0))
+                .bg(t.surface)
+                .border_1()
+                .border_color(t.border_subtle)
                 .rounded(px(RADIUS_M))
                 .cursor_pointer()
-                .hover(|s| s.bg(t.hover))
+                .hover(|s| s.border_color(t.border_default).bg(t.hover))
                 .child(
                     div()
                         .flex()

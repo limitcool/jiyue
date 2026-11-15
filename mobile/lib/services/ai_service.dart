@@ -3,10 +3,10 @@ import 'dart:io';
 import '../models/exported_config.dart';
 
 enum PolishStyle {
-  smart('智能润色', '✨', '优化语法、标点与行文流畅度，保留 Markdown 标记'),
-  professional('学术专业', '🎓', '逻辑严密、用词规范、客观理性，提升专业度'),
-  casual('生动通俗', '💬', '亲切自然、生动活泼、通俗易懂，富于表达力'),
-  summarize('提炼摘要', '📝', '提炼核心观点、关键事实与行动要点');
+  smart('智能润色', 'sparkles', '优化语法、标点与行文流畅度，保留 Markdown 标记'),
+  professional('学术专业', 'book-2', '逻辑严密、用词规范、客观理性，提升专业度'),
+  casual('生动通俗', 'bulb', '亲切自然、生动活泼、通俗易懂，富于表达力'),
+  summarize('提炼摘要', 'list', '提炼核心观点、关键事实与行动要点');
 
   final String label;
   final String icon;

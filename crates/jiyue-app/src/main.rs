@@ -164,6 +164,8 @@ pub struct RustdianApp {
     pub layout: ui::split::Layout,
     pub left_sidebar_open: bool,
     pub right_sidebar_open: bool,
+    pub sidebar_tab: ui::sidebar::SidebarTab,
+    pub right_panel_tab: ui::right_panel::RightPanelTab,
     pub show_palette: bool,
     pub is_command_mode: bool, // true: command palette (actions), false: quick switcher (notes)
     pub palette_query: String,
@@ -310,6 +312,8 @@ impl RustdianApp {
             layout: Default::default(),
             left_sidebar_open: true,
             right_sidebar_open: true,
+            sidebar_tab: Default::default(),
+            right_panel_tab: Default::default(),
             show_palette: false,
             is_command_mode: false,
             palette_query: String::new(),
@@ -393,7 +397,11 @@ impl RustdianApp {
                 app.settings.open = true;
                 app.settings.category = ui::settings::CAT_LIBRARY;
             }
-            Some("calendar") => app.calendar.collapsed = false,
+            Some("calendar") => {
+                app.left_sidebar_open = true;
+                app.sidebar_tab = ui::sidebar::SidebarTab::Journal;
+                app.calendar.collapsed = false;
+            }
             Some("graph") => app.viewport_mode = ViewportMode::GraphView,
             Some("editor") => app.view_mode = ViewMode::Source,
             Some("widgets") => app.open_widgets_demo = true,
@@ -406,6 +414,7 @@ impl RustdianApp {
         }
         ui::files_ui::start_recovery(&mut app, cx);
         ui::ext::init(&mut app, cx);
+        ui::search_ui::ensure_sidebar_ready(&mut app, cx);
         app
     }
 
@@ -1308,43 +1317,29 @@ impl Render for RustdianApp {
             .flex_1()
             .min_w_0()
             .h_full()
-            .pr(px(8.0))
-            .pb(px(8.0))
+            .bg(t.surface)
             .child(ui::tabbar::render_tabbar(this, window, cx))
+            .child(ui::crumb::render_crumb(this, cx))
             .child(
                 div()
                     .flex()
-                    .flex_col()
+                    .flex_row()
                     .flex_1()
                     .min_h_0()
                     .min_w_0()
-                    .bg(t.sheet)
-                    .rounded_tr(px(RADIUS_L))
-                    .rounded_br(px(RADIUS_L))
-                    .rounded_bl(px(RADIUS_L))
-                    .shadow_md()
-                    .overflow_hidden()
-                    .child(ui::crumb::render_crumb(this, cx))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .flex_1()
-                            .min_h_0()
-                            .child(this.editor_area(cx))
-                            .when(this.right_sidebar_open, |d| {
-                                d.child(ui::right_panel::render_right_panel(this, cx))
-                            }),
-                    )
-                    .child(ui::statusbar::render_statusbar(this, cx)),
-            );
+                    .child(this.editor_area(cx))
+                    .when(this.right_sidebar_open, |d| {
+                        d.child(ui::right_panel::render_right_panel(this, cx))
+                    }),
+            )
+            .child(ui::statusbar::render_statusbar(this, cx));
 
         div()
             .relative()
             .flex()
             .flex_row()
             .size_full()
-            .bg(t.chrome)
+            .bg(t.canvas)
             .text_color(t.tx)
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
@@ -1375,6 +1370,7 @@ impl Render for RustdianApp {
                     cx.notify();
                 }),
             )
+            .child(ui::sidebar::render_activity_bar(this, cx))
             .when(self.left_sidebar_open, |d| {
                 d.child(ui::sidebar::render_sidebar(this, cx))
             })

@@ -20,7 +20,7 @@ use gpui::{
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Render,
     Rgba, ScrollWheelEvent, SharedString, StrikethroughStyle, Style, Subscription, TextAlign,
     TextRun, TransformationMatrix, UTF16Selection, UnderlineStyle, Window, WrappedLine, actions,
-    div, fill, font, point, prelude::*, px, quad, relative, rgb, size,
+    div, fill, font, point, prelude::*, px, quad, relative, size,
 };
 use gpui::{FontStyle, FontWeight};
 
@@ -61,7 +61,7 @@ pub mod map;
 pub mod table;
 use crate::editor_state::{EditorState, Selection};
 use crate::md_edit::{self, EditPlan};
-use crate::theme::{ActiveTheme, ThemeMode};
+use crate::theme::ActiveTheme;
 use crate::ui::attach_ui::resolve::{basename, caption};
 use crate::ui::fonts::{self, Face};
 use gpui::RenderImage;
@@ -1702,13 +1702,12 @@ fn table_widget(window: &Window, ctx: &LineCtx, start: usize, len: usize) -> (f3
 /// The colour of a callout tone. Blue and green are theme tokens; amber and red are fixed per
 /// theme kind (dark or light) so that they stay legible on the note sheet.
 fn callout_color(t: &ActiveTheme, tone: callout::Tone) -> Rgba {
-    let dark = matches!(t.mode, ThemeMode::Dark);
     match tone {
         callout::Tone::Blue => t.ac,
         callout::Tone::Green => t.ok,
         callout::Tone::Neutral => t.tx2,
-        callout::Tone::Amber => rgb(if dark { 0xE0A458 } else { 0xA8581A }),
-        callout::Tone::Red => rgb(if dark { 0xEF7D74 } else { 0xB3322B }),
+        callout::Tone::Amber => t.warn,
+        callout::Tone::Red => t.danger,
     }
 }
 

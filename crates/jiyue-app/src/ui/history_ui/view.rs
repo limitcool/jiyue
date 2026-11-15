@@ -15,8 +15,6 @@ use crate::ui::widgets::{BadgeKind, ButtonKind, badge, button, modal};
 
 /// Most diff lines shown.
 const DIFF_LIMIT: usize = 400;
-/// Red of removed lines (the danger colour used by the other dialogs).
-const DELETED_RGB: u32 = 0xE5484D;
 
 /// The dialog.
 pub fn render(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
@@ -233,9 +231,7 @@ fn diff_view(t: &ActiveTheme, loaded: &Loaded) -> AnyElement {
         let (mark, color) = match line.tag {
             DiffTag::Equal => (" ", t.tx3),
             DiffTag::Insert => ("+", t.ok),
-            // `st` is not a red in every theme (ink uses a green), so removals use the danger red
-            // of the other dialogs (see palette.rs and right_panel.rs).
-            DiffTag::Delete => ("-", gpui::rgb(DELETED_RGB)),
+            DiffTag::Delete => ("-", t.danger),
         };
         let shown = if line.text.is_empty() {
             " ".to_owned()

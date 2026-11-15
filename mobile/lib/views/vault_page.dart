@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../bridge/vault_service.dart';
 import '../models/note.dart';
+import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
 import '../widgets/bottom_bar.dart';
 import '../widgets/daily_card.dart';
+import '../widgets/jiyue_controls.dart';
 import '../widgets/jiyue_icon.dart';
 import '../widgets/note_card.dart';
 import '../widgets/settings_sheet.dart';
@@ -25,17 +27,27 @@ class VaultPage extends StatefulWidget {
 }
 
 class _VaultPageState extends State<VaultPage> {
+  final TextEditingController _searchController = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+
   int _currentTab = 0;
   List<NoteSummary> _notes = [];
   String _selectedTag = '全部';
   String _searchQuery = '';
   bool _syncing = false;
-  String _syncStatusText = '已同步 · 刚刚';
+  String _syncStatusText = '已同步';
 
   @override
   void initState() {
     super.initState();
     _refreshNotes();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _searchFocusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _refreshNotes() async {
@@ -47,7 +59,7 @@ class _VaultPageState extends State<VaultPage> {
     }
   }
 
-  void _triggerSync() async {
+  Future<void> _triggerSync() async {
     setState(() {
       _syncing = true;
       _syncStatusText = '同步中...';
@@ -58,7 +70,7 @@ class _VaultPageState extends State<VaultPage> {
     if (mounted) {
       setState(() {
         _syncing = false;
-        _syncStatusText = '已同步 · 刚刚';
+        _syncStatusText = '已同步';
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('S3 / WebDAV 云端同步完成')),
@@ -66,76 +78,46 @@ class _VaultPageState extends State<VaultPage> {
     }
   }
 
-  void _openDailyQuickLog() {
+  Future<void> _openDailyQuickLog() async {
     final controller = TextEditingController();
     final colors = widget.themeProvider.colors;
 
-    showModalBottomSheet(
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
-        return Container(
-          padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
-          decoration: BoxDecoration(
-            color: colors.sheet,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          ),
+        return JiyueModalSheet(
+          colors: colors,
+          icon: 'calendar-event',
+          title: '追加今日速记随笔',
+          subtitle: '内容将自动附带时间戳写入今日日记',
           child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  JiyueIcon('calendar-event', color: colors.accent, size: 20),
-                  const SizedBox(width: 8),
-                  Text(
-                    '追加今日速记随笔',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
+              JiyueTextField(
+                colors: colors,
                 controller: controller,
                 autofocus: true,
-                maxLines: 3,
-                style: TextStyle(color: colors.textPrimary, fontSize: 14),
-                decoration: InputDecoration(
-                  hintText: '记录此刻灵感、待办或备忘...',
-                  hintStyle: TextStyle(color: colors.textMuted),
-                  filled: true,
-                  fillColor: colors.raised,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colors.border),
-                  ),
-                ),
+                maxLines: 4,
+                hintText: '记录此刻灵感、待办或备忘...',
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colors.accent,
-                    foregroundColor: colors.onAccent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  icon: JiyueIcon('check', color: colors.onAccent, size: 16),
-                  label: const Text('追加到今日笔记'),
-                  onPressed: () async {
-                    final text = controller.text.trim();
-                    if (text.isNotEmpty) {
-                      await widget.vaultService.appendToDaily(text);
-                      if (ctx.mounted) Navigator.of(ctx).pop();
-                      _refreshNotes();
-                    }
-                  },
-                ),
+              const SizedBox(height: 14),
+              JiyueButton(
+                colors: colors,
+                label: '追加到今日笔记',
+                icon: 'check',
+                kind: JiyueButtonKind.primary,
+                size: JiyueControlSize.lg,
+                expand: true,
+                onPressed: () async {
+                  final text = controller.text.trim();
+                  if (text.isNotEmpty) {
+                    await widget.vaultService.appendToDaily(text);
+                    if (ctx.mounted) Navigator.of(ctx).pop();
+                    _refreshNotes();
+                  }
+                },
               ),
             ],
           ),
@@ -144,37 +126,42 @@ class _VaultPageState extends State<VaultPage> {
     );
   }
 
-  void _createNewNote() async {
+  Future<void> _createNewNote() async {
     final titleController = TextEditingController();
     final colors = widget.themeProvider.colors;
 
     final title = await showDialog<String>(
       context: context,
       builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: colors.sheet,
-          title: Text('新建笔记', style: TextStyle(color: colors.textPrimary)),
-          content: TextField(
+        return JiyueDialog(
+          colors: colors,
+          icon: 'file-plus',
+          title: '新建笔记',
+          content: JiyueTextField(
+            colors: colors,
             controller: titleController,
             autofocus: true,
-            style: TextStyle(color: colors.textPrimary),
-            decoration: InputDecoration(
-              hintText: '输入笔记标题...',
-              hintStyle: TextStyle(color: colors.textMuted),
-            ),
+            label: '笔记标题',
+            hintText: '输入笔记标题...',
+            onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
           ),
           actions: [
-            TextButton(
+            JiyueButton(
+              colors: colors,
+              label: '取消',
+              kind: JiyueButtonKind.secondary,
+              size: JiyueControlSize.sm,
               onPressed: () => Navigator.of(ctx).pop(null),
-              child: Text('取消', style: TextStyle(color: colors.textSecondary)),
             ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: colors.accent,
-                foregroundColor: colors.onAccent,
-              ),
-              onPressed: () => Navigator.of(ctx).pop(titleController.text.trim()),
-              child: const Text('创建'),
+            const SizedBox(width: 8),
+            JiyueButton(
+              colors: colors,
+              label: '创建',
+              icon: 'check',
+              kind: JiyueButtonKind.primary,
+              size: JiyueControlSize.sm,
+              onPressed: () =>
+                  Navigator.of(ctx).pop(titleController.text.trim()),
             ),
           ],
         );
@@ -185,22 +172,24 @@ class _VaultPageState extends State<VaultPage> {
       final note = await widget.vaultService.createNote(title, '# $title\n\n');
       if (note != null && mounted) {
         _refreshNotes();
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => EditorPage(
-              notePath: note.path,
-              initialContent: '# $title\n\n',
-              themeProvider: widget.themeProvider,
-              vaultService: widget.vaultService,
-            ),
-          ),
-        ).then((_) => _refreshNotes());
+        Navigator.of(context)
+            .push(
+              MaterialPageRoute(
+                builder: (_) => EditorPage(
+                  notePath: note.path,
+                  initialContent: '# $title\n\n',
+                  themeProvider: widget.themeProvider,
+                  vaultService: widget.vaultService,
+                ),
+              ),
+            )
+            .then((_) => _refreshNotes());
       }
     }
   }
 
   void _openSettings() {
-    showModalBottomSheet(
+    showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -209,96 +198,93 @@ class _VaultPageState extends State<VaultPage> {
         vaultService: widget.vaultService,
         noteCount: _notes.length,
       ),
-    ).then((_) => setState(() {}));
+    ).then((_) {
+      if (mounted) {
+        setState(() => _currentTab = 0);
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = widget.themeProvider.colors;
 
-    // 过滤笔记
     final filteredNotes = _notes.where((n) {
-      final matchesSearch = _searchQuery.isEmpty ||
+      final matchesSearch =
+          _searchQuery.isEmpty ||
           n.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          n.preview.toLowerCase().contains(_searchQuery.toLowerCase());
-      final matchesTag = _selectedTag == '全部' || n.tags.contains(_selectedTag);
+          n.preview.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          n.tags.any(
+            (t) => t.toLowerCase().contains(_searchQuery.toLowerCase()),
+          );
+      final matchesTag =
+          _selectedTag == '全部' || n.tags.contains(_selectedTag);
       return matchesSearch && matchesTag;
     }).toList();
 
     return Scaffold(
-      backgroundColor: colors.chrome,
+      backgroundColor: colors.canvas,
       appBar: AppBar(
-        backgroundColor: colors.chrome,
+        backgroundColor: colors.panel,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
         elevation: 0,
-        titleSpacing: 20,
+        titleSpacing: 16,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: JiyueDivider(colors: colors),
+        ),
         title: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // 库选择胶囊（带 Jiyue 官方 Logo）
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              height: JiyueTokens.controlMd,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
-                color: colors.sheet,
-                borderRadius: BorderRadius.circular(19),
-                border: Border.all(color: colors.border),
+                color: colors.elevated,
+                borderRadius: BorderRadius.circular(JiyueTokens.radiusMd),
+                border: Border.all(color: colors.border, width: 1),
               ),
               child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Image.asset(
                     'assets/logo/icon-256.png',
-                    width: 20,
-                    height: 20,
+                    width: 18,
+                    height: 18,
                   ),
                   const SizedBox(width: 8),
                   Text(
                     widget.vaultService.vaultName,
                     style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
+                      fontSize: JiyueTokens.fontBase,
+                      fontWeight: FontWeight.w600,
                       color: colors.textPrimary,
                     ),
                   ),
                   const SizedBox(width: 6),
-                  JiyueIcon('chevron-down', color: colors.textSecondary, size: 14),
+                  JiyueIcon(
+                    'selector',
+                    color: colors.textMuted,
+                    size: 13,
+                  ),
                 ],
               ),
             ),
           ],
         ),
         actions: [
-          // S3 / WebDAV 同步状态胶囊
           Padding(
-            padding: const EdgeInsets.only(right: 20),
-            child: InkWell(
-              onTap: _syncing ? null : _triggerSync,
-              borderRadius: BorderRadius.circular(17),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: colors.accent.withAlpha(25),
-                  borderRadius: BorderRadius.circular(17),
-                  border: Border.all(color: colors.accent.withAlpha(80)),
-                ),
-                child: Row(
-                  children: [
-                    if (_syncing)
-                      SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: colors.accent),
-                      )
-                    else
-                      JiyueIcon('link', color: colors.accent, size: 14),
-                    const SizedBox(width: 6),
-                    Text(
-                      _syncStatusText,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: colors.accent,
-                      ),
-                    ),
-                  ],
-                ),
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(
+              child: JiyueButton(
+                colors: colors,
+                label: _syncStatusText,
+                icon: 'refresh',
+                loading: _syncing,
+                kind: JiyueButtonKind.secondary,
+                size: JiyueControlSize.xs,
+                onPressed: _syncing ? null : _triggerSync,
               ),
             ),
           ),
@@ -308,70 +294,65 @@ class _VaultPageState extends State<VaultPage> {
         children: [
           RefreshIndicator(
             color: colors.accent,
-            backgroundColor: colors.sheet,
+            backgroundColor: colors.surface,
             onRefresh: _refreshNotes,
             child: ListView(
-              padding: const EdgeInsets.only(bottom: 100),
+              padding: const EdgeInsets.only(top: 10, bottom: 88),
               children: [
                 // 搜索栏
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  child: Container(
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: colors.sheet,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: colors.border),
-                    ),
-                    child: TextField(
-                      style: TextStyle(fontSize: 13, color: colors.textPrimary),
-                      onChanged: (v) => setState(() => _searchQuery = v),
-                      decoration: InputDecoration(
-                        border: InputBorder.none,
-                        prefixIcon: Padding(
-                          padding: const EdgeInsets.all(11.0),
-                          child: JiyueIcon('search', color: colors.textMuted, size: 18),
-                        ),
-                        hintText: '搜索笔记正文、标题或 #标签...',
-                        hintStyle: TextStyle(fontSize: 13, color: colors.textMuted),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                      ),
-                    ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
+                  child: JiyueTextField(
+                    colors: colors,
+                    controller: _searchController,
+                    focusNode: _searchFocusNode,
+                    prefixIcon: 'search',
+                    hintText: '搜索笔记正文、标题或 #标签...',
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                    suffix: _searchQuery.isNotEmpty
+                        ? JiyueIconButton(
+                            colors: colors,
+                            icon: 'x',
+                            size: 28,
+                            iconSize: 14,
+                            tooltip: '清空搜索',
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
                   ),
                 ),
 
+                const SizedBox(height: 8),
+
                 // 快速标签横向筛选流
                 SizedBox(
-                  height: 38,
+                  height: 30,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    children: ['全部', '#架构', '#Rust', '#日记', '#同步', '#设计'].map((tag) {
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    children: ['全部', '#架构', '#Rust', '#日记', '#同步', '#设计']
+                        .map((tag) {
                       final isSelected = _selectedTag == tag;
                       return Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(tag),
+                        padding: const EdgeInsets.only(right: 6),
+                        child: JiyueChoiceChip(
+                          colors: colors,
+                          label: tag,
                           selected: isSelected,
-                          onSelected: (_) => setState(() => _selectedTag = tag),
-                          selectedColor: colors.accent,
-                          backgroundColor: colors.sheet,
-                          labelStyle: TextStyle(
-                            fontSize: 12,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? colors.onAccent : colors.textSecondary,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            side: BorderSide(
-                              color: isSelected ? colors.accent : colors.border,
-                            ),
-                          ),
+                          onTap: () => setState(() => _selectedTag = tag),
                         ),
                       );
                     }).toList(),
                   ),
                 ),
+
+                const SizedBox(height: 6),
 
                 // 今日速记 Hero 卡片
                 DailyHeroCard(
@@ -381,30 +362,28 @@ class _VaultPageState extends State<VaultPage> {
 
                 // 列表小标题
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 10, 22, 6),
-                  child: Text(
-                    '最近编辑 (${filteredNotes.length} 篇 · ${colors.name})',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: colors.textMuted,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                  child: JiyueSectionHeader(
+                    colors: colors,
+                    title: '最近编辑 (${filteredNotes.length} 篇)',
+                    padding: EdgeInsets.zero,
+                    trailing: JiyueBadge(
+                      colors: colors,
+                      label: colors.name,
+                      tone: JiyueBadgeTone.neutral,
                     ),
                   ),
                 ),
 
                 // 笔记列表
                 if (filteredNotes.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(40.0),
-                    child: Center(
-                      child: Column(
-                        children: [
-                          JiyueIcon('file-text', color: colors.textMuted, size: 36),
-                          const SizedBox(height: 12),
-                          Text('未找到相关笔记', style: TextStyle(color: colors.textMuted)),
-                        ],
-                      ),
-                    ),
+                  JiyueEmptyState(
+                    colors: colors,
+                    icon: 'file-text',
+                    title: '未找到相关笔记',
+                    subtitle: _searchQuery.isNotEmpty || _selectedTag != '全部'
+                        ? '尝试调整搜索关键词或切换其他标签'
+                        : '点击右下角按钮创建第一篇笔记',
                   )
                 else
                   ...filteredNotes.map((note) {
@@ -412,15 +391,17 @@ class _VaultPageState extends State<VaultPage> {
                       note: note,
                       colors: colors,
                       onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => ReaderPage(
-                              notePath: note.path,
-                              themeProvider: widget.themeProvider,
-                              vaultService: widget.vaultService,
-                            ),
-                          ),
-                        ).then((_) => _refreshNotes());
+                        Navigator.of(context)
+                            .push(
+                              MaterialPageRoute(
+                                builder: (_) => ReaderPage(
+                                  notePath: note.path,
+                                  themeProvider: widget.themeProvider,
+                                  vaultService: widget.vaultService,
+                                ),
+                              ),
+                            )
+                            .then((_) => _refreshNotes());
                       },
                     );
                   }),
@@ -428,16 +409,16 @@ class _VaultPageState extends State<VaultPage> {
             ),
           ),
 
-          // 悬浮新建 FAB 按钮
+          // 右下角克制悬浮新建按钮
           Positioned(
-            right: 20,
-            bottom: 24,
-            child: FloatingActionButton.extended(
-              backgroundColor: colors.accent,
-              foregroundColor: colors.onAccent,
-              elevation: 4,
-              icon: JiyueIcon('plus', color: colors.onAccent, size: 20),
-              label: const Text('新建笔记', style: TextStyle(fontWeight: FontWeight.bold)),
+            right: 16,
+            bottom: 16,
+            child: JiyueButton(
+              colors: colors,
+              label: '新建笔记',
+              icon: 'plus',
+              kind: JiyueButtonKind.primary,
+              size: JiyueControlSize.lg,
               onPressed: _createNewNote,
             ),
           ),
@@ -447,10 +428,21 @@ class _VaultPageState extends State<VaultPage> {
         currentIndex: _currentTab,
         colors: colors,
         onTabSelected: (idx) {
-          setState(() => _currentTab = idx);
-          if (idx == 1) {
-            _openDailyQuickLog();
+          if (idx == 0) {
+            _searchFocusNode.unfocus();
+            setState(() => _currentTab = 0);
+          } else if (idx == 1) {
+            setState(() => _currentTab = 1);
+            _openDailyQuickLog().then((_) {
+              if (mounted) {
+                setState(() => _currentTab = 0);
+              }
+            });
+          } else if (idx == 2) {
+            setState(() => _currentTab = 2);
+            _searchFocusNode.requestFocus();
           } else if (idx == 3) {
+            setState(() => _currentTab = 3);
             _openSettings();
           }
         },

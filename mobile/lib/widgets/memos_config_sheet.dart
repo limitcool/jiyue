@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../bridge/vault_service.dart';
 import '../models/exported_config.dart';
 import '../theme/jiyue_theme.dart';
-import 'jiyue_icon.dart';
+import 'jiyue_controls.dart';
 
 class MemosConfigSheet extends StatefulWidget {
   final VaultService vaultService;
@@ -40,7 +40,8 @@ class _MemosConfigSheetState extends State<MemosConfigSheet> {
   late final TextEditingController _tokenCtrl;
 
   bool _testing = false;
-  String? _testResult;
+  JiyueBadgeTone? _testTone;
+  String? _testMessage;
 
   @override
   void initState() {
@@ -61,13 +62,17 @@ class _MemosConfigSheetState extends State<MemosConfigSheet> {
     final endpoint = _endpointCtrl.text.trim().replaceAll(RegExp(r'/+$'), '');
     final token = _tokenCtrl.text.trim();
     if (endpoint.isEmpty) {
-      setState(() => _testResult = '✕ 请先填写 Memos 服务地址');
+      setState(() {
+        _testTone = JiyueBadgeTone.warn;
+        _testMessage = '请先填写 Memos 服务地址';
+      });
       return;
     }
 
     setState(() {
       _testing = true;
-      _testResult = '正在连接 Memos 服务...';
+      _testTone = JiyueBadgeTone.neutral;
+      _testMessage = '正在连接 Memos 服务...';
     });
 
     final stopwatch = Stopwatch()..start();
@@ -81,15 +86,22 @@ class _MemosConfigSheetState extends State<MemosConfigSheet> {
       final resp = await req.close();
       stopwatch.stop();
 
-      setState(() {
-        _testing = false;
-        _testResult = '✓ Memos 服务响应正常 (${stopwatch.elapsedMilliseconds}ms, HTTP ${resp.statusCode})';
-      });
+      if (mounted) {
+        setState(() {
+          _testing = false;
+          _testTone = JiyueBadgeTone.ok;
+          _testMessage =
+              'Memos 服务响应正常 (${stopwatch.elapsedMilliseconds}ms, HTTP ${resp.statusCode})';
+        });
+      }
     } catch (e) {
-      setState(() {
-        _testing = false;
-        _testResult = '✕ 连接 Memos 失败: $e';
-      });
+      if (mounted) {
+        setState(() {
+          _testing = false;
+          _testTone = JiyueBadgeTone.danger;
+          _testMessage = '连接 Memos 失败: $e';
+        });
+      }
     } finally {
       client.close();
     }
@@ -124,144 +136,64 @@ class _MemosConfigSheetState extends State<MemosConfigSheet> {
   Widget build(BuildContext context) {
     final colors = widget.colors;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colors.sheet,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      padding: EdgeInsets.fromLTRB(
-        20,
-        16,
-        20,
-        MediaQuery.of(context).viewInsets.bottom + 24,
-      ),
-      child: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return JiyueModalSheet(
+      colors: colors,
+      icon: 'calendar',
+      title: 'Memos 备忘录服务配置',
+      subtitle: '绑定私有部署或云端 Memos 实例',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          JiyueTextField(
+            colors: colors,
+            controller: _endpointCtrl,
+            label: 'Memos 服务端点 (Endpoint URL)',
+            hintText: '例如: https://memo.init.cool',
+          ),
+          const SizedBox(height: 12),
+          JiyueTextField(
+            colors: colors,
+            controller: _tokenCtrl,
+            obscureText: true,
+            label: 'Access Token (个人访问令牌)',
+            hintText: '例如: memos_pat_xxx',
+          ),
+          const SizedBox(height: 12),
+          if (_testMessage != null && _testTone != null) ...[
+            JiyueBanner(
+              colors: colors,
+              tone: _testTone!,
+              message: _testMessage!,
+            ),
+            const SizedBox(height: 10),
+          ],
+          Row(
             children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colors.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+              Expanded(
+                child: JiyueButton(
+                  colors: colors,
+                  label: _testing ? '连接中...' : '测试连接',
+                  icon: 'bolt',
+                  loading: _testing,
+                  kind: JiyueButtonKind.secondary,
+                  expand: true,
+                  onPressed: _testing ? null : _testMemosConnection,
                 ),
               ),
-              const SizedBox(height: 14),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      JiyueIcon('calendar', color: colors.accent, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        'Memos 备忘录服务配置',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  IconButton(
-                    icon: JiyueIcon('x', color: colors.textSecondary, size: 20),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-
-              // 端点 URL
-              TextField(
-                controller: _endpointCtrl,
-                style: TextStyle(color: colors.textPrimary, fontSize: 13),
-                decoration: InputDecoration(
-                  labelText: 'Memos 服务端点 (Endpoint URL)',
-                  hintText: '例如: https://memo.init.cool',
-                  labelStyle: TextStyle(color: colors.textSecondary, fontSize: 12),
-                  hintStyle: TextStyle(color: colors.textMuted, fontSize: 12),
-                  isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Access Token
-              TextField(
-                controller: _tokenCtrl,
-                obscureText: true,
-                style: TextStyle(color: colors.textPrimary, fontSize: 13),
-                decoration: InputDecoration(
-                  labelText: 'Access Token (个人访问令牌)',
-                  hintText: '例如: memos_pat_xxx',
-                  labelStyle: TextStyle(color: colors.textSecondary, fontSize: 12),
-                  isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-              // 测试端点按钮与反馈
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      _testResult ?? '建议保存前测试 Memos 服务响应',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: _testResult?.startsWith('✓') == true
-                            ? const Color(0xFF2E7D32)
-                            : (_testResult?.startsWith('✕') == true ? Colors.red : colors.textMuted),
-                      ),
-                    ),
-                  ),
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: colors.accent,
-                      side: BorderSide(color: colors.border),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    icon: _testing
-                        ? SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: colors.accent),
-                          )
-                        : JiyueIcon('zap', color: colors.accent, size: 12),
-                    label: const Text('测试连接', style: TextStyle(fontSize: 11)),
-                    onPressed: _testing ? null : _testMemosConnection,
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 18),
-              // 保存按钮
-              SizedBox(
-                width: double.infinity,
-                height: 44,
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colors.accent,
-                    foregroundColor: colors.onAccent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-                  ),
-                  icon: JiyueIcon('check', color: colors.onAccent, size: 16),
-                  label: const Text('保存 Memos 配置', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: JiyueButton(
+                  colors: colors,
+                  label: '保存配置',
+                  icon: 'check',
+                  kind: JiyueButtonKind.primary,
+                  expand: true,
                   onPressed: _saveConfig,
                 ),
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }

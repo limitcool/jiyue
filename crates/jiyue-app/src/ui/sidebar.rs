@@ -1,133 +1,357 @@
-//! Left sidebar (248px): workspace switcher, search, quick rows, the real file tree and tags.
+//! Activity bar (42px) and modular left sidebar (236px): files/tags, search, journal, memos, bookmarks.
 
 use super::{folder_key, path_parts};
 use std::collections::BTreeMap;
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, DragMoveEvent, ElementId, Entity, FontWeight,
-    IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, SharedString, div, img, prelude::*, px,
-    rgb,
+    AnyElement, ClickEvent, Context, DragMoveEvent, ElementId, Entity, FontWeight, IntoElement,
+    KeyDownEvent, MouseButton, MouseDownEvent, SharedString, WindowControlArea, div, img,
+    prelude::*, px,
 };
 
-use super::calendar::active_daily_date;
 use super::files_ui::{self, Target};
 use super::icons::icon;
-use super::widgets::controls::DANGER_RGB;
+use super::widgets::controls::{IconBtnSize, icon_button_sized};
 use super::widgets::line_input::LineInput;
-use crate::daily::Date;
-use crate::theme::{ActiveTheme, ICON_GAP, ICON_SIZE};
+use crate::theme::{
+    ACTIVITY_BAR_WIDTH, HEADER_HEIGHT, ICON_GAP, ICON_SIZE, RADIUS_S, ROW_HEIGHT, SIDEBAR_WIDTH,
+};
 use crate::{AppCommand, RustdianApp, ViewportMode};
 
-/// Height of the tag block: five 30px rows, then it scrolls.
-const TAG_BLOCK_MAX_H: f32 = 150.0;
+/// Which module is active inside the left sidebar.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SidebarTab {
+    #[default]
+    Files,
+    Search,
+    Journal,
+    Memos,
+    Bookmarks,
+}
 
-/// Renders the sidebar column.
+/// Height of the tag block: five 28px rows, then it scrolls.
+const TAG_BLOCK_MAX_H: f32 = 140.0;
+
+/// Renders the fixed 42px left activity bar spanning the full window height.
+pub fn render_activity_bar(
+    app: &RustdianApp,
+    cx: &mut Context<RustdianApp>,
+) -> impl IntoElement + use<> {
+    let t = app.theme;
+
+    let rail_tab_btn = |icon_name: &'static str, tab: SidebarTab| {
+        let active = app.left_sidebar_open
+            && app.sidebar_tab == tab
+            && app.viewport_mode == ViewportMode::Editor;
+        div()
+            .id(ElementId::Name(SharedString::from(format!(
+                "rail_tab_{icon_name}"
+            ))))
+            .relative()
+            .flex()
+            .items_center()
+            .justify_center()
+            .flex_none()
+            .size(px(30.0))
+            .rounded(px(RADIUS_S))
+            .cursor_pointer()
+            .when(active, |d| {
+                d.bg(t.active).child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top(px(7.0))
+                        .w(px(2.0))
+                        .h(px(16.0))
+                        .rounded_r(px(1.0))
+                        .bg(t.ac),
+                )
+            })
+            .when(!active, |d| d.hover(|s| s.bg(t.hover)))
+            .child(icon(icon_name, 16.0, if active { t.ac } else { t.tx3 }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    if this.left_sidebar_open
+                        && this.sidebar_tab == tab
+                        && this.viewport_mode == ViewportMode::Editor
+                    {
+                        this.left_sidebar_open = false;
+                        crate::config_store::sync_ui(this);
+                    } else {
+                        this.viewport_mode = ViewportMode::Editor;
+                        this.sidebar_tab = tab;
+                        this.left_sidebar_open = true;
+                        crate::config_store::sync_ui(this);
+                        if tab == SidebarTab::Search {
+                            super::search_ui::focus_sidebar_input(this, cx);
+                        }
+                    }
+                    cx.notify();
+                }),
+            )
+    };
+
+    let graph_on = app.viewport_mode == ViewportMode::GraphView;
+    let graph_btn = div()
+        .id("rail_graph")
+        .relative()
+        .flex()
+        .items_center()
+        .justify_center()
+        .flex_none()
+        .size(px(30.0))
+        .rounded(px(RADIUS_S))
+        .cursor_pointer()
+        .when(graph_on, |d| {
+            d.bg(t.active).child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top(px(7.0))
+                    .w(px(2.0))
+                    .h(px(16.0))
+                    .rounded_r(px(1.0))
+                    .bg(t.ac),
+            )
+        })
+        .when(!graph_on, |d| d.hover(|s| s.bg(t.hover)))
+        .child(icon("affiliate", 16.0, if graph_on { t.ac } else { t.tx3 }))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, _, cx| {
+                this.viewport_mode = if this.viewport_mode == ViewportMode::GraphView {
+                    ViewportMode::Editor
+                } else {
+                    ViewportMode::GraphView
+                };
+                cx.notify();
+            }),
+        );
+
+    let rail_action_btn = |id: &'static str, icon_name: &'static str| {
+        div()
+            .id(id)
+            .flex()
+            .items_center()
+            .justify_center()
+            .flex_none()
+            .size(px(30.0))
+            .rounded(px(RADIUS_S))
+            .cursor_pointer()
+            .hover(|s| s.bg(t.hover))
+            .child(icon(icon_name, 16.0, t.tx3))
+    };
+
+    div()
+        .flex()
+        .flex_col()
+        .items_center()
+        .flex_none()
+        .w(px(ACTIVITY_BAR_WIDTH))
+        .h_full()
+        .bg(t.canvas)
+        .border_r_1()
+        .border_color(t.border_subtle)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_center()
+                .flex_none()
+                .w_full()
+                .h(px(HEADER_HEIGHT))
+                .child(
+                    div()
+                        .id("rail_vault_logo")
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(px(30.0))
+                        .rounded(px(RADIUS_S))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(t.hover))
+                        .child(logo_mark())
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, ev: &MouseDownEvent, window, cx| {
+                                let pos = (f32::from(ev.position.x), f32::from(ev.position.y));
+                                super::vaults_ui::open_menu(this, pos, window);
+                                cx.stop_propagation();
+                                cx.notify();
+                            }),
+                        ),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .pt(px(6.0))
+                .gap(px(4.0))
+                .child(rail_tab_btn("folder", SidebarTab::Files))
+                .child(rail_tab_btn("search", SidebarTab::Search))
+                .child(rail_tab_btn("calendar", SidebarTab::Journal))
+                .child(rail_tab_btn("checkbox", SidebarTab::Memos))
+                .child(rail_tab_btn("bookmark", SidebarTab::Bookmarks))
+                .child(div().w(px(20.0)).h(px(1.0)).my(px(4.0)).bg(t.border_subtle))
+                .child(graph_btn),
+        )
+        .child(
+            div()
+                .mt_auto()
+                .pb(px(8.0))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(4.0))
+                .child(rail_action_btn("rail_trash", "trash").on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        files_ui::open_trash_view(this, cx);
+                    }),
+                ))
+                .child(rail_action_btn("rail_theme", "palette").on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.run_command(AppCommand::CycleTheme);
+                        cx.notify();
+                    }),
+                ))
+                .child(rail_action_btn("rail_settings", "settings").on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.run_command(AppCommand::OpenSettings);
+                        cx.notify();
+                    }),
+                )),
+        )
+}
+
+/// Renders the modular 236px left sidebar panel.
 pub fn render_sidebar(
     app: &RustdianApp,
     cx: &mut Context<RustdianApp>,
 ) -> impl IntoElement + use<> {
     let t = app.theme;
-    let today_active = active_daily_date(app) == Some(Date::today());
+    let tab = app.sidebar_tab;
 
-    div()
-        .flex()
-        .flex_col()
-        .w(px(248.0))
-        .flex_none()
-        .h_full()
-        .pt(px(10.0))
-        .px(px(8.0))
-        .pb(px(8.0))
-        .bg(t.chrome)
-        .font_family(crate::ui::fonts::ui_name())
-        .text_size(px(13.0))
-        .text_color(t.tx2)
-        .child(workspace(app, cx))
-        .children(super::vaults_ui::missing_banner(app, cx))
-        .child(
-            row(
-                &t,
-                "search",
-                &crate::t!("sidebar-search"),
-                Some(&crate::ui::keymap::shortcut_text("view.quick_switch")),
-                true,
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.show_palette = true;
-                    this.is_command_mode = false;
-                    this.palette_query.clear();
-                    cx.notify();
-                }),
-            ),
-        )
-        .child(
-            row(
-                &t,
-                "square-rounded-plus",
-                &crate::t!("sidebar-new-note"),
-                Some(&crate::ui::keymap::shortcut_text("file.new_note")),
-                false,
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.new_note();
-                    cx.notify();
-                }),
-            ),
-        )
-        .child(
-            row(&t, "affiliate", &crate::t!("sidebar-graph"), None, false).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.viewport_mode = if this.viewport_mode == ViewportMode::GraphView {
-                        ViewportMode::Editor
-                    } else {
-                        ViewportMode::GraphView
-                    };
-                    cx.notify();
-                }),
-            ),
-        )
-        .child(
-            row(
-                &t,
-                "calendar-event",
-                &crate::t!("sidebar-journal"),
-                None,
-                false,
-            )
-            .when(today_active, |d| {
-                d.bg(t.active)
+    let left_title = if tab == SidebarTab::Files {
+        let title = app.configs.vault_title();
+        div()
+            .id("sidebar_vault_switcher")
+            .flex()
+            .items_center()
+            .gap(px(4.0))
+            .max_w(px(136.0))
+            .px(px(4.0))
+            .py(px(2.0))
+            .rounded(px(RADIUS_S))
+            .cursor_pointer()
+            .hover(|s| s.bg(t.hover))
+            .child(
+                div()
+                    .text_size(px(12.5))
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(t.tx)
-                    .font_weight(FontWeight::MEDIUM)
-            })
+                    .truncate()
+                    .child(SharedString::from(title)),
+            )
+            .child(icon("selector", 12.0, t.tx3))
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.reset_calendar_month();
-                    this.open_today();
+                cx.listener(|this, ev: &MouseDownEvent, window, cx| {
+                    let pos = (f32::from(ev.position.x), f32::from(ev.position.y));
+                    super::vaults_ui::open_menu(this, pos, window);
+                    cx.stop_propagation();
                     cx.notify();
                 }),
-            ),
-        )
-        .child(app.render_calendar(cx))
-        // 书签: a collapsible section (see ui/bookmarks).
-        .child(super::ext::bookmarks::section(app, cx))
-        // Memos / 待办看板: a collapsible section (see ui/memos_ui).
-        .child(super::memos_ui::render_sidebar_section(app, cx))
-        .child(section_header(&t, &crate::t!("sidebar-files"), true, cx))
-        // The file tree takes the remaining height and scrolls. It has focus after a click on a
-        // row, so Delete, F2, Enter and the Menu key act on the selection (files_ui::tree_key).
-        .child({
+            )
+            .into_any_element()
+    } else {
+        let label = match tab {
+            SidebarTab::Files => String::new(),
+            SidebarTab::Search => crate::t!("sidebar-search"),
+            SidebarTab::Journal => crate::t!("sidebar-journal"),
+            SidebarTab::Memos => crate::t!("sidebar-memos"),
+            SidebarTab::Bookmarks => String::from("书签"),
+        };
+        div()
+            .px(px(4.0))
+            .text_size(px(12.5))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(t.tx)
+            .truncate()
+            .child(SharedString::from(label))
+            .into_any_element()
+    };
+
+    let drag_spacer = div()
+        .flex_1()
+        .min_w(px(8.0))
+        .h_full()
+        .occlude()
+        .window_control_area(WindowControlArea::Drag)
+        .when(!cfg!(windows), |d| {
+            d.on_mouse_down(MouseButton::Left, super::tabbar::title_click())
+        });
+
+    let mut right_actions = div().flex().items_center().flex_none().gap(px(2.0));
+    if tab == SidebarTab::Files {
+        right_actions = right_actions
+            .child(icon_button_sized(
+                &t,
+                "file-plus",
+                IconBtnSize::Small,
+                cx.listener(|this, _, _, cx| {
+                    this.run_command(AppCommand::NewNote);
+                    cx.notify();
+                }),
+            ))
+            .child(icon_button_sized(
+                &t,
+                "folder-plus",
+                IconBtnSize::Small,
+                cx.listener(|this, _, _, cx| {
+                    files_ui::run(this, files_ui::Command::NewFolder, cx);
+                }),
+            ));
+    }
+    right_actions = right_actions.child(icon_button_sized(
+        &t,
+        "layout-sidebar",
+        IconBtnSize::Small,
+        cx.listener(|this, _, _, cx| {
+            this.left_sidebar_open = false;
+            crate::config_store::sync_ui(this);
+            cx.notify();
+        }),
+    ));
+
+    let header = div()
+        .flex()
+        .items_center()
+        .flex_none()
+        .h(px(HEADER_HEIGHT))
+        .px(px(8.0))
+        .gap(px(4.0))
+        .border_b_1()
+        .border_color(t.border_subtle)
+        .child(left_title)
+        .child(drag_spacer)
+        .child(right_actions);
+
+    let body: AnyElement = match tab {
+        SidebarTab::Files => {
             let mut tree = div()
                 .id("file_tree")
                 .flex()
                 .flex_col()
                 .flex_1()
                 .min_h(px(120.0))
+                .px(px(6.0))
+                .py(px(6.0))
                 .overflow_y_scroll()
                 .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                     files_ui::tree_key(this, ev, window, cx);
@@ -157,242 +381,67 @@ pub fn render_sidebar(
             if let Some(handle) = app.ext.files.tree_focus.as_ref() {
                 tree = tree.track_focus(handle);
             }
-            tree
-        })
-        .child(section_header(&t, &crate::t!("sidebar-tags"), false, cx))
-        // At most five tags are visible; more scroll inside this block.
-        .child(
-            div().flex().flex_col().flex_none().child(
-                div()
-                    .id("tag_list")
-                    .flex()
-                    .flex_col()
-                    .max_h(px(TAG_BLOCK_MAX_H))
-                    .overflow_y_scroll()
-                    .child(tags(app, cx)),
-            ),
-        )
-        .child(
+
             div()
                 .flex()
-                .items_center()
-                .gap(px(2.0))
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .child(tree)
                 .child(
-                    row(&t, "settings", &crate::t!("sidebar-settings"), None, false)
-                        .flex_1()
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                this.run_command(AppCommand::OpenSettings);
-                                cx.notify();
-                            }),
-                        ),
+                    div()
+                        .flex_none()
+                        .px(px(10.0))
+                        .pt(px(8.0))
+                        .pb(px(4.0))
+                        .border_t_1()
+                        .border_color(t.border_subtle)
+                        .text_size(px(11.5))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.tx3)
+                        .child(SharedString::from(crate::t!("sidebar-tags"))),
                 )
                 .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .flex_none()
-                        .size(px(30.0))
-                        .rounded(px(6.0))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(t.hover))
-                        .child(icon("trash", ICON_SIZE, t.tx3))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                files_ui::open_trash_view(this, cx);
-                            }),
-                        ),
-                ),
-        )
-}
-
-/// The workspace switcher at the top: logo mark, vault folder name and note count.
-fn workspace(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + use<> {
-    let t = app.theme;
-    // The vault's display name (`[vault] name` in its config), or the folder name.
-    let title = app.configs.vault_title();
-    let count = app.vault.notes.len();
+                    div().flex().flex_col().flex_none().child(
+                        div()
+                            .id("tag_list")
+                            .flex()
+                            .flex_col()
+                            .max_h(px(TAG_BLOCK_MAX_H))
+                            .px(px(6.0))
+                            .pb(px(6.0))
+                            .overflow_y_scroll()
+                            .child(tags(app, cx)),
+                    ),
+                )
+                .into_any_element()
+        }
+        SidebarTab::Search => super::search_ui::render_sidebar_panel(app, cx),
+        SidebarTab::Journal => super::calendar::render_journal_panel(app, cx),
+        SidebarTab::Memos => super::memos_ui::render_sidebar_panel(app, cx).into_any_element(),
+        SidebarTab::Bookmarks => super::ext::bookmarks::render_sidebar_panel(app, cx),
+    };
 
     div()
         .flex()
+        .flex_col()
+        .w(px(SIDEBAR_WIDTH))
         .flex_none()
-        .items_center()
-        .gap(px(ICON_GAP))
-        .px(px(8.0))
-        .py(px(6.0))
-        .mb(px(6.0))
-        .rounded(px(8.0))
-        .occlude()
-        // The drag area covers the logo and the name only: on Windows it would swallow the clicks
-        // of the chevron next to it.
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(ICON_GAP))
-                .flex_1()
-                .min_w_0()
-                .window_control_area(gpui::WindowControlArea::Drag)
-                .when(!cfg!(windows), |d| {
-                    d.on_mouse_down(gpui::MouseButton::Left, super::tabbar::title_click())
-                })
-                .child(logo_mark())
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .child(
-                            div()
-                                .text_size(px(13.5))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(t.tx)
-                                .truncate()
-                                .child(SharedString::from(title)),
-                        )
-                        .child(
-                            div()
-                                .mt(px(1.0))
-                                .text_size(px(11.5))
-                                .text_color(t.tx3)
-                                .truncate()
-                                .child(SharedString::from(crate::t!(
-                                    "sidebar-note-count",
-                                    count = count
-                                ))),
-                        ),
-                ),
-        )
-        .child(
-            div()
-                .id("vaults-chevron")
-                .flex_none()
-                .size(px(24.0))
-                .rounded(px(6.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .cursor_pointer()
-                .hover(|s| s.bg(t.hover))
-                .child(icon("selector", 14.0, t.tx3))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, ev: &MouseDownEvent, window, cx| {
-                        let pos = (f32::from(ev.position.x), f32::from(ev.position.y));
-                        super::vaults_ui::open_menu(this, pos, window);
-                        cx.stop_propagation();
-                        cx.notify();
-                    }),
-                ),
-        )
-}
-
-/// The 30px app logo (`assets/logo/icon-64.png`; its rounded corners are in the PNG alpha).
-fn logo_mark() -> impl IntoElement {
-    img("logo/icon-64.png").size(px(30.0)).flex_none()
-}
-
-/// One 30px sidebar row. `kbd` draws the shortcut badge on the right.
-fn row(
-    t: &ActiveTheme,
-    icon_name: &str,
-    label: &str,
-    kbd: Option<&str>,
-    search: bool,
-) -> gpui::Div {
-    let mut r = div()
-        .flex_none()
-        .flex()
-        .items_center()
-        .gap(px(ICON_GAP))
-        .h(px(if search { 32.0 } else { 30.0 }))
-        .pl(px(if search { 7.0 } else { 8.0 }))
-        .pr(px(8.0))
-        .rounded(px(6.0))
-        .whitespace_nowrap()
+        .h_full()
+        .bg(t.panel)
+        .border_r_1()
+        .border_color(t.border_subtle)
+        .font_family(crate::ui::fonts::ui_name())
+        .text_size(px(13.0))
         .text_color(t.tx2)
-        .cursor_pointer()
-        .hover(|s| s.bg(t.hover).text_color(t.tx))
-        .child(icon(icon_name, ICON_SIZE, t.tx3))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(SharedString::from(label.to_string())),
-        );
-    if search {
-        r = r
-            .mb(px(4.0))
-            .bg(t.raised)
-            .border_1()
-            .border_color(t.line)
-            .text_color(t.tx3);
-    }
-    if let Some(k) = kbd {
-        r = r.child(
-            div()
-                .flex_none()
-                .px(px(5.0))
-                .py(px(1.0))
-                .rounded(px(5.0))
-                .border_1()
-                .border_color(t.line)
-                .bg(t.raised)
-                .text_size(px(11.0))
-                .text_color(t.tx3)
-                .child(SharedString::from(k.to_string())),
-        );
-    }
-    r
+        .child(header)
+        .children(super::vaults_ui::missing_banner(app, cx))
+        .child(div().flex().flex_col().flex_1().min_h_0().child(body))
 }
 
-/// Section title such as 文件 or 标签. The file section carries the new-note action.
-fn section_header(
-    t: &ActiveTheme,
-    title: &str,
-    with_actions: bool,
-    cx: &mut Context<RustdianApp>,
-) -> impl IntoElement + use<> {
-    let mut h = div()
-        .flex_none()
-        .flex()
-        .items_center()
-        .justify_between()
-        .pt(px(14.0))
-        .pb(px(5.0))
-        .px(px(8.0))
-        .text_size(px(11.5))
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(t.tx3)
-        .child(SharedString::from(title.to_string()));
-    if with_actions {
-        h = h.child(
-            div()
-                .flex()
-                .gap(px(2.0))
-                .child(action_icon("file-plus", t).on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.run_command(AppCommand::NewNote);
-                        cx.notify();
-                    }),
-                )),
-        );
-    }
-    h
-}
-
-fn action_icon(name: &str, t: &ActiveTheme) -> Div {
-    div()
-        .p(px(3.0))
-        .rounded(px(5.0))
-        .cursor_pointer()
-        .hover(|s| s.bg(t.hover))
-        .child(icon(name, ICON_SIZE, t.tx3))
+/// The 24px app logo (`assets/logo/icon-64.png`; its rounded corners are in the PNG alpha).
+fn logo_mark() -> impl IntoElement {
+    img("logo/icon-64.png").size(px(24.0)).flex_none()
 }
 
 #[derive(Default)]
@@ -526,7 +575,7 @@ fn inline_row(
                 .pl(px(25.0))
                 .pt(px(2.0))
                 .text_size(px(11.5))
-                .text_color(rgb(DANGER_RGB))
+                .text_color(t.danger)
                 .child(SharedString::from(message)),
         );
     }
@@ -571,10 +620,10 @@ fn walk(
                 .flex_none()
                 .items_center()
                 .gap(px(ICON_GAP))
-                .h(px(30.0))
+                .h(px(ROW_HEIGHT))
                 .pl(px(8.0 + depth as f32 * 20.0))
                 .pr(px(8.0))
-                .rounded(px(6.0))
+                .rounded(px(RADIUS_S))
                 .whitespace_nowrap()
                 .text_color(t.tx2)
                 .cursor_pointer()
@@ -682,20 +731,30 @@ fn walk(
                 SharedString::from("file_row"),
                 idx as u64,
             ))
+            .relative()
             .flex()
             .flex_none()
             .items_center()
             .gap(px(ICON_GAP))
-            .h(px(30.0))
+            .h(px(ROW_HEIGHT))
             .pl(px(8.0 + depth as f32 * 20.0))
             .pr(px(8.0))
-            .rounded(px(6.0))
+            .rounded(px(RADIUS_S))
             .whitespace_nowrap()
             .cursor_pointer()
             .text_color(if is_active { t.tx } else { t.tx2 })
             .hover(|s| s.bg(t.hover).text_color(t.tx));
         if is_active {
-            r = r.bg(t.active).font_weight(FontWeight::MEDIUM);
+            r = r.bg(t.active).font_weight(FontWeight::MEDIUM).child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top(px(6.0))
+                    .w(px(2.0))
+                    .h(px(16.0))
+                    .rounded_r(px(1.0))
+                    .bg(t.ac),
+            );
         } else if is_selected {
             r = r.bg(t.hover).text_color(t.tx);
         }
@@ -766,8 +825,10 @@ fn tags(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + 
             *counts.entry(tag.clone()).or_default() += 1;
         }
     }
-    // The active tags are those of the search text (an open search only).
-    let search_text = if app.ext.search.panel.open {
+    // The active tags are those of the search text (sidebar search tab or modal search).
+    let search_open = (app.left_sidebar_open && app.sidebar_tab == SidebarTab::Search)
+        || app.ext.search.panel.open;
+    let search_text = if search_open {
         super::search_ui::query_text(app, cx)
     } else {
         String::new()
@@ -781,9 +842,9 @@ fn tags(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + 
             .flex_none()
             .items_center()
             .gap(px(ICON_GAP))
-            .h(px(30.0))
+            .h(px(ROW_HEIGHT))
             .px(px(8.0))
-            .rounded(px(6.0))
+            .rounded(px(RADIUS_S))
             .cursor_pointer()
             .text_color(t.tx2)
             .hover(|s| s.bg(t.hover).text_color(t.tx));
@@ -822,16 +883,21 @@ fn tags(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + 
     list
 }
 
-/// Runs the search for a clicked tag. Ctrl+click adds the tag to the text of the open search.
+/// Runs the search for a clicked tag inside the modular Search sidebar tab. Ctrl+click adds the tag.
 fn tag_clicked(app: &mut RustdianApp, name: &str, extend: bool, cx: &mut Context<RustdianApp>) {
-    let open = app.ext.search.panel.open;
+    let open = (app.left_sidebar_open && app.sidebar_tab == SidebarTab::Search)
+        || app.ext.search.panel.open;
     let current = if extend && open {
         super::search_ui::query_text(app, cx)
     } else {
         String::new()
     };
     let query = tag_query_text(&current, name, extend && open);
-    super::search_ui::open_query(app, &query, cx);
+    app.viewport_mode = ViewportMode::Editor;
+    app.sidebar_tab = SidebarTab::Search;
+    app.left_sidebar_open = true;
+    crate::config_store::sync_ui(app);
+    super::search_ui::set_sidebar_query(app, &query, cx);
     cx.notify();
 }
 

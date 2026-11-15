@@ -219,7 +219,7 @@ pub fn collect_export_config(
 }
 
 /// Renders the QR code matrix with crisp black & white GPUI divs.
-fn render_qr_grid(matrix: &[Vec<bool>]) -> AnyElement {
+fn render_qr_grid(t: &crate::theme::ActiveTheme, matrix: &[Vec<bool>]) -> AnyElement {
     let width = matrix.len();
     if width == 0 {
         return div().into_any_element();
@@ -239,7 +239,7 @@ fn render_qr_grid(matrix: &[Vec<bool>]) -> AnyElement {
         .rounded(px(12.0))
         .shadow_md()
         .border_1()
-        .border_color(gpui::rgb(0xe0e0e0))
+        .border_color(t.line)
         .children(matrix.iter().map(|row| {
             div().flex().flex_row().children(row.iter().map(|&dark| {
                 div()
@@ -313,7 +313,7 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElem
         )
         // QR Code Container
         .child(match qr_matrix {
-            Ok(ref matrix) => render_qr_grid(matrix),
+            Ok(ref matrix) => render_qr_grid(&t, matrix),
             Err(ref err) => div()
                 .p(px(20.0))
                 .rounded(px(10.0))

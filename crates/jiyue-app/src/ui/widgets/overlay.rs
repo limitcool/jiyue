@@ -31,13 +31,9 @@ pub const MENU_MAX_H: f32 = 320.0;
 /// Gap kept between an overlay and the window edge.
 pub const EDGE_MARGIN: f32 = 8.0;
 
-/// Background behind a modal: 0.55 alpha in dark themes, 0.35 in light ones.
+/// Background behind a modal: uses the theme's SSOT `scrim` token.
 pub fn scrim_colour(t: &ActiveTheme) -> Rgba {
-    if t.kind.is_dark() {
-        gpui::rgba(0x0000008C)
-    } else {
-        gpui::rgba(0x00000059)
-    }
+    t.scrim
 }
 
 /// True for the Escape key without modifiers.
@@ -364,7 +360,7 @@ pub fn context_menu(
         let fg = if !item.enabled {
             t.tx3
         } else if item.danger {
-            gpui::rgb(super::controls::DANGER_RGB)
+            t.danger
         } else {
             t.tx
         };

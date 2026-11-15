@@ -363,11 +363,7 @@ impl RustdianApp {
     pub(crate) fn render_settings(&self, cx: &mut Context<Self>) -> AnyElement {
         let t = self.theme;
         let category = self.settings.category.min(CATEGORIES.len() - 1);
-        let scrim = if t.kind.is_dark() {
-            gpui::rgba(0x0000008c)
-        } else {
-            gpui::rgba(0x00000059)
-        };
+        let scrim = t.scrim;
 
         let mut nav = div()
             .flex()
@@ -428,7 +424,7 @@ impl RustdianApp {
                 div()
                     .text_size(px(11.0))
                     .text_color(t.tx)
-                    .child("📱 手机扫码同步"),
+                    .child("手机扫码同步"),
             )
             .on_mouse_down(
                 MouseButton::Left,
@@ -1121,7 +1117,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 &t,
                 &crate::t!("update-check-now"),
                 crate::ui::widgets::ButtonKind::Secondary,
-                Some("rotate-cw"),
+                Some("arrows-sort"),
                 cx.listener(|this, _, _, cx| {
                     this.trigger_check_update(true, cx);
                 }),
@@ -1158,7 +1154,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 &t,
                 &crate::t!("update-check-now"),
                 crate::ui::widgets::ButtonKind::Secondary,
-                Some("rotate-cw"),
+                Some("arrows-sort"),
                 cx.listener(|this, _, _, cx| {
                     this.trigger_check_update(true, cx);
                 }),
@@ -1190,7 +1186,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 &t,
                 &crate::t!("update-download"),
                 crate::ui::widgets::ButtonKind::Primary,
-                Some("download"),
+                Some("arrow-down"),
                 cx.listener(move |this, _, _, cx| {
                     this.trigger_download_update(info_clone.clone(), cx);
                 }),
@@ -1212,7 +1208,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                             .flex()
                             .items_center()
                             .gap(px(8.0))
-                            .child(crate::ui::icons::icon("arrow-up-circle", 18.0, t.ac))
+                            .child(crate::ui::icons::icon("arrow-up", 18.0, t.ac))
                             .child(
                                 div()
                                     .font_weight(FontWeight::MEDIUM)
@@ -1299,7 +1295,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 &t,
                 &crate::t!("update-install"),
                 crate::ui::widgets::ButtonKind::Primary,
-                Some("rotate-cw"),
+                Some("arrow-up"),
                 cx.listener(move |this, _, _, cx| {
                     this.trigger_apply_update(path_clone.clone(), cx);
                 }),
@@ -1345,7 +1341,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 &t,
                 &crate::t!("update-retry"),
                 crate::ui::widgets::ButtonKind::Secondary,
-                Some("rotate-cw"),
+                Some("arrows-sort"),
                 cx.listener(|this, _, _, cx| {
                     this.trigger_check_update(true, cx);
                 }),
@@ -1360,11 +1356,7 @@ fn update_block(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                             .flex()
                             .items_center()
                             .gap(px(8.0))
-                            .child(crate::ui::icons::icon(
-                                "alert-triangle",
-                                16.0,
-                                gpui::rgb(crate::ui::widgets::controls::DANGER_RGB),
-                            ))
+                            .child(crate::ui::icons::icon("alert-triangle", 16.0, t.danger))
                             .child(
                                 div()
                                     .text_size(px(12.5))

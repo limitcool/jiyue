@@ -457,7 +457,7 @@ fn conflict_hint(app: &RustdianApp, cx: &mut Context<RustdianApp>, pending: &Pen
         .justify_between()
         .gap(px(10.0))
         .py(px(4.0))
-        .child(hint_text(&t, &text, gpui::rgb(0xE5484D)))
+        .child(hint_text(&t, &text, t.danger))
         .child(actions);
     if !replaceable {
         hint = hint.child(hint_text(&t, "文字编辑键不能被替换", t.tx3));

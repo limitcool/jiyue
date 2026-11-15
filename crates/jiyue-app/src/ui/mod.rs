@@ -44,7 +44,7 @@ pub mod widgets;
 use crate::theme::{ActiveTheme, ThemeKind};
 
 /// Width in px of the right panel (outline, backlinks); the title bar leaves room for it.
-pub const RIGHT_PANEL_W: f32 = 272.0;
+pub const RIGHT_PANEL_W: f32 = crate::theme::RIGHT_PANEL_WIDTH;
 /// Built-in interface font (installed system font, matched by family name). The user's choice
 /// (`[appearance] ui_font`) replaces it; see `fonts::ui_name`.
 pub const UI_FONT: &str = "Noto Sans SC";
