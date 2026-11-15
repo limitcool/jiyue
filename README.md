@@ -4,14 +4,15 @@
 
 # 霁月 Jiyue
 
-**一款本地优先的 Markdown 笔记应用，面向 Windows，用 Rust 编写。**
+**一款本地优先的 Markdown 笔记应用，覆盖桌面端（Windows / macOS / Linux）与 Android，由 Rust 与 Flutter 驱动。**
 笔记就是你选的文件夹里的普通 `.md` 文件。
 
 [English](README.en.md) | [简体中文](README.md)
 
 [![CI](https://github.com/limitcool/jiyue/actions/workflows/ci.yml/badge.svg)](https://github.com/limitcool/jiyue/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/limitcool/jiyue)](https://github.com/limitcool/jiyue/releases/latest)
 [![许可证: MIT OR Apache-2.0](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue.svg)](#许可证)
-[![平台: Windows | macOS | Linux](https://img.shields.io/badge/平台-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/limitcool/jiyue/releases/latest)
+[![平台: Windows | macOS | Linux | Android](https://img.shields.io/badge/平台-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-lightgrey.svg)](https://github.com/limitcool/jiyue/releases/latest)
 ![Rust 1.99.1](https://img.shields.io/badge/Rust-1.99.1-orange.svg)
 
 <img src="docs/images/hero-ink.png" alt="霁月的实时预览：表格、提示块、侧栏和右栏" width="860">
@@ -32,8 +33,8 @@
 
 - **本地优先。** 一篇笔记就是普通文件夹里的一个 `.md` 文件。没有账号，没有数据库，也没有私有格式。即使不再使用霁月，笔记依然可以直接打开。
 - **兼容 Obsidian 笔记库。** 可以直接打开已有的笔记库文件夹。`[[双链]]`、`![[嵌入]]`、`^块引用` 和 YAML 属性都能识别，霁月不读取也不修改 `.obsidian`。
-- **原生应用。** 界面基于 GPUI（Zed 编辑器的 GPU 加速界面框架），整个程序就是一个可执行文件，里面没有浏览器。
-- **中文优先。** 任何输入框都支持拼音输入；全文索引按字的二元组建立，不需要词典；界面、菜单和示例笔记都使用简体中文。
+- **原生跨端体验。** 桌面端界面基于 GPUI（Zed 编辑器的 GPU 加速界面框架），整个程序就是一个独立可执行文件，无内置浏览器；Android 客户端基于 Flutter，通过 `jiyue-ffi` 与桌面端共享 Rust 核心逻辑及同一套 `design/tokens.json` 设计令牌体系，桌面设置页生成二维码即可扫码配对手机端。
+- **中文优先与双语界面。** 支持简体中文与 English 即时切换；任何输入框均支持拼音输入；全文索引按字的二元组建立，不需要词典；内置示例笔记使用简体中文。
 
 ## 功能
 
@@ -52,12 +53,14 @@
 - **图谱缩放。** 在图谱上滚动鼠标滚轮，会以指针所在处为中心缩放；左下角的按钮可以放大、缩小或恢复适应视图。
 - **标签。** 正文或属性中的标签会在侧栏中列出，并显示数量。
 - **日记与日历。** Ctrl+Shift+D 打开今天的日记，侧栏有日历，并且可以切换前一天和后一天的日记。
+- **待办与微记（Memos）。** 侧栏集成笔记库待办汇总与自托管 Memos 微记，支持标签筛选、快速发送及一键插入当前笔记。
 - **模板。** 可以向笔记中插入模板，也可以用模板新建笔记。
 - **书签。** 给笔记或标题加上书签，它们会出现在侧栏的书签区。
 
 ### 搜索与导航
 
 - **全文搜索**（Ctrl+Shift+F）覆盖整个笔记库。中文按字的二元组索引，查询语法支持短语 `"..."`、排除 `-词`、`OR`，以及 `tag:`、`path:`、`file:`、`title:` 过滤。结果会高亮显示命中的片段。
+- **大笔记库性能。** 后台线程增量构建索引，文件树与列表采用虚拟化渲染和按需加载，打开大型笔记库依然保持低内存与流畅浏览。
 - **查找与替换**（Ctrl+F、Ctrl+H）作用于当前笔记。
 - **快速切换**（Ctrl+K）和**命令面板**（Ctrl+P）。命令面板列出所有命令，包括没有快捷键的命令。
 - **标签页与分屏。** 多篇笔记以标签页打开，也可以把一篇笔记拆分到另一篇旁边（Ctrl+\）。
@@ -75,13 +78,14 @@
 
 ### 可选功能（默认关闭）
 
-- **同步。** 可以同步到兼容 S3 的存储桶（可选远端版本历史），也可以同步到 WebDAV 文件夹。同步时做三方合并，冲突时生成冲突副本。详见 [docs/sync.md](docs/sync.md)。
-- **AI 助手，自带密钥。** 支持 OpenAI 兼容接口和 Anthropic。密钥以明文保存在本机的 `credentials.toml` 中（仅当前用户可读），也可以改用环境变量或命令读取。只有在你打开 AI 并主动发起请求后才会发送内容。详见 [docs/ai.md](docs/ai.md)。
+- **同步与手机扫码配置。** 可以同步到兼容 S3 的存储桶（可选远端版本历史），也可以同步到 WebDAV 文件夹，采用三方合并并在冲突时保留冲突副本。在设置页点击「手机扫码同步」可生成二维码，供 Android 客户端扫码免手输导入 S3、AI 与 Memos 配置。详见 [docs/sync.md](docs/sync.md)。
+- **AI 助手，自带密钥。** 支持 OpenAI 兼容接口和 Anthropic，提供侧栏流式 Markdown 对话与选区润色（Ctrl+J）行级差异预览。密钥以明文保存在本机的 `credentials.toml` 中（仅当前用户可读），也可以改用环境变量或命令读取。只有在你打开 AI 并主动发起请求后才会发送内容。详见 [docs/ai.md](docs/ai.md)。
 - **MCP 服务。** `jiyue-mcp` 让 Claude Desktop、Claude Code 等 MCP 客户端搜索、读取笔记；不加 `--read-only` 时也可以新建和修改笔记。详见 [docs/mcp.md](docs/mcp.md)。
 
 ### 外观与快捷键
 
 - **五种主题：** 纸、墨、苔、石墨、雾。
+- **中英双语界面即时切换。** 支持在设置「外观」中实时切换跟随系统、简体中文（zh-CN）或 English（en-US）。
 - **字体与字号。** 界面、正文和代码可以分别选择字体，并可以调整正文字号、代码字号和行高。修改后立即生效。
 - **可自定义快捷键。** 在设置中可以修改任何命令的快捷键。详见 [docs/shortcuts.md](docs/shortcuts.md)。
 
@@ -104,19 +108,26 @@
   </tr>
   <tr>
     <td align="center"><a href="docs/images/palette.png"><img src="docs/images/palette.png" width="420" alt="命令面板"></a><br><sub>命令面板（Ctrl+P）。</sub></td>
-    <td align="center"><a href="docs/images/history.png"><img src="docs/images/history.png" width="420" alt="历史版本对比"></a><br><sub>本地历史版本：把某个版本与当前文本对比。</sub></td>
+    <td align="center"><a href="docs/images/history.png"><img src="docs/images/history.png" width="420" alt="历史版本对比"></a><br><sub>本地历史版本：选中任意版本查看差异对比并一键恢复。</sub></td>
   </tr>
   <tr>
-    <td align="center"><a href="docs/images/sync-settings.png"><img src="docs/images/sync-settings.png" width="420" alt="同步设置页"></a><br><sub>同步设置页（空白，尚未配置服务器）。</sub></td>
+    <td align="center"><a href="docs/images/sync-settings.png"><img src="docs/images/sync-settings.png" width="420" alt="同步设置页"></a><br><sub>S3 / WebDAV 同步设置与自动同步控制。</sub></td>
     <td align="center"><a href="docs/images/bookmarks.png"><img src="docs/images/bookmarks.png" width="420" alt="侧栏中的书签"></a><br><sub>侧栏中的书签区。</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/images/settings.png"><img src="docs/images/settings.png" width="420" alt="外观设置与手机扫码同步"></a><br><sub>外观设置：五套内置主题、双语即时切换与手机扫码同步。</sub></td>
+    <td align="center"><a href="docs/images/memos.png"><img src="docs/images/memos.png" width="420" alt="待办与 Memos 微记侧栏"></a><br><sub>待办与 Memos 微记：标签过滤、快速发送与插入笔记。</sub></td>
   </tr>
 </table>
 
+<p align="center"><a href="docs/images/mobile.png"><img src="docs/images/mobile.png" width="860" alt="霁月 Android 移动端：玄墨笔记库首页、宣纸阅读视图与设置中心"></a><br><sub>Android 移动端：玄墨主题笔记库（左）、宣纸主题阅读视图（中）与外观及跨端扫码设置（右）。</sub></p>
+
 ## 安装
 
-- **Windows 10 和 11，x64 和 ARM64。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 MSI 安装包（`Jiyue-<version>-x64.msi` 或 `Jiyue-<version>-arm64.msi`），按用户安装，不需要管理员权限。也可以从源码构建（见下文）。安装包尚未签名，SmartScreen 可能会提示警告。
-- **macOS（Apple 芯片和 Intel）。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 `.dmg`（`Jiyue_<version>_aarch64.dmg` 或 `Jiyue_<version>_x64.dmg`），把 `Jiyue.app` 拖进“应用程序”。应用尚未签名，首次打开请在访达里右键选择“打开”。
+- **Windows 10 和 11，x64 和 ARM64。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 MSI 安装包（`Jiyue-<version>-x64.msi` 或 `Jiyue-<version>-arm64.msi`），按用户安装，不需要管理员权限。也可以从源码构建（见下文）。安装包默认未购买代码签名证书，SmartScreen 可能会提示警告。
+- **macOS（Apple 芯片和 Intel）。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 `.dmg`（`Jiyue_<version>_aarch64.dmg` 或 `Jiyue_<version>_x64.dmg`），把 `Jiyue.app` 拖进“应用程序”。若未启用公证签名，首次打开请在访达里右键选择“打开”。
 - **Linux，x86_64 和 ARM64。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 `.deb`，或 AppImage（`chmod +x` 后直接运行）。每种架构各有一份。构建和测试流程见 [docs/ci.md](docs/ci.md)。
+- **Android（ARM64 / ARMv7 / x86_64）。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载经过正式签名的通用安装包（`Jiyue-<version>-android.apk`），同签名发布版本可直接覆盖升级；设置中心内支持一键检查更新、展示下载进度并调起系统安装器。更多说明与源码构建见 [mobile/README.md](mobile/README.md)。
 
 ## 快速开始
 
@@ -133,14 +144,14 @@ jiyue.exe --vault "D:\笔记"
 
 ## 从源码构建
 
-需要：Windows 10 或 11（64 位），以及 [rust-toolchain.toml](rust-toolchain.toml) 中固定的 Rust 工具链（1.99.1，第一次构建时 `rustup` 会自动安装）。代码使用 Rust 2024 版。
+桌面端支持 Windows、macOS 与 Linux，需要 [rust-toolchain.toml](rust-toolchain.toml) 中固定的 Rust 工具链（1.99.1，第一次构建时 `rustup` 会自动安装）。代码使用 Rust 2024 版。
 
 ```powershell
 cargo run --release -p jiyue -- --vault "D:\笔记"
 cargo build --release -p jiyue-mcp
 ```
 
-生成的程序是 `target\release\jiyue.exe` 和 `target\release\jiyue-mcp.exe`。在 Linux 上，CI 使用的系统软件包列在 [docs/ci.md](docs/ci.md#linux-system-packages)。
+在 Windows 上生成的程序为 `target\release\jiyue.exe` 和 `target\release\jiyue-mcp.exe`。在 Linux 上，CI 使用的系统软件包列在 [docs/ci.md](docs/ci.md#linux-system-packages)。Android 移动端（Flutter + `jiyue-ffi`）构建、签名配置与测试说明见 [mobile/README.md](mobile/README.md)。
 
 ## 键盘快捷键
 
@@ -194,7 +205,7 @@ jiyue-mcp --vault "D:\笔记" --read-only
 
 ## 项目状态
 
-霁月目前是 Windows 上的 **测试版**。编辑器、实时预览、搜索、双链、图谱、历史版本、导出、同步和 MCP 服务都已经实现；同步和 AI 是测试最少的部分。计划做什么、不做什么，见 [路线图](ROADMAP.md)。
+霁月目前处于**公开测试版**，已覆盖 Windows、macOS、Linux 桌面端与 Android 移动端。核心编辑器、实时预览、大库增量索引、中文搜索、双链、知识图谱、本地历史版本、HTML 导出、S3/WebDAV 同步、Memos 微记、MCP 服务及跨端二维码配对均已可用；同步、AI 与移动端体验仍在持续打磨中。后续规划见 [路线图](ROADMAP.md)。
 
 ## 参与贡献
 

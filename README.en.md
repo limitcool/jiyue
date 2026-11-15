@@ -4,14 +4,15 @@
 
 # Jiyue 霁月
 
-**A local-first Markdown notes app for Windows, written in Rust.**
+**A local-first Markdown notes app for Desktop (Windows / macOS / Linux) and Android, powered by Rust and Flutter.**
 Your notes stay plain `.md` files in a folder you choose.
 
 [English](README.en.md) | [简体中文](README.md)
 
 [![CI](https://github.com/limitcool/jiyue/actions/workflows/ci.yml/badge.svg)](https://github.com/limitcool/jiyue/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/limitcool/jiyue)](https://github.com/limitcool/jiyue/releases/latest)
 [![Licence: MIT OR Apache-2.0](https://img.shields.io/badge/licence-MIT%20OR%20Apache--2.0-blue.svg)](#licence)
-[![Platforms: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)](https://github.com/limitcool/jiyue/releases/latest)
+[![Platforms: Windows | macOS | Linux | Android](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Android-lightgrey.svg)](https://github.com/limitcool/jiyue/releases/latest)
 ![Rust 1.99.1](https://img.shields.io/badge/Rust-1.99.1-orange.svg)
 
 <img src="docs/images/hero-ink.png" alt="Jiyue showing a note in live preview, with a table, callouts, a sidebar and the right panel" width="860">
@@ -32,8 +33,8 @@ We chose it because we want a notes app that feels like that sky: calm, clear an
 
 - **Local first.** A note is a `.md` file in a normal folder. There is no account, no database and no proprietary format. Remove Jiyue and your notes are still readable.
 - **Works with Obsidian vaults.** Open an existing vault folder as it is. `[[wikilinks]]`, `![[embeds]]`, `^block` references and YAML properties are understood. Jiyue does not read or change `.obsidian`.
-- **A native app.** The interface is GPUI, the GPU-accelerated UI framework from the Zed editor, so the app is a single program with no browser inside.
-- **Chinese first.** Pinyin input works in every text field, the full-text index handles Chinese without a dictionary, and the interface, menus and sample notes are written in Simplified Chinese.
+- **Native across desktop and mobile.** On desktop, the interface is built on GPUI (the GPU-accelerated UI framework from Zed) as a single standalone binary with no embedded browser. On Android, the Flutter client shares the same Rust core via `jiyue-ffi` and the `design/tokens.json` design tokens, and pairs with desktop settings over QR code.
+- **Chinese first, bilingual UI.** Switch between Simplified Chinese and English on the fly. Pinyin input works in every text field, the full-text index handles Chinese without a dictionary, and the sample notes are written in Simplified Chinese.
 
 ## Features
 
@@ -52,12 +53,14 @@ We chose it because we want a notes app that feels like that sky: calm, clear an
 - **Graph zoom.** Scroll the mouse wheel over the graph to zoom about the pointer; the buttons in the bottom-left corner zoom in, zoom out or fit the view.
 - **Tags.** Tags in the body or in properties are listed in the sidebar with their counts.
 - **Daily notes and calendar.** Today's note with Ctrl+Shift+D, a calendar in the sidebar, and previous and next day commands.
+- **Tasks and Memos.** The sidebar brings together vault-wide checklists and self-hosted Memos notes, with tag filters, quick posting and one-click insertion into the active note.
 - **Templates.** Insert a template into a note, or create a new note from one.
 - **Bookmarks.** Star a note, or a heading, to keep it in a sidebar section.
 
 ### Search and navigation
 
 - **Full-text search** of the whole vault (Ctrl+Shift+F). Chinese is indexed by character pairs, so no word list is needed. Queries support phrases, `-exclusion`, `OR`, and the filters `tag:`, `path:`, `file:` and `title:`. Results show highlighted snippets.
+- **Large vault performance.** Search indexing runs incrementally in background threads, while file trees and note lists use virtualized rendering and on-demand parsing so large vaults stay responsive with low memory usage.
 - **Find and replace** inside the open note (Ctrl+F, Ctrl+H).
 - **Quick switcher** (Ctrl+K) and **command palette** (Ctrl+P), which lists every command, including the ones without a shortcut.
 - **Tabs and split view.** Several notes in tabs, and a note split beside another (Ctrl+\).
@@ -75,13 +78,14 @@ We chose it because we want a notes app that feels like that sky: calm, clear an
 
 ### Optional features (off by default)
 
-- **Sync** to an S3-compatible bucket (with optional remote version history) or to a WebDAV folder, with three-way merge and conflict copies. See [docs/sync.md](docs/sync.md).
-- **AI assistant, bring your own key.** OpenAI-compatible and Anthropic providers. Keys are stored in plain text in a local `credentials.toml` (owner-only), or read from an environment variable or a command. Nothing is sent until you turn AI on and ask for something. See [docs/ai.md](docs/ai.md).
+- **Sync and mobile QR pairing.** Sync to an S3-compatible bucket (with optional remote version history) or to a WebDAV folder, with three-way merge and conflict copies. In Settings, open "手机扫码同步" (QR Sync) to generate a pairing QR code so the Android client imports S3, AI and Memos settings in one scan. See [docs/sync.md](docs/sync.md).
+- **AI assistant, bring your own key.** OpenAI-compatible and Anthropic providers, with streaming Markdown replies in the side panel and line-diff previews for selection actions (Ctrl+J). Keys are stored in plain text in a local `credentials.toml` (owner-only), or read from an environment variable or a command. Nothing is sent until you turn AI on and ask for something. See [docs/ai.md](docs/ai.md).
 - **MCP server.** `jiyue-mcp` lets an MCP client such as Claude Desktop or Claude Code search, read and (unless started read-only) edit the notes of a vault. See [docs/mcp.md](docs/mcp.md).
 
 ### Look and feel
 
 - **Five themes:** Paper, Ink, Moss, Graphite and Fog.
+- **Instant bilingual UI.** Switch between System default, Simplified Chinese (`zh-CN`), and English (`en-US`) under Appearance settings with immediate effect.
 - **Fonts and sizes.** Choose a font for the interface, the note text and code separately, and adjust the text size, code size and line height. Changes apply at once.
 - **Customisable shortcuts.** Change any command's keys in Settings. See [docs/shortcuts.md](docs/shortcuts.md).
 
@@ -104,19 +108,26 @@ We chose it because we want a notes app that feels like that sky: calm, clear an
   </tr>
   <tr>
     <td align="center"><a href="docs/images/palette.png"><img src="docs/images/palette.png" width="420" alt="Command palette"></a><br><sub>The command palette (Ctrl+P).</sub></td>
-    <td align="center"><a href="docs/images/history.png"><img src="docs/images/history.png" width="420" alt="Version history diff"></a><br><sub>Local version history: compare a version with the current text.</sub></td>
+    <td align="center"><a href="docs/images/history.png"><img src="docs/images/history.png" width="420" alt="Version history diff"></a><br><sub>Local version history: compare any snapshot line by line and restore.</sub></td>
   </tr>
   <tr>
-    <td align="center"><a href="docs/images/sync-settings.png"><img src="docs/images/sync-settings.png" width="420" alt="Sync settings page"></a><br><sub>The sync settings page (empty, no server configured).</sub></td>
+    <td align="center"><a href="docs/images/sync-settings.png"><img src="docs/images/sync-settings.png" width="420" alt="Sync settings page"></a><br><sub>S3 / WebDAV sync settings and automatic sync controls.</sub></td>
     <td align="center"><a href="docs/images/bookmarks.png"><img src="docs/images/bookmarks.png" width="420" alt="Bookmarks in the sidebar"></a><br><sub>Bookmarks section in the sidebar.</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="docs/images/settings.png"><img src="docs/images/settings.png" width="420" alt="Appearance settings and QR pairing"></a><br><sub>Appearance settings: five themes, bilingual switcher and mobile QR pairing.</sub></td>
+    <td align="center"><a href="docs/images/memos.png"><img src="docs/images/memos.png" width="420" alt="Tasks and Memos sidebar"></a><br><sub>Tasks &amp; Memos sidebar: tag filters, quick notes and insertion into notes.</sub></td>
   </tr>
 </table>
 
+<p align="center"><a href="docs/images/mobile.png"><img src="docs/images/mobile.png" width="860" alt="Jiyue Android client showing Ink vault home, Paper reader view, and settings sheet"></a><br><sub>Android client: Ink vault home (left), Paper reader view (centre) and appearance &amp; QR sync settings (right).</sub></p>
+
 ## Install
 
-- **Windows 10 and 11, x64 and ARM64.** Download the MSI installer from [Releases](https://github.com/limitcool/jiyue/releases/latest) (`Jiyue-<version>-x64.msi` or `Jiyue-<version>-arm64.msi`). It installs per user and needs no administrator rights. You can also build from source (below). The installers are not code-signed yet, so SmartScreen may warn.
-- **macOS, Apple silicon and Intel.** Download the `.dmg` from [Releases](https://github.com/limitcool/jiyue/releases/latest) (`Jiyue_<version>_aarch64.dmg` or `Jiyue_<version>_x64.dmg`) and drag `Jiyue.app` to Applications. The app is not signed yet: on first launch, right-click it in Finder and choose Open.
+- **Windows 10 and 11, x64 and ARM64.** Download the MSI installer from [Releases](https://github.com/limitcool/jiyue/releases/latest) (`Jiyue-<version>-x64.msi` or `Jiyue-<version>-arm64.msi`). It installs per user and needs no administrator rights. You can also build from source (below). The installers are not code-signed by default, so SmartScreen may warn.
+- **macOS, Apple silicon and Intel.** Download the `.dmg` from [Releases](https://github.com/limitcool/jiyue/releases/latest) (`Jiyue_<version>_aarch64.dmg` or `Jiyue_<version>_x64.dmg`) and drag `Jiyue.app` to Applications. Unless signed and notarised, on first launch right-click it in Finder and choose Open.
 - **Linux, x86_64 and ARM64.** Download the `.deb`, or the AppImage (`chmod +x` it and run it) from [Releases](https://github.com/limitcool/jiyue/releases/latest). Each architecture has its own files. For how the builds are made and tested, see [docs/ci.md](docs/ci.md).
+- **Android (ARM64 / ARMv7 / x86_64).** Download the signed universal APK (`Jiyue-<version>-android.apk`) from [Releases](https://github.com/limitcool/jiyue/releases/latest) to install or upgrade in place without uninstalling. In-app settings also support checking for updates, tracking download progress and launching the Android installer. See [mobile/README.md](mobile/README.md) for details and building from source.
 
 ## Quick start
 
@@ -133,14 +144,14 @@ Options: `--theme <paper|ink|moss|graphite|fog>` (default `ink`), and `--open <s
 
 ## Build from source
 
-Requirements: Windows 10 or 11 (64-bit) and the Rust toolchain pinned in [rust-toolchain.toml](rust-toolchain.toml) (1.99.1; `rustup` installs it on first use). The code uses edition 2024.
+Desktop builds target Windows, macOS and Linux using the Rust toolchain pinned in [rust-toolchain.toml](rust-toolchain.toml) (1.99.1; `rustup` installs it on first use). The code uses edition 2024.
 
 ```powershell
 cargo run --release -p jiyue -- --vault "D:\Notes"
 cargo build --release -p jiyue-mcp
 ```
 
-The binaries are `target\release\jiyue.exe` and `target\release\jiyue-mcp.exe`. On Linux, the system packages used by CI are listed in [docs/ci.md](docs/ci.md#linux-system-packages).
+On Windows, the binaries are `target\release\jiyue.exe` and `target\release\jiyue-mcp.exe`. On Linux, the system packages used by CI are listed in [docs/ci.md](docs/ci.md#linux-system-packages). For building, testing and signing the Android client (Flutter + `jiyue-ffi`), see [mobile/README.md](mobile/README.md).
 
 ## Keyboard shortcuts
 
@@ -194,7 +205,7 @@ It offers tools to list, read and search notes, to follow backlinks and tags, to
 
 ## Project status
 
-Jiyue is a **beta** for Windows. The editor, live preview, search, links, graph, history, export, sync and the MCP server are implemented; sync and AI are the parts with the least real-world testing. What is planned, and what is not, is in the [roadmap](ROADMAP.md).
+Jiyue is currently in **beta** across Windows, macOS, Linux and Android. The editor, live preview, incremental vault indexing, search, wikilinks, knowledge graph, local version history, HTML export, S3/WebDAV sync, Memos, the MCP server and desktop-to-mobile QR pairing are implemented, while sync, AI and mobile workflows continue to be refined. See the [roadmap](ROADMAP.md) for what is planned.
 
 ## Contributing
 
