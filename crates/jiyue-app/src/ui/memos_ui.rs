@@ -16,7 +16,7 @@ use crate::theme::RADIUS_S;
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
 use crate::ui::widgets::controls::{
-    ButtonKind, ButtonSize, IconBtnSize, button, button_sized, icon_button_sized, toggle,
+    ButtonKind, IconBtnSize, button, icon_button_sized, toggle,
 };
 use crate::ui::widgets::form_row;
 use crate::ui::widgets::line_input::{LineInput, LineInputEvent};
@@ -685,30 +685,36 @@ pub fn render_sidebar_section(
         section = section.child(tag_bar);
     }
 
-    // Fast Input Box with Todo-mode Toggle (unified card layout)
+    // Fast Input Box with Todo-mode Toggle (unified streamlined modern bar)
     let as_todo = app.ext.memos.as_todo;
     let input_el = if let Some(inp) = &app.ext.memos.input {
-        inp.update(cx, |i, cx| i.set_theme(t, cx));
+        inp.update(cx, |i, cx| {
+            i.set_theme(t, cx);
+            i.set_borderless(true, cx);
+        });
         div()
             .flex()
             .items_center()
-            .gap(px(6.0))
-            .p(px(4.0))
-            .my(px(4.0))
-            .bg(t.sheet)
+            .h(px(32.0))
+            .pl(px(4.0))
+            .pr(px(3.0))
+            .my(px(6.0))
+            .bg(t.raised)
             .border_1()
             .border_color(t.line)
-            .rounded(px(10.0))
+            .rounded(px(8.0))
             .shadow_sm()
+            .overflow_hidden()
+            .hover(|d| d.border_color(t.ac_line))
             .child(
                 div()
-                    .size(px(26.0))
-                    .rounded(px(6.0))
+                    .size(px(24.0))
+                    .rounded(px(5.0))
                     .flex()
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .when(as_todo, |d| d.bg(t.ac_soft).border_1().border_color(t.ac))
+                    .when(as_todo, |d| d.bg(t.ac_soft))
                     .when(!as_todo, |d| d.hover(|h| h.bg(t.hover)))
                     .child(icon(
                         if as_todo { "checkbox" } else { "list" },
@@ -727,21 +733,31 @@ pub fn render_sidebar_section(
                 div()
                     .flex_1()
                     .min_w_0()
+                    .h_full()
                     .child(inp.clone()),
             )
             .child(
                 div()
                     .flex_none()
-                    .child(button_sized(
-                        &t,
-                        &crate::t!("memos-btn-send"),
-                        ButtonKind::Primary,
-                        ButtonSize::Small,
-                        None,
+                    .h(px(24.0))
+                    .px(px(10.0))
+                    .rounded(px(5.0))
+                    .bg(t.ac)
+                    .text_color(gpui::white())
+                    .text_size(px(11.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .hover(|h| h.opacity(0.85))
+                    .child("发送")
+                    .on_mouse_down(
+                        MouseButton::Left,
                         cx.listener(|this, _, _, cx| {
                             submit_new_memo(this, cx);
                         }),
-                    )),
+                    ),
             )
     } else {
         div().h(px(0.0))

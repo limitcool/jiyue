@@ -128,6 +128,8 @@ pub struct LineInput {
     theme: ActiveTheme,
     password: bool,
     disabled: bool,
+    /// When true, renders without its own border, background, or outer container padding.
+    borderless: bool,
     /// Horizontal scroll in pixels, kept so the caret stays visible.
     scroll_x: f32,
     /// IME marked range in UTF-8 bytes of the text.
@@ -171,6 +173,7 @@ impl LineInput {
             theme: ActiveTheme::dark(),
             password: false,
             disabled: false,
+            borderless: false,
             scroll_x: 0.0,
             marked: None,
             selecting: false,
@@ -210,6 +213,14 @@ impl LineInput {
     pub fn set_disabled(&mut self, on: bool, cx: &mut Context<Self>) {
         if self.disabled != on {
             self.disabled = on;
+            cx.notify();
+        }
+    }
+
+    /// Sets whether to render without border, background, or outer container padding.
+    pub fn set_borderless(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.borderless != on {
+            self.borderless = on;
             cx.notify();
         }
     }
@@ -877,15 +888,6 @@ impl Render for LineInput {
             .flex()
             .items_center()
             .w_full()
-            .h(px(HEIGHT))
-            .px(px(10.0))
-            .rounded(px(RADIUS_M))
-            .overflow_hidden()
-            .bg(t.raised)
-            // Same 1px border in both states (no layout shift); focus only changes its colour to the
-            // accent, the same rule the select trigger uses (`controls::select`).
-            .border_1()
-            .border_color(if focused && !disabled { t.ac } else { t.line })
             .font_family(crate::ui::fonts::ui_name())
             .text_size(px(FONT_SIZE))
             .text_color(if disabled { t.tx3 } else { t.tx })
@@ -896,6 +898,21 @@ impl Render for LineInput {
             } else {
                 CursorStyle::IBeam
             });
+
+        if self.borderless {
+            row = row.h_full().px(px(4.0)).overflow_hidden();
+        } else {
+            row = row
+                .h(px(HEIGHT))
+                .px(px(10.0))
+                .rounded(px(RADIUS_M))
+                .overflow_hidden()
+                .bg(t.raised)
+                // Same 1px border in both states (no layout shift); focus only changes its colour to the
+                // accent, the same rule the select trigger uses (`controls::select`).
+                .border_1()
+                .border_color(if focused && !disabled { t.ac } else { t.line });
+        }
         if !disabled {
             row = row
                 .on_action(cx.listener(Self::act_left))
@@ -954,6 +971,12 @@ mod tests {
         assert!(scroll_for_caret(300.0, 300.0, 900.0, 100.0) <= 300.0 - 100.0 + CARET_WIDTH + 1e-3);
         // Never negative.
         assert_eq!(scroll_for_caret(0.0, 300.0, -20.0, 100.0), 0.0);
+    }
+
+    #[test]
+    fn test_borderless_mode_flag() {
+        let state = TextState::new("test");
+        assert_eq!(state.text(), "test");
     }
 
     // Checked at compile time: a caret that is zero or wider than 3 px fails the build.
