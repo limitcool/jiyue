@@ -147,9 +147,13 @@ jobs:
 
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: |
-            8.0.x
-            9.0.x
+          dotnet-version: 9.0.x
+
+      - name: Cache WiX extensions
+        uses: actions/cache@v6
+        with:
+          path: installer/.wix
+          key: wix-ext-${{ runner.os }}-${{ hashFiles('installer/.config/dotnet-tools.json') }}
 
       - name: Restore the local WiX tool (installer/.config/dotnet-tools.json)
         working-directory: installer
@@ -224,8 +228,19 @@ jobs:
           workspaces: ". -> target"
           key: macos-release-${{ matrix.arch }}
 
+      - name: Cache cargo-packager binary
+        id: packager_cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-packager
+          key: cargo-packager-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_PACKAGER_VERSION }}
+
       - name: Install cargo-packager (pinned)
-        run: cargo install --locked --version "$CARGO_PACKAGER_VERSION" cargo-packager
+        if: steps.packager_cache.outputs.cache-hit != 'true'
+        run: |
+          if [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-packager" ]; then
+            cargo install --locked --version "$CARGO_PACKAGER_VERSION" cargo-packager
+          fi
 
       - name: Release build
         run: cargo build --release -p jiyue -p jiyue-mcp --locked
@@ -289,8 +304,19 @@ jobs:
           workspaces: ". -> target"
           key: linux-release-${{ matrix.arch }}
 
+      - name: Cache cargo-packager binary
+        id: packager_cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-packager
+          key: cargo-packager-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_PACKAGER_VERSION }}
+
       - name: Install cargo-packager (pinned)
-        run: cargo install --locked --version "$CARGO_PACKAGER_VERSION" cargo-packager
+        if: steps.packager_cache.outputs.cache-hit != 'true'
+        run: |
+          if [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-packager" ]; then
+            cargo install --locked --version "$CARGO_PACKAGER_VERSION" cargo-packager
+          fi
 
       - name: Release build
         run: cargo build --release -p jiyue -p jiyue-mcp --locked

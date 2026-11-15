@@ -1,0 +1,197 @@
+# Pre-warms the GitHub Actions release and clippy caches on the default branch (`main`).
+# Tag builds (`v*`) cannot read caches created by earlier tags, so keeping baseline caches
+# on `refs/heads/main` lets every new release tag inherit precompiled dependencies.
+
+name: Warm Release Cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.lock
+      - rust-toolchain.toml
+      - installer/.config/dotnet-tools.json
+  workflow_dispatch:
+    inputs:
+      include_arm:
+        description: "Also warm ARM64 caches on a private repository"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cache-warm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_NET_RETRY: "5"
+  RUST_VERSION: "1.99.1"
+  CARGO_PACKAGER_VERSION: "0.11.8"
+  LINUX_APT: >-
+    pkg-config cmake clang libclang-dev libfontconfig-dev libfreetype-dev
+    libasound2-dev libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-xcb-dev
+    libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libzstd-dev
+    libvulkan-dev mesa-vulkan-drivers
+
+jobs:
+  prepare:
+    name: Plan cache matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      windows_matrix: ${{ steps.matrix.outputs.windows_matrix }}
+      macos_matrix: ${{ steps.matrix.outputs.macos_matrix }}
+      linux_matrix: ${{ steps.matrix.outputs.linux_matrix }}
+    steps:
+      - id: matrix
+        shell: bash
+        env:
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+          FORCE_ARM: ${{ inputs.include_arm }}
+          ENABLE_ARM_VAR: ${{ vars.ENABLE_ARM_RUNNERS }}
+        run: |
+          set -euo pipefail
+          want_arm=false
+          if [ "$REPO_PRIVATE" = "false" ] || [ "$FORCE_ARM" = "true" ] || [ "$ENABLE_ARM_VAR" = "true" ]; then
+            want_arm=true
+          fi
+          windows='[{"os":"windows-latest","arch":"x64"},{"os":"windows-11-arm","arch":"arm64"}]'
+          linux='[{"os":"ubuntu-24.04","arch":"x86_64"},{"os":"ubuntu-24.04-arm","arch":"aarch64"}]'
+          if [ "$want_arm" != true ]; then
+            windows='[{"os":"windows-latest","arch":"x64"}]'
+            linux='[{"os":"ubuntu-24.04","arch":"x86_64"}]'
+          fi
+          macos='[{"os":"macos-latest","arch":"arm64"},{"os":"macos-15-intel","arch":"x64"}]'
+          echo "windows_matrix={\"include\":$windows}" >> "$GITHUB_OUTPUT"
+          echo "macos_matrix={\"include\":$macos}" >> "$GITHUB_OUTPUT"
+          echo "linux_matrix={\"include\":$linux}" >> "$GITHUB_OUTPUT"
+
+  clippy-cache:
+    name: Warm clippy cache
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Linux system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $LINUX_APT
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: clippy
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  windows:
+    name: Warm Windows cache (${{ matrix.arch }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.windows_matrix) }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        id: python
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 9.0.x
+      - name: Cache WiX extensions
+        uses: actions/cache@v6
+        with:
+          path: installer/.wix
+          key: wix-ext-${{ runner.os }}-${{ hashFiles('installer/.config/dotnet-tools.json') }}
+      - name: Restore the local WiX tool
+        working-directory: installer
+        run: dotnet tool restore
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target-dist"
+          key: windows-release-${{ matrix.arch }}
+      - name: Warm release build and WiX cache
+        shell: pwsh
+        env:
+          JIYUE_PYTHON: ${{ steps.python.outputs.python-path }}
+        run: ./installer/build.ps1 -Arch ${{ matrix.arch }} -NoZip
+
+  macos:
+    name: Warm macOS cache (${{ matrix.arch }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.macos_matrix) }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: macos-release-${{ matrix.arch }}
+      - name: Cache cargo-packager binary
+        id: packager_cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-packager
+          key: cargo-packager-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_PACKAGER_VERSION }}
+      - name: Install cargo-packager (pinned)
+        if: steps.packager_cache.outputs.cache-hit != 'true'
+        run: |
+          if [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-packager" ]; then
+            cargo install --locked --version "$CARGO_PACKAGER_VERSION" cargo-packager
+          fi
+      - name: Warm release build cache
+        run: cargo build --release -p jiyue -p jiyue-mcp --locked
+
+  linux:
+    name: Warm Linux cache (${{ matrix.arch }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.linux_matrix) }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Linux system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $LINUX_APT
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: linux-release-${{ matrix.arch }}
+      - name: Cache cargo-packager binary
+        id: packager_cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-packager
+          key: cargo-packager-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_PACKAGER_VERSION }}
+      - name: Install cargo-packager (pinned)
+        if: steps.packager_cache.outputs.cache-hit != 'true'
+        run: |
+          if [ ! -x "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-packager" ]; then
+            cargo install --locked --version "$CARGO_PACKAGER_VERSION" cargo-packager
+          fi
+      - name: Warm release build cache
+        run: cargo build --release -p jiyue -p jiyue-mcp --locked
