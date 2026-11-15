@@ -280,33 +280,14 @@ class _AiConfigSheetState extends State<AiConfigSheet> {
                             controller: testModelCtrl,
                             style: TextStyle(color: colors.textPrimary, fontSize: 12),
                             decoration: InputDecoration(
-                              hintText: '测试用指定模型 (留空则使用上方模型)',
+                              hintText: '测试用指定模型 (留空则默认使用上方对话模型)',
                               hintStyle: TextStyle(color: colors.textMuted, fontSize: 11),
                               isDense: true,
                               contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 4,
-                            children: [
-                              'deepseek-flash-eco',
-                              'deepseek-chat',
-                              'gpt-4o-mini',
-                              'claude-3-5-sonnet',
-                            ].map((m) {
-                              return ActionChip(
-                                label: Text(m, style: const TextStyle(fontSize: 10)),
-                                padding: EdgeInsets.zero,
-                                onPressed: () {
-                                  setDialogState(() => testModelCtrl.text = m);
-                                },
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 10),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [

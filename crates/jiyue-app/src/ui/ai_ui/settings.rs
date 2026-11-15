@@ -998,9 +998,6 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         crate::t!("ai-add-provider")
     };
 
-    // 快捷常用模型预设
-    let quick_models = ["deepseek-flash-eco", "deepseek-chat", "gpt-4o-mini", "claude-3-5-sonnet"];
-
     let test_box = div()
         .flex()
         .flex_col()
@@ -1041,37 +1038,6 @@ fn render_form(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             "指定测试模型（可选，留空则默认使用上方对话模型）",
             inputs.test_model.clone(),
         ))
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap(px(6.0))
-                .child(div().text_size(px(11.0)).text_color(t.tx3).child("快捷填充:"))
-                .children(quick_models.iter().map(|&model_name| {
-                    let m_str = model_name.to_string();
-                    let t_input = inputs.test_model.clone();
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(22.0))
-                        .px(px(8.0))
-                        .rounded(px(11.0))
-                        .bg(t.sheet)
-                        .border_1()
-                        .border_color(t.line_soft)
-                        .text_size(px(11.0))
-                        .text_color(t.tx2)
-                        .cursor_pointer()
-                        .hover(|s| s.bg(t.hover).text_color(t.ac))
-                        .child(model_name)
-                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                            if let Some(ref input) = t_input {
-                                input.update(cx, |i, cx| i.set_text(&m_str, cx));
-                            }
-                        })
-                })),
-        )
         .when_some(match &s.settings.test {
             TestState::Idle => None,
             TestState::Running => Some(

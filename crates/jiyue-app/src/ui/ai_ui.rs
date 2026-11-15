@@ -584,29 +584,36 @@ fn render_selection_capsule(
             .right(px(right_offset))
             .flex()
             .items_center()
-            .gap(px(6.0))
-            .px(px(12.0))
-            .h(px(32.0))
-            .bg(t.raised)
+            .gap(px(8.0))
+            .px(px(14.0))
+            .h(px(34.0))
+            .bg(t.sheet)
             .border_1()
             .border_color(t.ac)
-            .rounded(px(16.0))
-            .shadow_md()
+            .rounded(px(17.0))
+            .shadow_lg()
             .cursor_pointer()
-            .hover(|s| s.bg(t.hover))
-            .child(icon("bulb", 15.0, t.ac))
+            .hover(|s| s.bg(t.hover).border_color(t.ac))
+            .child(icon("sparkles", 14.0, t.ac))
             .child(
                 div()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_size(px(12.0))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_size(px(12.5))
                     .text_color(t.tx)
-                    .child("✨ AI 润色 / 助手"),
+                    .child("AI 智能润色"),
             )
             .child(
                 div()
+                    .px(px(6.0))
+                    .py(px(1.5))
+                    .rounded(px(4.0))
+                    .bg(t.raised)
+                    .border_1()
+                    .border_color(t.line_soft)
                     .text_size(px(10.5))
+                    .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(t.tx3)
-                    .child("(Ctrl+J)"),
+                    .child("Ctrl+J"),
             )
             .on_mouse_down(
                 MouseButton::Left,

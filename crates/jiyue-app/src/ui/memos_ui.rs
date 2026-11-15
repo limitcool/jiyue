@@ -589,23 +589,30 @@ pub fn render_sidebar_section(
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(px(4.0))
+            .gap(px(5.0))
             .px(px(4.0))
-            .py(px(2.0))
+            .py(px(4.0))
             .child(
                 div()
-                    .px(px(6.0))
-                    .py(px(1.5))
-                    .rounded(px(RADIUS_S))
-                    .text_size(px(10.5))
+                    .flex()
+                    .items_center()
+                    .h(px(22.0))
+                    .px(px(8.0))
+                    .rounded(px(11.0))
+                    .border_1()
+                    .text_size(px(11.0))
                     .cursor_pointer()
                     .when(is_all_sel, |d| {
                         d.bg(t.ac_soft)
+                            .border_color(t.ac)
                             .text_color(t.ac)
                             .font_weight(FontWeight::MEDIUM)
                     })
                     .when(!is_all_sel, |d| {
-                        d.text_color(t.tx3).hover(|h| h.text_color(t.tx))
+                        d.bg(t.sheet)
+                            .border_color(t.line_soft)
+                            .text_color(t.tx2)
+                            .hover(|h| h.bg(t.hover).text_color(t.tx))
                     })
                     .child(crate::t!("memos-tab-all"))
                     .on_mouse_down(
@@ -622,20 +629,25 @@ pub fn render_sidebar_section(
             let t_clone = tag.clone();
             tag_bar = tag_bar.child(
                 div()
-                    .px(px(6.0))
-                    .py(px(1.5))
-                    .rounded(px(RADIUS_S))
-                    .text_size(px(10.5))
+                    .flex()
+                    .items_center()
+                    .h(px(22.0))
+                    .px(px(8.0))
+                    .rounded(px(11.0))
+                    .border_1()
+                    .text_size(px(11.0))
                     .cursor_pointer()
                     .when(is_sel, |d| {
                         d.bg(t.ac_soft)
+                            .border_color(t.ac)
                             .text_color(t.ac)
                             .font_weight(FontWeight::MEDIUM)
                     })
                     .when(!is_sel, |d| {
-                        d.bg(t.hover)
+                        d.bg(t.sheet)
+                            .border_color(t.line_soft)
                             .text_color(t.tx2)
-                            .hover(|h| h.text_color(t.tx))
+                            .hover(|h| h.bg(t.hover).text_color(t.tx))
                     })
                     .child(format!("#{}", tag))
                     .on_mouse_down(
@@ -654,29 +666,34 @@ pub fn render_sidebar_section(
         section = section.child(tag_bar);
     }
 
-    // Fast Input Box with Todo-mode Toggle
+    // Fast Input Box with Todo-mode Toggle (unified card layout)
     let as_todo = app.ext.memos.as_todo;
     let input_el = if let Some(inp) = &app.ext.memos.input {
         inp.update(cx, |i, cx| i.set_theme(t, cx));
         div()
             .flex()
             .items_center()
-            .px(px(4.0))
-            .py(px(4.0))
+            .gap(px(6.0))
+            .p(px(4.0))
+            .my(px(4.0))
+            .bg(t.sheet)
+            .border_1()
+            .border_color(t.line)
+            .rounded(px(10.0))
+            .shadow_sm()
             .child(
                 div()
-                    .mr(px(4.0))
                     .size(px(26.0))
-                    .rounded(px(RADIUS_S))
+                    .rounded(px(6.0))
                     .flex()
                     .items_center()
                     .justify_center()
                     .cursor_pointer()
-                    .when(as_todo, |d| d.bg(t.ac_soft))
+                    .when(as_todo, |d| d.bg(t.ac_soft).border_1().border_color(t.ac))
                     .when(!as_todo, |d| d.hover(|h| h.bg(t.hover)))
                     .child(icon(
                         if as_todo { "checkbox" } else { "check" },
-                        13.0,
+                        14.0,
                         if as_todo { t.ac } else { t.tx3 },
                     ))
                     .on_mouse_down(
@@ -698,16 +715,20 @@ pub fn render_sidebar_section(
                         }
                     })),
             )
-            .child(div().ml(px(6.0)).child(button_sized(
-                &t,
-                &crate::t!("memos-btn-send"),
-                ButtonKind::Primary,
-                ButtonSize::Small,
-                None,
-                cx.listener(|this, _, _, cx| {
-                    submit_new_memo(this, cx);
-                }),
-            )))
+            .child(
+                div()
+                    .flex_none()
+                    .child(button_sized(
+                        &t,
+                        &crate::t!("memos-btn-send"),
+                        ButtonKind::Primary,
+                        ButtonSize::Small,
+                        None,
+                        cx.listener(|this, _, _, cx| {
+                            submit_new_memo(this, cx);
+                        }),
+                    )),
+            )
     } else {
         div().h(px(0.0))
     };

@@ -61,7 +61,7 @@ pub enum Action {
     Explain,
 }
 
-/// Menu order.
+/// Action items in canonical order.
 pub const MENU_ITEMS: [Action; 12] = [
     Action::Polish,
     Action::FixGrammar,
@@ -77,10 +77,34 @@ pub const MENU_ITEMS: [Action; 12] = [
     Action::Explain,
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuEntry {
+    Item(Action),
+    Sep,
+}
+
+/// Menu order with logical group separators.
+pub const MENU_ENTRIES: &[MenuEntry] = &[
+    MenuEntry::Item(Action::Polish),
+    MenuEntry::Item(Action::FixGrammar),
+    MenuEntry::Item(Action::Professional),
+    MenuEntry::Item(Action::Casual),
+    MenuEntry::Sep,
+    MenuEntry::Item(Action::Shorten),
+    MenuEntry::Item(Action::Expand),
+    MenuEntry::Item(Action::Rewrite),
+    MenuEntry::Sep,
+    MenuEntry::Item(Action::TranslateEn),
+    MenuEntry::Item(Action::TranslateZh),
+    MenuEntry::Item(Action::Summarize),
+    MenuEntry::Item(Action::Continue),
+    MenuEntry::Item(Action::Explain),
+];
+
 impl Action {
     pub fn label(self) -> &'static str {
         match self {
-            Action::Polish => "✨ 智能润色",
+            Action::Polish => "智能润色",
             Action::FixGrammar => "修正语法与标点",
             Action::Professional => "专业学术风格",
             Action::Casual => "生动通俗风格",
@@ -92,6 +116,23 @@ impl Action {
             Action::Summarize => "总结要点",
             Action::Continue => "继续写作",
             Action::Explain => "详细解释",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Action::Polish => "bulb",
+            Action::FixGrammar => "check",
+            Action::Professional => "book-2",
+            Action::Casual => "quote",
+            Action::Shorten => "minus",
+            Action::Expand => "plus",
+            Action::Rewrite => "pencil",
+            Action::TranslateEn => "text-size",
+            Action::TranslateZh => "text-size",
+            Action::Summarize => "file-text",
+            Action::Continue => "corner-down-left",
+            Action::Explain => "help-circle",
         }
     }
 
@@ -213,19 +254,21 @@ pub fn open_menu(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     cx.notify();
 }
 
-/// Renders the menu. Actions that need a selection are greyed out without one.
+/// Renders the menu with structured groups and vector icons. Actions that need a selection are greyed out without one.
 pub fn render_menu(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElement> {
     let t = app.theme;
     let Some(menu) = app.ext.ai.menu.as_ref() else {
         return Vec::new();
     };
-    let items: Vec<MenuItem> = MENU_ITEMS
+    let items: Vec<MenuItem> = MENU_ENTRIES
         .iter()
-        .map(|a| {
-            let item = MenuItem::new(a.label());
-            if a.needs_selection() && !menu.target.selected {
-                item.disabled()
-            } else {
+        .map(|entry| match entry {
+            MenuEntry::Sep => MenuItem::separator(),
+            MenuEntry::Item(a) => {
+                let mut item = MenuItem::new(a.label()).icon(a.icon());
+                if a.needs_selection() && !menu.target.selected {
+                    item = item.disabled();
+                }
                 item
             }
         })
@@ -257,7 +300,7 @@ fn menu_pick(
     let Some(menu) = app.ext.ai.menu.take() else {
         return;
     };
-    let Some(action) = MENU_ITEMS.get(idx).copied() else {
+    let Some(MenuEntry::Item(action)) = MENU_ENTRIES.get(idx).copied() else {
         return;
     };
     if action.needs_selection() && !menu.target.selected {
@@ -679,7 +722,7 @@ mod tests {
         assert!(!Action::Summarize.needs_selection());
         assert_eq!(MENU_ITEMS.len(), 12);
         let labels: Vec<&str> = MENU_ITEMS.iter().map(|a| a.label()).collect();
-        assert_eq!(labels[0], "✨ 智能润色");
+        assert_eq!(labels[0], "智能润色");
     }
 
     #[test]
