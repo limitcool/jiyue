@@ -2,12 +2,12 @@
 
 use std::path::Path;
 
-use gpui::{AnyElement, Context, IntoElement, MouseButton, SharedString, div, prelude::*, px};
+use gpui::{AnyElement, Context, IntoElement, SharedString, div, prelude::*, px};
 use qrcode::{EcLevel, QrCode};
 use serde::{Deserialize, Serialize};
 
 use crate::RustdianApp;
-use crate::ui::icons::icon;
+use crate::ui::widgets::controls::checkbox_toggle;
 use crate::ui::widgets::{ButtonKind, button, modal};
 
 /// Unified configuration export payload for Jiyue mobile.
@@ -281,83 +281,35 @@ pub fn render_modal(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElem
                 .flex_row()
                 .gap(px(16.0))
                 .items_center()
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.0))
-                        .cursor_pointer()
-                        .child(icon(
-                            if include_sync { "check" } else { "circle" },
-                            16.0,
-                            if include_sync { t.ac } else { t.tx2 },
-                        ))
-                        .child(
-                            div()
-                                .text_size(px(12.0))
-                                .text_color(if include_sync { t.tx } else { t.tx2 })
-                                .child("S3 云端同步"),
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                this.settings.export_include_sync =
-                                    !this.settings.export_include_sync;
-                                cx.notify();
-                            }),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.0))
-                        .cursor_pointer()
-                        .child(icon(
-                            if include_ai { "check" } else { "circle" },
-                            16.0,
-                            if include_ai { t.ac } else { t.tx2 },
-                        ))
-                        .child(
-                            div()
-                                .text_size(px(12.0))
-                                .text_color(if include_ai { t.tx } else { t.tx2 })
-                                .child("AI 助手配置"),
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                this.settings.export_include_ai = !this.settings.export_include_ai;
-                                cx.notify();
-                            }),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.0))
-                        .cursor_pointer()
-                        .child(icon(
-                            if include_memos { "check" } else { "circle" },
-                            16.0,
-                            if include_memos { t.ac } else { t.tx2 },
-                        ))
-                        .child(
-                            div()
-                                .text_size(px(12.0))
-                                .text_color(if include_memos { t.tx } else { t.tx2 })
-                                .child("Memos 备忘录"),
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                this.settings.export_include_memos =
-                                    !this.settings.export_include_memos;
-                                cx.notify();
-                            }),
-                        ),
-                ),
+                .child(checkbox_toggle(
+                    &t,
+                    "S3 云端同步",
+                    include_sync,
+                    cx.listener(|this, _, _, cx| {
+                        this.settings.export_include_sync =
+                            !this.settings.export_include_sync;
+                        cx.notify();
+                    }),
+                ))
+                .child(checkbox_toggle(
+                    &t,
+                    "AI 助手配置",
+                    include_ai,
+                    cx.listener(|this, _, _, cx| {
+                        this.settings.export_include_ai = !this.settings.export_include_ai;
+                        cx.notify();
+                    }),
+                ))
+                .child(checkbox_toggle(
+                    &t,
+                    "Memos 备忘录",
+                    include_memos,
+                    cx.listener(|this, _, _, cx| {
+                        this.settings.export_include_memos =
+                            !this.settings.export_include_memos;
+                        cx.notify();
+                    }),
+                )),
         )
         // QR Code Container
         .child(match qr_matrix {

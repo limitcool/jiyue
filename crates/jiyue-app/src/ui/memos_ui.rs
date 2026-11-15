@@ -16,7 +16,7 @@ use crate::theme::RADIUS_S;
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
 use crate::ui::widgets::controls::{
-    ButtonKind, IconBtnSize, button, icon_button_sized, toggle,
+    ButtonKind, IconBtnSize, button, choice_chip, icon_button_sized, toggle,
 };
 use crate::ui::widgets::form_row;
 use crate::ui::widgets::line_input::{LineInput, LineInputEvent};
@@ -537,57 +537,28 @@ pub fn render_sidebar_section(
     // Tab switcher: Todos / All
     let tab_bar = div()
         .flex()
-        .gap(px(4.0))
+        .items_center()
+        .gap(px(6.0))
         .px(px(4.0))
         .py(px(4.0))
-        .child(
-            div()
-                .px(px(6.0))
-                .py(px(2.0))
-                .rounded(px(RADIUS_S))
-                .text_size(px(11.0))
-                .cursor_pointer()
-                .when(tab == Tab::Todos, |d| {
-                    d.bg(t.active)
-                        .text_color(t.tx)
-                        .font_weight(FontWeight::MEDIUM)
-                })
-                .when(tab != Tab::Todos, |d| {
-                    d.text_color(t.tx3).hover(|h| h.text_color(t.tx))
-                })
-                .child(crate::t!("memos-tab-todos"))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.ext.memos.tab = Tab::Todos;
-                        cx.notify();
-                    }),
-                ),
-        )
-        .child(
-            div()
-                .px(px(6.0))
-                .py(px(2.0))
-                .rounded(px(RADIUS_S))
-                .text_size(px(11.0))
-                .cursor_pointer()
-                .when(tab == Tab::All, |d| {
-                    d.bg(t.active)
-                        .text_color(t.tx)
-                        .font_weight(FontWeight::MEDIUM)
-                })
-                .when(tab != Tab::All, |d| {
-                    d.text_color(t.tx3).hover(|h| h.text_color(t.tx))
-                })
-                .child(crate::t!("memos-tab-all"))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, cx| {
-                        this.ext.memos.tab = Tab::All;
-                        cx.notify();
-                    }),
-                ),
-        );
+        .child(choice_chip(
+            &t,
+            &crate::t!("memos-tab-todos"),
+            tab == Tab::Todos,
+            cx.listener(|this, _, _, cx| {
+                this.ext.memos.tab = Tab::Todos;
+                cx.notify();
+            }),
+        ))
+        .child(choice_chip(
+            &t,
+            &crate::t!("memos-tab-all"),
+            tab == Tab::All,
+            cx.listener(|this, _, _, cx| {
+                this.ext.memos.tab = Tab::All;
+                cx.notify();
+            }),
+        ));
 
     section = section.child(tab_bar);
 
@@ -611,76 +582,32 @@ pub fn render_sidebar_section(
             .gap(px(5.0))
             .px(px(4.0))
             .py(px(4.0))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .h(px(22.0))
-                    .px(px(8.0))
-                    .rounded(px(11.0))
-                    .border_1()
-                    .text_size(px(11.0))
-                    .cursor_pointer()
-                    .when(is_all_sel, |d| {
-                        d.bg(t.ac_soft)
-                            .border_color(t.ac)
-                            .text_color(t.ac)
-                            .font_weight(FontWeight::MEDIUM)
-                    })
-                    .when(!is_all_sel, |d| {
-                        d.bg(t.sheet)
-                            .border_color(t.line_soft)
-                            .text_color(t.tx2)
-                            .hover(|h| h.bg(t.hover).text_color(t.tx))
-                    })
-                    .child(crate::t!("memos-tab-all"))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, _, _, cx| {
-                            this.ext.memos.selected_tag = None;
-                            cx.notify();
-                        }),
-                    ),
-            );
+            .child(choice_chip(
+                &t,
+                &crate::t!("memos-tab-all"),
+                is_all_sel,
+                cx.listener(|this, _, _, cx| {
+                    this.ext.memos.selected_tag = None;
+                    cx.notify();
+                }),
+            ));
 
         for tag in all_tags {
             let is_sel = app.ext.memos.selected_tag.as_deref() == Some(&tag);
             let t_clone = tag.clone();
-            tag_bar = tag_bar.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .h(px(22.0))
-                    .px(px(8.0))
-                    .rounded(px(11.0))
-                    .border_1()
-                    .text_size(px(11.0))
-                    .cursor_pointer()
-                    .when(is_sel, |d| {
-                        d.bg(t.ac_soft)
-                            .border_color(t.ac)
-                            .text_color(t.ac)
-                            .font_weight(FontWeight::MEDIUM)
-                    })
-                    .when(!is_sel, |d| {
-                        d.bg(t.sheet)
-                            .border_color(t.line_soft)
-                            .text_color(t.tx2)
-                            .hover(|h| h.bg(t.hover).text_color(t.tx))
-                    })
-                    .child(format!("#{}", tag))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |this, _, _, cx| {
-                            if this.ext.memos.selected_tag.as_deref() == Some(&t_clone) {
-                                this.ext.memos.selected_tag = None;
-                            } else {
-                                this.ext.memos.selected_tag = Some(t_clone.clone());
-                            }
-                            cx.notify();
-                        }),
-                    ),
-            );
+            tag_bar = tag_bar.child(choice_chip(
+                &t,
+                &format!("#{tag}"),
+                is_sel,
+                cx.listener(move |this, _, _, cx| {
+                    if this.ext.memos.selected_tag.as_deref() == Some(&t_clone) {
+                        this.ext.memos.selected_tag = None;
+                    } else {
+                        this.ext.memos.selected_tag = Some(t_clone.clone());
+                    }
+                    cx.notify();
+                }),
+            ));
         }
         section = section.child(tag_bar);
     }

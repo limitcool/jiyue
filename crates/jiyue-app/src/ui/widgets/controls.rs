@@ -37,6 +37,7 @@ pub enum ButtonKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ButtonSize {
+    Large,
     #[default]
     Medium,
     Small,
@@ -91,6 +92,7 @@ pub fn button_sized(
     };
 
     let (height, padding_x, font_sz, radius, icon_sz) = match size {
+        ButtonSize::Large => (36.0, 16.0, 14.0, RADIUS_M, ICON_SIZE),
         ButtonSize::Medium => (30.0, 12.0, 13.0, RADIUS_M, ICON_SIZE),
         ButtonSize::Small => (26.0, 8.0, 12.0, RADIUS_S, 14.0),
         ButtonSize::Xs => (22.0, 6.0, 11.0, RADIUS_S, 12.0),
@@ -172,12 +174,110 @@ pub fn icon_button(
     icon_button_sized(t, icon_name, IconBtnSize::Medium, on_click)
 }
 
-/// Switch, 36x20 as in the settings page. `on_change` is called on click; the caller flips its value.
-pub fn toggle(
+/// Square icon-only button with active/selected state support.
+pub fn icon_toggle_button(
     t: &ActiveTheme,
-    on: bool,
-    on_change: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+    icon_name: &str,
+    selected: bool,
+    size: IconBtnSize,
+    on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
+    let (box_sz, icon_sz, radius) = match size {
+        IconBtnSize::Medium => (28.0, ICON_SIZE, RADIUS_S),
+        IconBtnSize::Small => (24.0, 14.0, RADIUS_S),
+        IconBtnSize::Xs => (20.0, 12.0, RADIUS_S),
+    };
+
+    let el = div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .size(px(box_sz))
+        .rounded(px(radius))
+        .cursor_pointer()
+        .on_mouse_down(MouseButton::Left, on_click);
+
+    if selected {
+        el.bg(t.active)
+            .border_1()
+            .border_color(t.ac)
+            .child(icon(icon_name, icon_sz, t.ac))
+    } else {
+        el.hover(|s| s.bg(t.hover))
+            .child(icon(icon_name, icon_sz, t.tx2))
+    }
+}
+
+/// Capsule choice chip for filters, tags, and radio toggles.
+pub fn choice_chip(
+    t: &ActiveTheme,
+    label: &str,
+    selected: bool,
+    on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    let el = div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .h(px(24.0))
+        .px(px(10.0))
+        .rounded(px(12.0))
+        .border_1()
+        .text_size(px(11.5))
+        .cursor_pointer()
+        .font_family(crate::ui::fonts::ui_name())
+        .whitespace_nowrap()
+        .child(SharedString::from(label.to_string()))
+        .on_mouse_down(MouseButton::Left, on_click);
+
+    if selected {
+        el.bg(t.ac_soft)
+            .border_color(t.ac)
+            .text_color(t.ac)
+            .font_weight(FontWeight::MEDIUM)
+    } else {
+        el.bg(t.sheet)
+            .border_color(t.line_soft)
+            .text_color(t.tx2)
+            .hover(|s| s.bg(t.hover).text_color(t.tx))
+    }
+}
+
+/// Checkbox toggle item with an icon and label.
+pub fn checkbox_toggle(
+    t: &ActiveTheme,
+    label: &str,
+    checked: bool,
+    on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .cursor_pointer()
+        .child(icon(
+            if checked { "check" } else { "circle" },
+            15.0,
+            if checked { t.ac } else { t.tx2 },
+        ))
+        .child(
+            div()
+                .text_size(px(12.0))
+                .font_weight(if checked {
+                    FontWeight::MEDIUM
+                } else {
+                    FontWeight::NORMAL
+                })
+                .text_color(if checked { t.tx } else { t.tx2 })
+                .child(SharedString::from(label.to_string())),
+        )
+        .on_mouse_down(MouseButton::Left, on_click)
+}
+
+/// Pill-shaped switch view element (36x20).
+pub fn toggle_view(t: &ActiveTheme, on: bool) -> Div {
     let knob_left = if on { 18.0 } else { 2.0 };
     div()
         .relative()
@@ -198,7 +298,15 @@ pub fn toggle(
                 .rounded_full()
                 .bg(t.raised),
         )
-        .on_mouse_down(MouseButton::Left, on_change)
+}
+
+/// Switch, 36x20 as in the settings page. `on_change` is called on click; the caller flips its value.
+pub fn toggle(
+    t: &ActiveTheme,
+    on: bool,
+    on_change: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    toggle_view(t, on).on_mouse_down(MouseButton::Left, on_change)
 }
 
 /// Segmented control: one segment per option, the selected one highlighted. `on_select` gets the

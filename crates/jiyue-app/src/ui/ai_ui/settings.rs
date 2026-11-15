@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, Context, Div, Entity, FontWeight, MouseButton, MouseDownEvent, SharedString,
-    Window, div, prelude::*, px,
+    div, prelude::*, px,
 };
 use jiyue_ai::{ProviderEntry, ProviderKind};
 use jiyue_core::config::credentials::{self, AI_TABLE};
@@ -20,7 +20,7 @@ use crate::RustdianApp;
 use crate::theme::ActiveTheme;
 use crate::ui::ext::ToastKind;
 use crate::ui::icons::icon;
-use crate::ui::widgets::controls::PickIndex;
+use crate::ui::widgets::controls::{PickIndex, choice_chip};
 use crate::ui::widgets::{
     ButtonKind, LineInput, button, form_row, icon_button, section_title, segmented, toggle,
 };
@@ -535,32 +535,6 @@ fn text_field(t: &ActiveTheme, label: &str, input: Option<Entity<LineInput>>) ->
                 .child(label.to_string()),
         )
         .children(input)
-}
-
-fn choice_chip(
-    t: &ActiveTheme,
-    label: &str,
-    on: bool,
-    on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
-) -> Div {
-    let el = div()
-        .flex()
-        .items_center()
-        .h(px(26.0))
-        .px(px(10.0))
-        .rounded(px(13.0))
-        .border_1()
-        .text_size(px(12.5))
-        .cursor_pointer()
-        .child(label.to_string())
-        .on_mouse_down(MouseButton::Left, on_click);
-    if on {
-        el.bg(t.ac_soft).border_color(t.ac).text_color(t.ac)
-    } else {
-        el.border_color(t.line)
-            .text_color(t.tx2)
-            .hover(|s| s.bg(t.hover))
-    }
 }
 
 fn status_text(app: &RustdianApp) -> (String, bool) {

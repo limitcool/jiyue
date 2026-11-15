@@ -10,6 +10,7 @@ use gpui::{
 use crate::daily::{self, DailySettings, Date};
 use crate::theme::{ActiveTheme, RADIUS_L, ThemeKind, ThemeMode};
 use crate::ui::icons::icon;
+use crate::ui::widgets::controls::{choice_chip, toggle_view};
 use crate::ui::{display_family, fonts};
 use crate::{AppCommand, RustdianApp};
 
@@ -638,30 +639,6 @@ fn note(t: &ActiveTheme, text: &str) -> Div {
         .child(SharedString::from(text.to_string()))
 }
 
-/// Pill-shaped switch (36x20).
-fn toggle(t: &ActiveTheme, on: bool) -> Div {
-    let knob_left = if on { 18.0 } else { 2.0 };
-    div()
-        .relative()
-        .flex_none()
-        .w(px(36.0))
-        .h(px(20.0))
-        .rounded(px(10.0))
-        .cursor_pointer()
-        .bg(if on { t.ac } else { t.active })
-        .border_1()
-        .border_color(if on { t.ac } else { t.line })
-        .child(
-            div()
-                .absolute()
-                .top(px(1.0))
-                .left(px(knob_left))
-                .size(px(16.0))
-                .rounded_full()
-                .bg(t.raised),
-        )
-}
-
 fn kbd(t: &ActiveTheme, text: &str) -> Div {
     div()
         .flex_none()
@@ -855,7 +832,7 @@ fn editor_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             &t,
             &crate::t!("settings-live-preview"),
             &crate::t!("settings-live-preview-desc"),
-            toggle(&t, app.live_preview).on_mouse_down(
+            toggle_view(&t, app.live_preview).on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
                     this.live_preview = !this.live_preview;
@@ -868,7 +845,7 @@ fn editor_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             &t,
             &crate::t!("settings-autoname"),
             &crate::t!("settings-autoname-desc"),
-            toggle(
+            toggle_view(
                 &t,
                 crate::ui::files_ui::autoname::load(&app.vault.root_dir).auto_name_from_heading,
             )
@@ -911,14 +888,14 @@ fn appearance_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         )
         .child(cards);
 
-    let left_toggle = toggle(&t, app.left_sidebar_open).on_mouse_down(
+    let left_toggle = toggle_view(&t, app.left_sidebar_open).on_mouse_down(
         MouseButton::Left,
         cx.listener(|this, _, _, cx| {
             this.run_command(AppCommand::ToggleSidebar);
             cx.notify();
         }),
     );
-    let right_toggle = toggle(&t, app.right_sidebar_open).on_mouse_down(
+    let right_toggle = toggle_view(&t, app.right_sidebar_open).on_mouse_down(
         MouseButton::Left,
         cx.listener(|this, _, _, cx| {
             this.run_command(AppCommand::ToggleRightPanel);
@@ -930,35 +907,16 @@ fn appearance_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let mut lang_buttons = div().flex().flex_none().items_center().gap(px(6.0));
     for (code, label) in crate::i18n::SUPPORTED_LOCALES {
         let is_selected = cur_locale == code;
-
-        let btn = div()
-            .flex()
-            .items_center()
-            .justify_center()
-            .px(px(10.0))
-            .h(px(28.0))
-            .rounded(px(6.0))
-            .cursor_pointer()
-            .text_size(px(12.5))
-            .font_weight(if is_selected {
-                FontWeight::MEDIUM
-            } else {
-                FontWeight::NORMAL
-            })
-            .text_color(if is_selected { t.tx } else { t.tx2 })
-            .bg(if is_selected { t.active } else { t.sheet })
-            .border_1()
-            .border_color(if is_selected { t.ac } else { t.line })
-            .hover(|s| s.bg(t.hover))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _, cx| {
-                    crate::i18n::set_locale(code);
-                    crate::config_store::sync_ui(this);
-                    cx.notify();
-                }),
-            )
-            .child(label);
+        let btn = choice_chip(
+            &t,
+            label,
+            is_selected,
+            cx.listener(move |this, _, _, cx| {
+                crate::i18n::set_locale(code);
+                crate::config_store::sync_ui(this);
+                cx.notify();
+            }),
+        );
         lang_buttons = lang_buttons.child(btn);
     }
 
