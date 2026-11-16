@@ -267,18 +267,28 @@ fn meta_item(icon_name: &str, text: &str, color: Rgba) -> impl IntoElement + use
 
 /// 创建于 date, from the file's creation time (falls back to modification time).
 fn created_label(app: &RustdianApp, note: &Note) -> String {
+    let key = (app.vault.root_dir.clone(), note.path.clone());
+    if let Some(cached) = app.ext.files.created_cache.borrow().get(&key) {
+        return cached.clone();
+    }
     let path = app.vault.root_dir.join(&note.path);
     let created = std::fs::metadata(&path)
         .and_then(|m| m.created().or_else(|_| m.modified()))
         .ok()
         .and_then(|st| st.duration_since(UNIX_EPOCH).ok());
-    match created {
+    let label = match created {
         Some(d) => {
             let date = Date::from_days((d.as_secs() / 86_400) as i64);
             format!("创建于 {:04}-{:02}-{:02}", date.year, date.month, date.day)
         }
         None => "创建于 未知".to_string(),
+    };
+    let mut cache = app.ext.files.created_cache.borrow_mut();
+    if cache.len() >= 2048 {
+        cache.clear();
     }
+    cache.insert(key, label.clone());
+    label
 }
 
 // ----- click targets ---------------------------------------------------------------------

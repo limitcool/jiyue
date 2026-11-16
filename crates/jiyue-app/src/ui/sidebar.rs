@@ -351,9 +351,6 @@ pub fn render_sidebar(
                 .flex_col()
                 .flex_1()
                 .min_h(px(120.0))
-                .px(px(6.0))
-                .py(px(6.0))
-                .overflow_y_scroll()
                 .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                     files_ui::tree_key(this, ev, window, cx);
                 }))
@@ -377,11 +374,87 @@ pub fn render_sidebar(
                     cx.listener(|this, drag: &files_ui::dnd::TreeDrag, window, cx| {
                         files_ui::dnd::drop_into(this, window, drag, "", cx);
                     }),
+                );
+            tree = if files_ui::has_inline(app) {
+                tree.px(px(6.0))
+                    .py(px(6.0))
+                    .overflow_y_scroll()
+                    .children(file_tree(app, cx))
+            } else {
+                let row_count = cached_flat_rows(app).len();
+                let list = gpui::uniform_list(
+                    "file_tree_virtual",
+                    row_count,
+                    cx.processor(|this, range: std::ops::Range<usize>, _window, cx| {
+                        let rows = cached_flat_rows(this);
+                        let mut items = Vec::with_capacity(range.len());
+                        for ix in range {
+                            if let Some(row) = rows.get(ix) {
+                                items.push(render_flat_tree_row(this, row, cx));
+                            }
+                        }
+                        items
+                    }),
                 )
-                .children(file_tree(app, cx));
+                .track_scroll(app.ext.files.tree_scroll.clone())
+                .size_full()
+                .px(px(6.0))
+                .py(px(6.0));
+                tree.overflow_hidden().child(list)
+            };
             if let Some(handle) = app.ext.files.tree_focus.as_ref() {
                 tree = tree.track_focus(handle);
             }
+
+            let tag_counts = cached_tag_counts(app);
+            let tag_section = if tag_counts.len() > 20 {
+                let tag_len = tag_counts.len();
+                let search_text = tag_search_text(app, cx);
+                div()
+                    .id("tag_list")
+                    .flex()
+                    .flex_col()
+                    .h(px(TAG_BLOCK_MAX_H))
+                    .overflow_hidden()
+                    .child(
+                        gpui::uniform_list(
+                            "tag_list_virtual",
+                            tag_len,
+                            cx.processor(
+                                move |this, range: std::ops::Range<usize>, _window, cx| {
+                                    let counts = cached_tag_counts(this);
+                                    let mut items = Vec::with_capacity(range.len());
+                                    for ix in range {
+                                        if let Some((name, count)) = counts.get(ix) {
+                                            items.push(render_tag_row(
+                                                this,
+                                                name,
+                                                *count,
+                                                &search_text,
+                                                cx,
+                                            ));
+                                        }
+                                    }
+                                    items
+                                },
+                            ),
+                        )
+                        .track_scroll(app.ext.files.tag_scroll.clone())
+                        .size_full()
+                        .px(px(6.0))
+                        .pb(px(6.0)),
+                    )
+            } else {
+                div()
+                    .id("tag_list")
+                    .flex()
+                    .flex_col()
+                    .max_h(px(TAG_BLOCK_MAX_H))
+                    .px(px(6.0))
+                    .pb(px(6.0))
+                    .overflow_y_scroll()
+                    .child(tags(app, cx))
+            };
 
             div()
                 .flex()
@@ -402,19 +475,7 @@ pub fn render_sidebar(
                         .text_color(t.tx3)
                         .child(SharedString::from(crate::t!("sidebar-tags"))),
                 )
-                .child(
-                    div().flex().flex_col().flex_none().child(
-                        div()
-                            .id("tag_list")
-                            .flex()
-                            .flex_col()
-                            .max_h(px(TAG_BLOCK_MAX_H))
-                            .px(px(6.0))
-                            .pb(px(6.0))
-                            .overflow_y_scroll()
-                            .child(tags(app, cx)),
-                    ),
-                )
+                .child(div().flex().flex_col().flex_none().child(tag_section))
                 .into_any_element()
         }
         SidebarTab::Search => super::search_ui::render_sidebar_panel(app, cx),
@@ -521,43 +582,317 @@ fn click_mode(m: gpui::Modifiers) -> files_ui::selection::ClickMode {
     }
 }
 
-/// The rows of the file tree in the order they are shown (expanded folders included). Shift+click
-/// and Ctrl+A work in this order.
-pub fn visible_rows(app: &RustdianApp) -> Vec<String> {
-    fn collect(app: &RustdianApp, node: &DirNode, prefix: &str, out: &mut Vec<String>) {
-        for (name, child) in &node.dirs {
-            let key = if prefix.is_empty() {
-                name.clone()
-            } else {
-                format!("{}/{}", prefix, name)
-            };
-            out.push(key.clone());
-            if app.expanded_folders.contains(&key) {
-                collect(app, child, &key, out);
-            }
+/// Pre-flattened visible row of the sidebar file tree for `uniform_list` virtualization.
+#[derive(Clone)]
+pub(crate) enum FlatTreeRow {
+    Folder {
+        key: String,
+        name: SharedString,
+        depth: usize,
+        open: bool,
+    },
+    File {
+        path: String,
+        title: SharedString,
+        idx: usize,
+        depth: usize,
+        is_daily: bool,
+    },
+}
+
+fn flatten_tree(
+    app: &RustdianApp,
+    node: &DirNode,
+    prefix: &str,
+    depth: usize,
+    out: &mut Vec<FlatTreeRow>,
+) {
+    for (name, child) in &node.dirs {
+        let key = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", prefix, name)
+        };
+        let open = app.expanded_folders.contains(&key);
+        out.push(FlatTreeRow::Folder {
+            key: key.clone(),
+            name: SharedString::from(name.clone()),
+            depth,
+            open,
+        });
+        if open {
+            flatten_tree(app, child, &key, depth + 1, out);
         }
-        for (_, idx) in &node.files {
-            if let Some(note) = app.vault.notes.get(*idx) {
-                out.push(note.path.clone());
-            }
-        }
+    }
+    for (title, idx) in &node.files {
+        let idx = *idx;
+        let Some(note) = app.vault.notes.get(idx) else {
+            continue;
+        };
+        out.push(FlatTreeRow::File {
+            path: note.path.clone(),
+            title: SharedString::from(title.clone()),
+            idx,
+            depth,
+            is_daily: app.vault.is_daily_note(note),
+        });
+    }
+}
+
+/// Returns cached visible rows for the file tree, rebuilding only on revision, root, or expansion change.
+pub(crate) fn cached_flat_rows(app: &RustdianApp) -> Rc<Vec<FlatTreeRow>> {
+    let rev = app.vault.revision;
+    let mut cache = app.ext.files.flat_tree_cache.borrow_mut();
+    if let Some((cached_rev, cached_root, cached_expanded, rows)) = cache.as_ref()
+        && *cached_rev == rev
+        && *cached_root == app.vault.root_dir
+        && *cached_expanded == app.expanded_folders
+    {
+        return Rc::clone(rows);
     }
     let tree = cached_tree(app);
     let mut out = Vec::new();
-    collect(app, &tree, "", &mut out);
-    out
+    flatten_tree(app, &tree, "", 0, &mut out);
+    let rows = Rc::new(out);
+    *cache = Some((
+        rev,
+        app.vault.root_dir.clone(),
+        app.expanded_folders.clone(),
+        Rc::clone(&rows),
+    ));
+    rows
 }
 
-/// Visible rows of the file tree. Folders are expanded when listed in `expanded_folders`.
+/// The rows of the file tree in the order they are shown (expanded folders included). Shift+click
+/// and Ctrl+A work in this order.
+pub fn visible_rows(app: &RustdianApp) -> Vec<String> {
+    cached_flat_rows(app)
+        .iter()
+        .map(|row| match row {
+            FlatTreeRow::Folder { key, .. } => key.clone(),
+            FlatTreeRow::File { path, .. } => path.clone(),
+        })
+        .collect()
+}
+
+fn render_flat_tree_row(
+    app: &RustdianApp,
+    row: &FlatTreeRow,
+    cx: &mut Context<RustdianApp>,
+) -> AnyElement {
+    let t = app.theme;
+    match row {
+        FlatTreeRow::Folder {
+            key,
+            name,
+            depth,
+            open,
+        } => {
+            let open = *open;
+            let selected = is_row_selected(app, key);
+            let toggle_key = key.clone();
+            let menu_key = key.clone();
+            let drag_key = key.clone();
+            let drop_key = key.clone();
+            let hover_key = key.clone();
+            let mut r = div()
+                .id(ElementId::Name(SharedString::from(format!("folder:{key}"))))
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(ICON_GAP))
+                .w_full()
+                .h(px(ROW_HEIGHT))
+                .pl(px(8.0 + *depth as f32 * 20.0))
+                .pr(px(8.0))
+                .rounded(px(RADIUS_S))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_color(t.tx2)
+                .cursor_pointer()
+                .hover(|s| s.bg(t.hover).text_color(t.tx));
+            if selected {
+                r = r.bg(t.hover).text_color(t.tx);
+            }
+            r.child(icon(
+                if open {
+                    "chevron-down"
+                } else {
+                    "chevron-right"
+                },
+                13.0,
+                t.tx3,
+            ))
+            .child(icon(
+                if open { "folder-open" } else { "folder" },
+                ICON_SIZE,
+                t.tx3,
+            ))
+            .child(div().flex_1().min_w_0().truncate().child(name.clone()))
+            // A click (not a press) toggles, so a drag from this row does not open it.
+            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                let mode = click_mode(ev.modifiers());
+                files_ui::select_row(this, &toggle_key, mode);
+                // Ctrl and Shift clicks only select; a plain click also opens or closes the folder.
+                if mode == files_ui::selection::ClickMode::Plain {
+                    if let Some(pos) = this.expanded_folders.iter().position(|k| *k == toggle_key) {
+                        this.expanded_folders.remove(pos);
+                    } else {
+                        this.expanded_folders.push(toggle_key.clone());
+                    }
+                }
+                files_ui::focus_tree(this, window);
+                cx.notify();
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    files_ui::context_select(this, &menu_key);
+                    let target = Target::Tree {
+                        path: menu_key.clone(),
+                        is_dir: true,
+                    };
+                    let pos = (f32::from(ev.position.x), f32::from(ev.position.y));
+                    files_ui::open_menu(this, target, pos, window);
+                    cx.notify();
+                }),
+            )
+            .on_drag(
+                files_ui::dnd::TreeDrag {
+                    items: files_ui::drag_items(app, &drag_key, true),
+                    path: drag_key,
+                    is_dir: true,
+                    theme: t,
+                },
+                files_ui::dnd::preview,
+            )
+            .drag_over::<files_ui::dnd::TreeDrag>(move |s, _, _, _| s.bg(t.ac_soft))
+            .on_drag_move::<files_ui::dnd::TreeDrag>(cx.listener(
+                move |this, ev: &DragMoveEvent<files_ui::dnd::TreeDrag>, _, cx| {
+                    let inside = ev.bounds.contains(&ev.event.position);
+                    files_ui::dnd::hover_folder(this, &hover_key, inside, cx);
+                    cx.notify();
+                },
+            ))
+            .on_drop(
+                cx.listener(move |this, drag: &files_ui::dnd::TreeDrag, window, cx| {
+                    files_ui::dnd::drop_into(this, window, drag, &drop_key, cx);
+                }),
+            )
+            .into_any_element()
+        }
+        FlatTreeRow::File {
+            path,
+            title,
+            idx,
+            depth,
+            is_daily,
+        } => {
+            let idx = *idx;
+            let is_active = idx == app.vault.active_note_index;
+            let is_selected = is_row_selected(app, path);
+            let click_path = path.clone();
+            let menu_path = path.clone();
+            let mut r = div()
+                .id(ElementId::NamedInteger(
+                    SharedString::from("file_row"),
+                    idx as u64,
+                ))
+                .relative()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(ICON_GAP))
+                .w_full()
+                .h(px(ROW_HEIGHT))
+                .pl(px(8.0 + *depth as f32 * 20.0))
+                .pr(px(8.0))
+                .rounded(px(RADIUS_S))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .cursor_pointer()
+                .text_color(if is_active { t.tx } else { t.tx2 })
+                .hover(|s| s.bg(t.hover).text_color(t.tx));
+            if is_active {
+                r = r.bg(t.active).font_weight(FontWeight::MEDIUM).child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top(px(6.0))
+                        .w(px(2.0))
+                        .h(px(16.0))
+                        .rounded_r(px(1.0))
+                        .bg(t.ac),
+                );
+            } else if is_selected {
+                r = r.bg(t.hover).text_color(t.tx);
+            }
+            let icon_name = if *is_daily {
+                "calendar-event"
+            } else {
+                "file-text"
+            };
+            let icon_color = if is_active { t.ac } else { t.tx3 };
+            // A dragged row dropped on a note goes into the note's folder.
+            let drop_dir = files_ui::dnd::parent_dir(path).to_string();
+            let drag_note = files_ui::dnd::TreeDrag {
+                items: files_ui::drag_items(app, path, false),
+                path: path.clone(),
+                is_dir: false,
+                theme: t,
+            };
+            r.child(icon(icon_name, ICON_SIZE, icon_color))
+                .child(div().flex_1().min_w_0().truncate().child(title.clone()))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                        let mode = click_mode(ev.modifiers);
+                        files_ui::select_row(this, &click_path, mode);
+                        files_ui::focus_tree(this, window);
+                        // Ctrl and Shift clicks only select; a plain click opens the note.
+                        if mode == files_ui::selection::ClickMode::Plain
+                            && let Some(note_idx) = this.note_index(&click_path)
+                        {
+                            this.open_note_by_index(note_idx);
+                        }
+                        cx.notify();
+                    }),
+                )
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
+                        cx.stop_propagation();
+                        files_ui::context_select(this, &menu_path);
+                        let target = Target::Tree {
+                            path: menu_path.clone(),
+                            is_dir: false,
+                        };
+                        let pos = (f32::from(ev.position.x), f32::from(ev.position.y));
+                        files_ui::open_menu(this, target, pos, window);
+                        cx.notify();
+                    }),
+                )
+                .on_drag(drag_note, files_ui::dnd::preview)
+                .on_drop(
+                    cx.listener(move |this, drag: &files_ui::dnd::TreeDrag, window, cx| {
+                        files_ui::dnd::drop_into(this, window, drag, &drop_dir, cx);
+                    }),
+                )
+                .into_any_element()
+        }
+    }
+}
+
+/// Visible rows of the file tree (used when an inline create/rename row is active).
 fn file_tree(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElement> {
     let tree = cached_tree(app);
     let mut out = Vec::new();
-    let active = app.vault.active_note_index;
     // A new note or folder at the root is typed at the top of the tree.
     if let Some((input, error)) = files_ui::inline_in_dir(app, "") {
         out.push(inline_row(app, 0, "file-text", input, error));
     }
-    walk(app, &tree, "", 0, active, cx, &mut out);
+    walk(app, &tree, "", 0, cx, &mut out);
     out
 }
 
@@ -604,11 +939,9 @@ fn walk(
     node: &DirNode,
     prefix: &str,
     depth: usize,
-    active: usize,
     cx: &mut Context<RustdianApp>,
     out: &mut Vec<AnyElement>,
 ) {
-    let t = app.theme;
     for (name, child) in &node.dirs {
         let key = if prefix.is_empty() {
             name.clone()
@@ -616,7 +949,6 @@ fn walk(
             format!("{}/{}", prefix, name)
         };
         let open = app.expanded_folders.contains(&key);
-        let selected = is_row_selected(app, &key);
         if let Some((input, error)) = files_ui::inline_renaming(app, &key) {
             out.push(inline_row(
                 app,
@@ -626,106 +958,23 @@ fn walk(
                 error,
             ));
         } else {
-            let toggle_key = key.clone();
-            let menu_key = key.clone();
-            let drag_key = key.clone();
-            let drop_key = key.clone();
-            let hover_key = key.clone();
-            let mut r = div()
-                .id(ElementId::Name(SharedString::from(format!("folder:{key}"))))
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(ICON_GAP))
-                .h(px(ROW_HEIGHT))
-                .pl(px(8.0 + depth as f32 * 20.0))
-                .pr(px(8.0))
-                .rounded(px(RADIUS_S))
-                .whitespace_nowrap()
-                .text_color(t.tx2)
-                .cursor_pointer()
-                .hover(|s| s.bg(t.hover).text_color(t.tx));
-            if selected {
-                r = r.bg(t.hover).text_color(t.tx);
-            }
-            out.push(
-                r.child(icon(
-                    if open {
-                        "chevron-down"
-                    } else {
-                        "chevron-right"
-                    },
-                    13.0,
-                    t.tx3,
-                ))
-                .child(icon(
-                    if open { "folder-open" } else { "folder" },
-                    ICON_SIZE,
-                    t.tx3,
-                ))
-                .child(div().child(SharedString::from(name.clone())))
-                // A click (not a press) toggles, so a drag from this row does not open it.
-                .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                    let mode = click_mode(ev.modifiers());
-                    files_ui::select_row(this, &toggle_key, mode);
-                    // Ctrl and Shift clicks only select; a plain click also opens or closes the folder.
-                    if mode == files_ui::selection::ClickMode::Plain {
-                        if let Some(pos) =
-                            this.expanded_folders.iter().position(|k| *k == toggle_key)
-                        {
-                            this.expanded_folders.remove(pos);
-                        } else {
-                            this.expanded_folders.push(toggle_key.clone());
-                        }
-                    }
-                    files_ui::focus_tree(this, window);
-                    cx.notify();
-                }))
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
-                        cx.stop_propagation();
-                        files_ui::context_select(this, &menu_key);
-                        let target = Target::Tree {
-                            path: menu_key.clone(),
-                            is_dir: true,
-                        };
-                        let pos = (f32::from(ev.position.x), f32::from(ev.position.y));
-                        files_ui::open_menu(this, target, pos, window);
-                        cx.notify();
-                    }),
-                )
-                .on_drag(
-                    files_ui::dnd::TreeDrag {
-                        items: files_ui::drag_items(app, &drag_key, true),
-                        path: drag_key,
-                        is_dir: true,
-                        theme: t,
-                    },
-                    files_ui::dnd::preview,
-                )
-                .drag_over::<files_ui::dnd::TreeDrag>(move |s, _, _, _| s.bg(t.ac_soft))
-                .on_drag_move::<files_ui::dnd::TreeDrag>(cx.listener(
-                    move |this, ev: &DragMoveEvent<files_ui::dnd::TreeDrag>, _, cx| {
-                        let inside = ev.bounds.contains(&ev.event.position);
-                        files_ui::dnd::hover_folder(this, &hover_key, inside, cx);
-                        cx.notify();
-                    },
-                ))
-                .on_drop(
-                    cx.listener(move |this, drag: &files_ui::dnd::TreeDrag, window, cx| {
-                        files_ui::dnd::drop_into(this, window, drag, &drop_key, cx);
-                    }),
-                )
-                .into_any_element(),
-            );
+            out.push(render_flat_tree_row(
+                app,
+                &FlatTreeRow::Folder {
+                    key: key.clone(),
+                    name: SharedString::from(name.clone()),
+                    depth,
+                    open,
+                },
+                cx,
+            ));
         }
         if open {
             // A new note or folder created in this folder is typed right below its row.
             if let Some((input, error)) = files_ui::inline_in_dir(app, &key) {
                 out.push(inline_row(app, depth + 1, "file-text", input, error));
             }
-            walk(app, child, &key, depth + 1, active, cx, out);
+            walk(app, child, &key, depth + 1, cx, out);
         }
     }
 
@@ -739,97 +988,17 @@ fn walk(
             out.push(inline_row(app, depth, "file-text", input, error));
             continue;
         }
-        let is_active = idx == active;
-        let is_selected = is_row_selected(app, &note_path);
-        let click_path = note_path.clone();
-        let menu_path = note_path.clone();
-        let mut r = div()
-            .id(ElementId::NamedInteger(
-                SharedString::from("file_row"),
-                idx as u64,
-            ))
-            .relative()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(ICON_GAP))
-            .h(px(ROW_HEIGHT))
-            .pl(px(8.0 + depth as f32 * 20.0))
-            .pr(px(8.0))
-            .rounded(px(RADIUS_S))
-            .whitespace_nowrap()
-            .cursor_pointer()
-            .text_color(if is_active { t.tx } else { t.tx2 })
-            .hover(|s| s.bg(t.hover).text_color(t.tx));
-        if is_active {
-            r = r.bg(t.active).font_weight(FontWeight::MEDIUM).child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .top(px(6.0))
-                    .w(px(2.0))
-                    .h(px(16.0))
-                    .rounded_r(px(1.0))
-                    .bg(t.ac),
-            );
-        } else if is_selected {
-            r = r.bg(t.hover).text_color(t.tx);
-        }
-        let is_daily = app.vault.is_daily_note(note);
-        let icon_name = if is_daily {
-            "calendar-event"
-        } else {
-            "file-text"
-        };
-        let icon_color = if is_active { t.ac } else { t.tx3 };
-        // A dragged row dropped on a note goes into the note's folder.
-        let drop_dir = files_ui::dnd::parent_dir(&note_path).to_string();
-        let drag_note = files_ui::dnd::TreeDrag {
-            items: files_ui::drag_items(app, &note_path, false),
-            path: note_path.clone(),
-            is_dir: false,
-            theme: t,
-        };
-        out.push(
-            r.child(icon(icon_name, ICON_SIZE, icon_color))
-                .child(div().child(SharedString::from(title.clone())))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
-                        let mode = click_mode(ev.modifiers);
-                        files_ui::select_row(this, &click_path, mode);
-                        files_ui::focus_tree(this, window);
-                        // Ctrl and Shift clicks only select; a plain click opens the note.
-                        if mode == files_ui::selection::ClickMode::Plain
-                            && let Some(note_idx) = this.note_index(&click_path)
-                        {
-                            this.open_note_by_index(note_idx);
-                        }
-                        cx.notify();
-                    }),
-                )
-                .on_mouse_down(
-                    MouseButton::Right,
-                    cx.listener(move |this, ev: &MouseDownEvent, window, cx| {
-                        cx.stop_propagation();
-                        files_ui::context_select(this, &menu_path);
-                        let target = Target::Tree {
-                            path: menu_path.clone(),
-                            is_dir: false,
-                        };
-                        let pos = (f32::from(ev.position.x), f32::from(ev.position.y));
-                        files_ui::open_menu(this, target, pos, window);
-                        cx.notify();
-                    }),
-                )
-                .on_drag(drag_note, files_ui::dnd::preview)
-                .on_drop(
-                    cx.listener(move |this, drag: &files_ui::dnd::TreeDrag, window, cx| {
-                        files_ui::dnd::drop_into(this, window, drag, &drop_dir, cx);
-                    }),
-                )
-                .into_any_element(),
-        );
+        out.push(render_flat_tree_row(
+            app,
+            &FlatTreeRow::File {
+                path: note_path,
+                title: SharedString::from(title.clone()),
+                idx,
+                depth,
+                is_daily: app.vault.is_daily_note(note),
+            },
+            cx,
+        ));
     }
 }
 
@@ -854,70 +1023,87 @@ fn cached_tag_counts(app: &RustdianApp) -> Rc<Vec<(String, usize)>> {
     counts
 }
 
-/// 标签 section: each tag with the number of notes that use it.
-fn tags(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + use<> {
-    let t = app.theme;
-    let counts = cached_tag_counts(app);
-    // The active tags are those of the search text (sidebar search tab or modal search).
+fn tag_search_text(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> String {
     let search_open = (app.left_sidebar_open && app.sidebar_tab == SidebarTab::Search)
         || app.ext.search.panel.open;
-    let search_text = if search_open {
+    if search_open {
         super::search_ui::query_text(app, cx)
     } else {
         String::new()
-    };
+    }
+}
+
+fn render_tag_row(
+    app: &RustdianApp,
+    name: &str,
+    count: usize,
+    search_text: &str,
+    cx: &mut Context<RustdianApp>,
+) -> AnyElement {
+    let t = app.theme;
+    let is_active = query_has_tag(search_text, name);
+    let click_name = name.to_string();
+    let display_name = name.to_string();
+    let mut row = div()
+        .id(ElementId::Name(SharedString::from(format!("tag:{name}"))))
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(ICON_GAP))
+        .w_full()
+        .h(px(ROW_HEIGHT))
+        .px(px(8.0))
+        .rounded(px(RADIUS_S))
+        .overflow_hidden()
+        .cursor_pointer()
+        .text_color(t.tx2)
+        .hover(|s| s.bg(t.hover).text_color(t.tx));
+    if is_active {
+        row = row
+            .bg(t.active)
+            .text_color(t.tx)
+            .font_weight(FontWeight::MEDIUM);
+    }
+    row.child(
+        div()
+            .w(px(14.0))
+            .text_center()
+            .text_color(t.ac)
+            .font_weight(FontWeight::MEDIUM)
+            .child("#"),
+    )
+    .child(
+        div()
+            .flex_1()
+            .min_w_0()
+            .truncate()
+            .child(SharedString::from(display_name)),
+    )
+    .child(
+        div()
+            .flex_none()
+            .text_size(px(11.5))
+            .text_color(t.tx3)
+            .child(format!("{}", count)),
+    )
+    // A click searches `tag:<name>`; Ctrl+click adds the tag to the search.
+    .on_mouse_down(
+        MouseButton::Left,
+        cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
+            tag_clicked(this, &click_name, ev.modifiers.control, cx);
+        }),
+    )
+    .into_any_element()
+}
+
+/// 标签 section: each tag with the number of notes that use it.
+fn tags(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> impl IntoElement + use<> {
+    let counts = cached_tag_counts(app);
+    // The active tags are those of the search text (sidebar search tab or modal search).
+    let search_text = tag_search_text(app, cx);
     let mut list = div().flex().flex_col().flex_none();
     for (name, count) in counts.iter() {
-        let is_active = query_has_tag(&search_text, name);
-        let click_name = name.clone();
-        let display_name = name.clone();
-        let mut row = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(ICON_GAP))
-            .h(px(ROW_HEIGHT))
-            .px(px(8.0))
-            .rounded(px(RADIUS_S))
-            .cursor_pointer()
-            .text_color(t.tx2)
-            .hover(|s| s.bg(t.hover).text_color(t.tx));
-        if is_active {
-            row = row
-                .bg(t.active)
-                .text_color(t.tx)
-                .font_weight(FontWeight::MEDIUM);
-        }
-        list = list.child(
-            row.child(
-                div()
-                    .w(px(14.0))
-                    .text_center()
-                    .text_color(t.ac)
-                    .font_weight(FontWeight::MEDIUM)
-                    .child("#"),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(SharedString::from(display_name)),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .text_size(px(11.5))
-                    .text_color(t.tx3)
-                    .child(format!("{}", count)),
-            )
-            // A click searches `tag:<name>`; Ctrl+click adds the tag to the search.
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, ev: &MouseDownEvent, _, cx| {
-                    tag_clicked(this, &click_name, ev.modifiers.control, cx);
-                }),
-            ),
-        );
+        list = list.child(render_tag_row(app, name, *count, &search_text, cx));
     }
     list
 }

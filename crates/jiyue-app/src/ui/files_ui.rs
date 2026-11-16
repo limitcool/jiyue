@@ -25,12 +25,25 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub(crate) type BacklinksData = (Vec<(String, String)>, Vec<(String, String)>);
 type BacklinksCache = (u64, PathBuf, String, Rc<BacklinksData>);
 type TreeCache = (u64, PathBuf, Rc<crate::ui::sidebar::DirNode>);
+type FlatTreeCache = (
+    u64,
+    PathBuf,
+    Vec<String>,
+    Rc<Vec<crate::ui::sidebar::FlatTreeRow>>,
+);
 type TagsCache = (u64, PathBuf, Rc<Vec<(String, usize)>>);
+type LinkRefsCache = (u64, PathBuf, Rc<Vec<jiyue_core::links::NoteRef>>);
+pub(crate) type InspectorData = (
+    Rc<Vec<crate::buffer::HeadingItem>>,
+    Rc<crate::ui::attach_ui::props::Block>,
+);
+type InspectorCache = (String, Arc<str>, InspectorData);
 
 use gpui::{
     AnyElement, AppContext, Context, Entity, FocusHandle, KeyDownEvent, Subscription, Window,
@@ -80,10 +93,22 @@ pub struct State {
     pub selection: selection::Selection,
     /// Cached folder/file tree keyed by `(vault.revision, vault.root_dir)`.
     pub(crate) tree_cache: RefCell<Option<TreeCache>>,
+    /// Cached visible flattened tree rows keyed by `(vault.revision, vault.root_dir, expanded_folders)`.
+    pub(crate) flat_tree_cache: RefCell<Option<FlatTreeCache>>,
+    /// Virtualized scroll handle for the sidebar file tree.
+    pub tree_scroll: gpui::UniformListScrollHandle,
+    /// Virtualized scroll handle for the sidebar tag list.
+    pub tag_scroll: gpui::UniformListScrollHandle,
     /// Cached tag counts keyed by `(vault.revision, vault.root_dir)`.
     pub(crate) tags_cache: RefCell<Option<TagsCache>>,
     /// Cached backlinks and unlinked mentions keyed by `(vault.revision, vault.root_dir, title)`.
     pub(crate) backlinks_cache: RefCell<Option<BacklinksCache>>,
+    /// Cached link resolution targets keyed by `(vault.revision, vault.root_dir)`.
+    pub(crate) link_refs_cache: RefCell<Option<LinkRefsCache>>,
+    /// Cached outline headings and frontmatter block keyed by `(note.path, content_arc)`.
+    pub(crate) inspector_cache: RefCell<Option<InspectorCache>>,
+    /// Cached file creation date labels keyed by `(vault.root_dir, note.path)`.
+    pub(crate) created_cache: RefCell<HashMap<(PathBuf, String), String>>,
 }
 
 /// Commands this module handles (sent as `ExtCommand::Files`).
@@ -307,7 +332,8 @@ fn with_window(
     .detach();
 }
 
-/// Makes `path` visible in the tree: its folders are expanded and the row is selected.
+/// Makes `path` visible in the tree: its folders are expanded and the row is selected and scrolled
+/// into view.
 pub fn reveal_path(app: &mut RustdianApp, path: &str) {
     for key in pure::ancestor_keys(path) {
         if !app.expanded_folders.contains(&key) {
@@ -315,6 +341,16 @@ pub fn reveal_path(app: &mut RustdianApp, path: &str) {
         }
     }
     app.ext.files.selected = Some(path.to_string());
+    let rows = super::sidebar::cached_flat_rows(app);
+    if let Some(ix) = rows.iter().position(|row| match row {
+        super::sidebar::FlatTreeRow::Folder { key, .. } => key == path,
+        super::sidebar::FlatTreeRow::File { path: p, .. } => p == path,
+    }) {
+        app.ext
+            .files
+            .tree_scroll
+            .scroll_to_item(ix, gpui::ScrollStrategy::Center);
+    }
 }
 
 /// Expands a folder and its parents (`key` is a folder key such as `a/b`).
@@ -477,6 +513,11 @@ pub fn tree_key(
         _ => return,
     }
     cx.notify();
+}
+
+/// Whether an inline create/rename input row is currently open in the file tree.
+pub fn has_inline(app: &RustdianApp) -> bool {
+    app.ext.files.inline.is_some()
 }
 
 /// The focus handle of the open inline row (new note, new folder, rename), if any.
@@ -676,4 +717,59 @@ fn purge_undo(app: &mut RustdianApp) -> bool {
         app.ext.files.undo = None;
     }
     expired
+}
+
+/// Returns cached `NoteRef` entries (including YAML frontmatter aliases) keyed by
+/// `(vault.revision, vault.root_dir)` for link resolution and tooltips.
+pub(crate) fn cached_note_refs(app: &RustdianApp) -> Rc<Vec<jiyue_core::links::NoteRef>> {
+    let rev = app.vault.revision;
+    let mut cache = app.ext.files.link_refs_cache.borrow_mut();
+    if let Some((cached_rev, cached_root, refs)) = cache.as_ref()
+        && *cached_rev == rev
+        && *cached_root == app.vault.root_dir
+    {
+        return Rc::clone(refs);
+    }
+    let built: Vec<jiyue_core::links::NoteRef> = app
+        .vault
+        .notes
+        .iter()
+        .map(|note| {
+            let mut aliases = Vec::new();
+            let text = note.content();
+            if text.starts_with("---") {
+                for prop in jiyue_md::frontmatter::properties(text) {
+                    if !prop.key.eq_ignore_ascii_case("aliases")
+                        && !prop.key.eq_ignore_ascii_case("alias")
+                    {
+                        continue;
+                    }
+                    match prop.value {
+                        jiyue_md::frontmatter::Value::Text(s) => {
+                            let trimmed = s.trim();
+                            if !trimmed.is_empty() {
+                                aliases.push(trimmed.to_string());
+                            }
+                        }
+                        jiyue_md::frontmatter::Value::List(items) => {
+                            for item in items {
+                                let trimmed = item.trim();
+                                if !trimmed.is_empty() {
+                                    aliases.push(trimmed.to_string());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            jiyue_core::links::NoteRef {
+                path: note.path.clone(),
+                aliases,
+            }
+        })
+        .collect();
+    let refs = Rc::new(built);
+    *cache = Some((rev, app.vault.root_dir.clone(), Rc::clone(&refs)));
+    refs
 }

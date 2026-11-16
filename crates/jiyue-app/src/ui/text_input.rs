@@ -510,6 +510,19 @@ impl LineLayout {
         };
         map::to_source(&self.pieces, disp, self.start + self.len)
     }
+
+    /// Exact source offset under glyph bounds at `(x, y)`, or `None` when the pointer is outside
+    /// every rendered character box (e.g. trailing blank space on a line).
+    fn hit_index_in(&self, x: f32, y: f32) -> Option<usize> {
+        if self.pieces.is_empty() {
+            return None;
+        }
+        let wrapped = self.wrapped.as_ref()?;
+        let disp = wrapped
+            .index_for_position(point(px(x), px(y)), px(self.line_h))
+            .ok()?;
+        Some(map::to_source(&self.pieces, disp, self.start + self.len))
+    }
 }
 
 /// Shaped lines from the last prepaint, in document space, plus the window origin.
@@ -652,12 +665,21 @@ impl Layout {
         if y < 0.0 {
             return 0;
         }
-        for line in &self.lines {
-            if y < line.top + line.height() {
-                return line.index_in(x, y - line.top);
-            }
+        let line_idx = self.lines.partition_point(|l| l.top + l.height() <= y);
+        if let Some(line) = self.lines.get(line_idx) {
+            return line.index_in(x, y - line.top);
         }
         text_len
+    }
+
+    /// Exact source byte offset under rendered character bounds at document-space `(x, y)`.
+    fn hit_index_at(&self, x: f32, y: f32) -> Option<usize> {
+        if y < 0.0 {
+            return None;
+        }
+        let line_idx = self.lines.partition_point(|l| l.top + l.height() <= y);
+        let line = self.lines.get(line_idx)?;
+        line.hit_index_in(x, y - line.top)
     }
 
     /// Document-space `(x, y)` of the caret position for byte `index` (y is the row top).
@@ -938,18 +960,57 @@ fn theme_salt(t: &ActiveTheme) -> u64 {
     h.finish()
 }
 
+/// Hash of active callout folds.
+fn hash_folds(folds: &HashMap<u64, bool>) -> u64 {
+    if folds.is_empty() {
+        return 0;
+    }
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let mut entries: Vec<(u64, bool)> = folds.iter().map(|(&k, &v)| (k, v)).collect();
+    entries.sort_unstable();
+    entries.hash(&mut h);
+    h.finish()
+}
+
+/// Hash of current in-note search match highlights.
+fn hash_search(matches: &[Range<usize>], current: Option<usize>) -> u64 {
+    if matches.is_empty() && current.is_none() {
+        return 0;
+    }
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    matches.len().hash(&mut h);
+    for m in matches.iter().take(MAX_PAINTED_MATCHES) {
+        (m.start, m.end).hash(&mut h);
+    }
+    current.hash(&mut h);
+    h.finish()
+}
+
 /// The inputs of the lines of one frame: the document, the view settings and the reveal state of
 /// every record. The next frame reuses the lines of this one where nothing changed.
 struct FrameKey {
-    /// The document text of the frame: the next frame compares its text with this one.
-    text: String,
+    /// Immutable document snapshot (O(1) clone via `Arc<str>`).
+    text: Arc<str>,
+    state_id: u64,
+    sel: Selection,
+    marked: Option<Range<usize>>,
     live: bool,
+    read_only: bool,
     wrap_w: u32,
+    view_h_bits: u32,
+    bounds_x_bits: u32,
+    bounds_y_bits: u32,
+    scroll_bits: u32,
     theme: u64,
     /// Footnote numbering the lines were built with (see `footnote::numbering_salt`).
     notes: u64,
+    vault_gen: Option<u64>,
+    folds_hash: u64,
+    search_hash: u64,
+    has_inline_math: bool,
     revealed: Vec<bool>,
-    marked: Option<Range<usize>>,
     /// Source range of every reveal record, and a signature of the styling of every logical line.
     hide_src: Vec<Range<usize>>,
     sigs: Vec<u64>,
@@ -2256,26 +2317,31 @@ pub fn minimal_edit(old: &str, new: &str) -> (Range<usize>, String) {
     (prefix..end_old, new[prefix..end_new].to_string())
 }
 
-/// Whether the pointer shows the pointing-hand cursor. Read mode: any link or clickable widget.
-/// Live preview: widgets always (a plain click acts on them), text links only while Ctrl (Cmd on
-/// macOS) is held, because a plain click places the caret there. Source mode: never (I-beam).
+/// Whether the pointer shows the pointing-hand cursor.
+/// - Read mode: any link or clickable widget.
+/// - Live preview: widgets always; text links on plain hover/click when collapsed (not revealed by
+///   caret/selection) or while Ctrl (Cmd on macOS) is held, unless Alt is held to enter source edit.
+/// - Source mode: text links only while Ctrl (Cmd on macOS) is held (never with Alt).
 fn hand_cursor(
     read_only: bool,
     live: bool,
     ctrl: bool,
+    alt: bool,
     over_widget: bool,
     over_link: bool,
+    link_revealed: bool,
 ) -> bool {
     if read_only {
         return over_widget || over_link;
     }
     if !live {
-        return false;
+        return ctrl && !alt && over_link;
     }
-    over_widget || (ctrl && over_link)
+    over_widget || (over_link && !alt && (ctrl || !link_revealed))
 }
 
 /// Whether byte `at` lies in a link span: a wikilink, or the text or the URL of a Markdown link.
+#[cfg_attr(not(test), allow(dead_code))]
 fn link_span_at(spans: &[md_style::StyleSpan], at: usize) -> bool {
     spans.iter().any(|s| {
         s.range.contains(&at)
@@ -2289,24 +2355,27 @@ fn link_span_at(spans: &[md_style::StyleSpan], at: usize) -> bool {
     })
 }
 
-/// Emitted when Ctrl+click lands on a `[[wikilink]]`. The payload is the link body as written
-/// between the brackets (`笔记`, `笔记#标题`, `笔记#^id`, `笔记|别名`). The app opens the note and
-/// moves the caret to the anchor (see `attach_ui::navigate_link`).
+/// Emitted when a link is clicked in the editor (`Wiki` for `[[...]]` / embeds, `Markdown` for
+/// vault-relative `[text](path)` links).
 #[derive(Clone, Debug)]
-pub struct OpenWikilink(pub String);
+pub enum OpenLink {
+    Wiki(String),
+    Markdown(String),
+}
 
-impl EventEmitter<OpenWikilink> for TextEditor {}
+impl EventEmitter<OpenLink> for TextEditor {}
 
 /// The editor lost keyboard focus (emitted by the focus-out listener set in `render`).
 pub struct EditorBlur;
 
 impl EventEmitter<EditorBlur> for TextEditor {}
 
-/// Syntax styling of the document, per logical line. Valid for `text` only: the cache is
-/// rebuilt when the document text differs (a content comparison, which is cheaper than the
-/// recompute and needs no version bookkeeping in every edit path).
+/// Syntax styling of the document, per logical line. Rebuilt only when the document text
+/// (`state_id` + `Arc::ptr_eq`) changes.
 struct StyleCache {
-    text: String,
+    text: Arc<str>,
+    state_id: u64,
+    lines: Vec<Range<usize>>,
     segments: Vec<Vec<Segment>>,
     /// Markers that the live view hides or replaces, sorted (see `map::compute_hides`).
     hides: Vec<map::Hide>,
@@ -2314,6 +2383,36 @@ struct StyleCache {
     spans: Vec<md_style::StyleSpan>,
     /// Footnote numbering of `hides` (see `footnote::numbering_salt`).
     notes: u64,
+    has_inline_math: bool,
+}
+
+impl StyleCache {
+    /// Combined style at UTF-8 byte offset `at` via binary search over logical lines & segments.
+    fn style_at(&self, at: usize) -> SpanStyle {
+        if self.lines.is_empty() {
+            return SpanStyle::default();
+        }
+        let line_idx = self.lines.partition_point(|r| r.end < at);
+        let Some(segs) = self.segments.get(line_idx) else {
+            return SpanStyle::default();
+        };
+        let seg_idx = segs.partition_point(|s| s.range.end <= at);
+        segs.get(seg_idx)
+            .filter(|s| s.range.contains(&at))
+            .map_or_else(SpanStyle::default, |s| s.style)
+    }
+}
+
+/// Memoized hover snapshot for O(1) mouse-move early return within the same glyph & editor state.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct HoverMemo {
+    hit_idx: Option<usize>,
+    ctrl: bool,
+    alt: bool,
+    over_widget: bool,
+    state_id: u64,
+    anchor: usize,
+    head: usize,
 }
 
 /// The editor entity: document, caret and selection, IME state, scroll and the last layout.
@@ -2365,6 +2464,8 @@ pub struct TextEditor {
     read_only: bool,
     /// Pointer is over a link or widget: the pointing-hand cursor (see `hand_cursor`).
     hand: bool,
+    /// Memoized hover snapshot for O(1) mouse-move early return within the same glyph & editor state.
+    hover_memo: Option<HoverMemo>,
     /// Keeps the focus-out listener alive (set on the first render).
     focus_out: Option<Subscription>,
 }
@@ -2420,6 +2521,7 @@ impl TextEditor {
             note_path: String::new(),
             read_only: false,
             hand: false,
+            hover_memo: None,
             focus_out: None,
         }
     }
@@ -2442,6 +2544,11 @@ impl TextEditor {
     /// The whole document text.
     pub fn text(&self) -> String {
         self.state.text().to_string()
+    }
+
+    /// Monotonic edit state id of the document buffer (O(1) change detection).
+    pub fn state_id(&self) -> u64 {
+        self.state.state_id()
     }
 
     /// Replaces the document. Clears undo history and the composition.
@@ -2484,10 +2591,16 @@ impl TextEditor {
             self.style_cache = None;
             return;
         }
-        let text = self.state.text();
-        if self.style_cache.as_ref().is_some_and(|c| c.text == text) {
+        let state_id = self.state.state_id();
+        let text_arc = self.state.text_arc();
+        if self
+            .style_cache
+            .as_ref()
+            .is_some_and(|c| c.state_id == state_id && Arc::ptr_eq(&c.text, &text_arc))
+        {
             return;
         }
+        let text: &str = &text_arc;
         // After an edit only the paragraph around it is parsed again (see `compute_spans_after_edit`);
         // anything else is parsed as a whole.
         let spans = match self.style_cache.as_ref() {
@@ -2502,12 +2615,16 @@ impl TextEditor {
         let segments = md_style::line_segments(&spans, &lines);
         let hides = map::compute_hides(text, &spans);
         let notes = footnote::numbering_salt(&hides);
+        let has_inline_math = hides.iter().any(|h| h.deco == map::Deco::InlineMath);
         self.style_cache = Some(StyleCache {
-            text: text.to_string(),
+            text: text_arc,
+            state_id,
+            lines,
             segments,
             hides,
             spans,
             notes,
+            has_inline_math,
         });
     }
 
@@ -2526,6 +2643,7 @@ impl TextEditor {
     pub fn set_live(&mut self, on: bool, cx: &mut Context<Self>) {
         if self.live != on {
             self.live = on;
+            self.hover_memo = None;
             cx.notify();
         }
     }
@@ -2534,6 +2652,7 @@ impl TextEditor {
     pub fn set_read_only(&mut self, on: bool, cx: &mut Context<Self>) {
         if self.read_only != on {
             self.read_only = on;
+            self.hover_memo = None;
             self.commit_composition();
             if on {
                 // Read mode opens at the top of the note, not at the caret of the source view.
@@ -2933,6 +3052,13 @@ impl TextEditor {
         self.layout.index_at(x, y, self.state.len())
     }
 
+    /// Exact source byte offset under rendered character bounds at window position `pos`.
+    fn hit_index_at_window(&self, pos: Point<Pixels>) -> Option<usize> {
+        let x = f32::from(pos.x) - self.layout.origin_x;
+        let y = f32::from(pos.y) - self.layout.origin_y;
+        self.layout.hit_index_at(x, y)
+    }
+
     fn on_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus_handle);
         self.commit_composition();
@@ -2957,7 +3083,7 @@ impl TextEditor {
         }
         // The title bar of a note embed opens its note (the same path as a wikilink).
         if let Some(raw) = self.layout.link_at(bx, by) {
-            cx.emit(OpenWikilink(raw));
+            cx.emit(OpenLink::Wiki(raw));
             return;
         }
         // The title row of a foldable callout toggles its fold (in memory; the source is kept).
@@ -2969,33 +3095,49 @@ impl TextEditor {
         // A table cell: the caret goes to the matching source position, which reveals the table.
         if let Some(at) = self.layout.table_source_at(bx, by) {
             self.goal_x = None;
+            self.hover_memo = None;
             self.state.set_selection(at, at);
             self.after_edit(cx);
             return;
         }
         let idx = self.index_at_window(ev.position);
-        // Ctrl+click on a [[wikilink]] asks the app to open its note; the caret stays put.
-        if (primary_held(&ev.modifiers) || self.read_only) && ev.click_count <= 1 {
-            // Ctrl+click (or a click in read mode) on a footnote reference jumps to its definition.
-            if let Some(n) = self
-                .style_cache
-                .as_ref()
-                .and_then(|c| footnote::ref_at(&c.hides, idx))
+        // Collapsed links in Live mode (as well as all links in Read mode or on Ctrl+click) navigate
+        // without needing Ctrl, unless Alt is held to enter source editing.
+        if !ev.modifiers.alt && ev.click_count <= 1 {
+            let hit = self
+                .hit_index_at_window(ev.position)
+                .or_else(|| primary_held(&ev.modifiers).then_some(idx));
+            if let Some(link_idx) = hit
+                && (self.read_only
+                    || primary_held(&ev.modifiers)
+                    || (self.live && !self.is_link_revealed_at(link_idx)))
             {
-                self.jump_footnote(footnote::Jump::Definition(n), cx);
-                return;
-            }
-            if let Some(inner) = wikilink_inner_at(self.state.text(), idx) {
-                cx.emit(OpenWikilink(inner));
-                return;
-            }
-            // A Markdown or bare web/mail link opens in the system browser.
-            if let Some(url) = self.url_under(idx) {
-                cx.open_url(&url);
-                return;
+                if let Some(n) = self
+                    .style_cache
+                    .as_ref()
+                    .and_then(|c| footnote::ref_at(&c.hides, link_idx))
+                {
+                    self.jump_footnote(footnote::Jump::Definition(n), cx);
+                    return;
+                }
+                if !self.in_code(link_idx)
+                    && let Some(inner) = wikilink_inner_at(self.state.text(), link_idx)
+                {
+                    cx.emit(OpenLink::Wiki(inner));
+                    return;
+                }
+                if let Some(url) = self.url_under(link_idx) {
+                    cx.open_url(&url);
+                    return;
+                }
+                if let Some(target) = self.md_link_under(link_idx) {
+                    cx.emit(OpenLink::Markdown(target));
+                    return;
+                }
             }
         }
         self.goal_x = None;
+        self.hover_memo = None;
         match ev.click_count {
             0 | 1 => {
                 if ev.modifiers.shift {
@@ -3013,7 +3155,12 @@ impl TextEditor {
     }
 
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        self.update_hover(ev.position, primary_held(&ev.modifiers), cx);
+        self.update_hover(
+            ev.position,
+            primary_held(&ev.modifiers),
+            ev.modifiers.alt,
+            cx,
+        );
         if !self.selecting {
             return;
         }
@@ -3031,32 +3178,114 @@ impl TextEditor {
         self.selecting = false;
     }
 
+    fn in_code(&self, at: usize) -> bool {
+        self.style_cache.as_ref().is_some_and(|c| {
+            let s = c.style_at(at);
+            s.has(SpanStyle::CODE) || s.has(SpanStyle::CODE_BLOCK)
+        })
+    }
+
     /// The web or mail link under source offset `at` (see `inline::url_at`). Code spans and code
     /// blocks are not links.
     fn url_under(&self, at: usize) -> Option<String> {
-        let cache = self.style_cache.as_ref()?;
-        let in_code = cache.spans.iter().any(|s| {
-            s.range.contains(&at)
-                && (s.style.has(SpanStyle::CODE) || s.style.has(SpanStyle::CODE_BLOCK))
-        });
-        if in_code {
+        let style = self.style_cache.as_ref()?.style_at(at);
+        if style.has(SpanStyle::CODE) || style.has(SpanStyle::CODE_BLOCK) {
             return None;
         }
         url_at(self.state.text(), at)
     }
 
+    /// The vault-relative Markdown link target under source offset `at`. Excludes code spans/blocks.
+    fn md_link_under(&self, at: usize) -> Option<String> {
+        let style = self.style_cache.as_ref()?.style_at(at);
+        if style.has(SpanStyle::CODE) || style.has(SpanStyle::CODE_BLOCK) {
+            return None;
+        }
+        super::inline::md_link_target_at(self.state.text(), at)
+    }
+
+    /// Whether the link at source offset `at` is currently revealed in Live preview (so a plain
+    /// click edits its source instead of navigating).
+    fn is_link_revealed_at(&self, at: usize) -> bool {
+        if self.read_only {
+            return false;
+        }
+        if !self.live {
+            return true;
+        }
+        let sel = self.state.selection().range();
+        let bytes = self.state.text().as_bytes();
+        if let Some(cache) = self.style_cache.as_ref() {
+            let end = cache.hides.partition_point(|h| h.src.start <= at);
+            if let Some(hide) = cache.hides[..end].iter().rev().find(|h| {
+                h.src.start == h.reveal.start
+                    && at >= h.reveal.start
+                    && at <= h.reveal.end
+                    && (matches!(h.deco, map::Deco::FootnoteRef { .. })
+                        || (h.deco == map::Deco::None
+                            && h.text.is_empty()
+                            && bytes.get(h.reveal.start) == Some(&b'[')))
+            }) {
+                return map::is_revealed(&hide.reveal, &sel);
+            }
+        }
+        (sel.start..=sel.end).contains(&at)
+    }
+
     /// Sets the pointing-hand flag for the pointer at window `pos` (see `hand_cursor`) and repaints
-    /// when it changes. `ctrl` is the Ctrl (Cmd on macOS) state of the event.
-    fn update_hover(&mut self, pos: Point<Pixels>, ctrl: bool, cx: &mut Context<Self>) {
+    /// when it changes.
+    fn update_hover(&mut self, pos: Point<Pixels>, ctrl: bool, alt: bool, cx: &mut Context<Self>) {
         let bx = f32::from(pos.x) - self.layout.origin_x;
         let by = f32::from(pos.y) - self.layout.origin_y;
         let over_widget = self.layout.widget_at(bx, by);
-        let idx = self.index_at_window(pos);
-        let over_link = !over_widget
-            && (self.style_cache.as_ref().is_some_and(|c| {
-                link_span_at(&c.spans, idx) || footnote::ref_at(&c.hides, idx).is_some()
-            }) || self.url_under(idx).is_some());
-        let hand = hand_cursor(self.read_only, self.live, ctrl, over_widget, over_link);
+        let hit_idx = if over_widget {
+            None
+        } else {
+            self.hit_index_at_window(pos)
+        };
+        let sel = self.state.selection();
+        let memo_key = HoverMemo {
+            hit_idx,
+            ctrl,
+            alt,
+            over_widget,
+            state_id: self.state.state_id(),
+            anchor: sel.anchor,
+            head: sel.head,
+        };
+        if self.hover_memo == Some(memo_key) {
+            return;
+        }
+        self.hover_memo = Some(memo_key);
+
+        let (over_link, link_revealed) = if !over_widget && let Some(idx) = hit_idx {
+            let is_link = self.style_cache.as_ref().is_some_and(|c| {
+                let st = c.style_at(idx);
+                let in_code = st.has(SpanStyle::CODE) || st.has(SpanStyle::CODE_BLOCK);
+                let styled_link = !in_code
+                    && (st.has(SpanStyle::LINK_TEXT)
+                        || st.has(SpanStyle::LINK_URL)
+                        || st.has(SpanStyle::WIKILINK));
+                styled_link || footnote::ref_at(&c.hides, idx).is_some()
+            }) || self.url_under(idx).is_some()
+                || self.md_link_under(idx).is_some();
+            if is_link {
+                (true, self.is_link_revealed_at(idx))
+            } else {
+                (false, false)
+            }
+        } else {
+            (false, false)
+        };
+        let hand = hand_cursor(
+            self.read_only,
+            self.live,
+            ctrl,
+            alt,
+            over_widget,
+            over_link,
+            link_revealed,
+        );
         if hand != self.hand {
             self.hand = hand;
             cx.notify();
@@ -3166,26 +3395,37 @@ impl Element for TextElement {
             }};
         }
         self.editor.update(cx, |ed, _| ed.refresh_styles());
-        // The shaped-line cache, the previous frame's lines and its key move out for this frame
+        // The shaped-line cache, the previous frame's layout and its key move out for this frame
         // and back in at the end.
-        let (mut line_cache, mut widget_cache, prev_lines, mut prev_key) =
+        let (mut line_cache, mut widget_cache, mut prev_layout, mut prev_key) =
             self.editor.update(cx, |ed, _| {
                 (
                     std::mem::take(&mut ed.line_cache),
                     std::mem::take(&mut ed.widget_cache),
-                    std::mem::take(&mut ed.layout.lines),
+                    std::mem::take(&mut ed.layout),
                     ed.frame_key.take(),
                 )
             });
         phase!("take");
         let editor = self.editor.read(cx);
         let theme = editor.theme;
-        let text = editor.state.text().to_string();
-        let (styles, hides, notes): (Option<&Vec<Vec<Segment>>>, &[map::Hide], u64) =
-            match editor.style_cache.as_ref() {
-                Some(c) => (Some(&c.segments), c.hides.as_slice(), c.notes),
-                None => (None, &[], 0),
-            };
+        let text_arc = editor.state.text_arc();
+        let state_id = editor.state.state_id();
+        let text: &str = &text_arc;
+        let (styles, hides, notes, has_inline_math): (
+            Option<&Vec<Vec<Segment>>>,
+            &[map::Hide],
+            u64,
+            bool,
+        ) = match editor.style_cache.as_ref() {
+            Some(c) => (
+                Some(&c.segments),
+                c.hides.as_slice(),
+                c.notes,
+                c.has_inline_math,
+            ),
+            None => (None, &[], 0, false),
+        };
         let live = editor.live;
         let read_only = editor.read_only;
         let sel = editor.state.selection();
@@ -3199,15 +3439,22 @@ impl Element for TextElement {
         let note_path = editor.note_path.clone();
         let pending: RefCell<Vec<context::Pending>> = RefCell::new(Vec::new());
         let vault_gen = vault.as_ref().map(|v| v.borrow().data_gen);
+        let folds_hash = hash_folds(&folds);
+        let search_hash = hash_search(&editor.search_matches, editor.search_current);
 
         let view_w = f32::from(bounds.size.width);
         let view_h = f32::from(bounds.size.height);
+        let view_h_bits = view_h.to_bits();
+        let bounds_x_bits = f32::from(bounds.origin.x).to_bits();
+        let bounds_y_bits = f32::from(bounds.origin.y).to_bits();
+        let scroll_in_bits = scroll_in.to_bits();
         let column = if read_only {
             READ_COLUMN_WIDTH
         } else {
             COLUMN_WIDTH
         };
         let wrap_w = (view_w - 2.0 * GUTTER).min(column).max(1.0);
+        let wrap_bits = wrap_w.to_bits();
         let col_left = ((view_w - wrap_w) / 2.0).max(0.0);
 
         // Shape every logical line at the wrap width, with its style runs. Headings and code
@@ -3218,363 +3465,421 @@ impl Element for TextElement {
         if line_cache.len() > LINE_CACHE_MAX {
             line_cache.clear();
         }
-        // Which lines to rebuild. The reveal state of every record is compared with the last
-        // frame: a frame where only the caret or selection moved rebuilds the lines whose records
-        // changed (and the lines of the IME range). Text, view mode, width and theme changes
-        // rebuild all lines.
-        // A block widget that holds the current find match is shown raw too (the find fallback).
-        let found = editor
-            .search_current
-            .and_then(|i| editor.search_matches.get(i))
-            .cloned();
-        let revealed: Vec<bool> = hides
-            .iter()
-            .map(|h| {
-                let found_here = map::found_reveals(h.deco, &h.src, found.as_ref());
-                map::shows_source(live, read_only, &h.reveal, &sel_range, found_here)
-            })
-            .collect();
-        phase!("reveal");
-        // Fold keys and start states of the callouts, by block start. The ordinal counts the
-        // callouts with the same header in document order, whether or not each one is a widget.
-        let mut callout_keys: HashMap<usize, (u64, bool)> = HashMap::new();
-        {
-            let mut ordinals: HashMap<u64, usize> = HashMap::new();
-            for h in hides.iter() {
-                if h.deco != map::Deco::Block(map::BlockKind::Callout) {
-                    continue;
+        let can_reuse_layout = !reveal
+            && !has_inline_math
+            && !prev_layout.lines.is_empty()
+            && prev_key.as_ref().is_some_and(|k| {
+                k.state_id == state_id
+                    && Arc::ptr_eq(&k.text, &text_arc)
+                    && k.sel == sel
+                    && k.marked == marked
+                    && k.live == live
+                    && k.read_only == read_only
+                    && k.wrap_w == wrap_bits
+                    && k.view_h_bits == view_h_bits
+                    && k.bounds_x_bits == bounds_x_bits
+                    && k.bounds_y_bits == bounds_y_bits
+                    && k.scroll_bits == scroll_in_bits
+                    && k.theme == theme_key
+                    && k.notes == notes
+                    && k.vault_gen == vault_gen
+                    && k.folds_hash == folds_hash
+                    && k.search_hash == search_hash
+            });
+
+        let (mut layout, scroll, frame_key, requests, line_count, built, fast_reused) =
+            if can_reuse_layout {
+                let mut layout = prev_layout;
+                layout.origin_x = f32::from(bounds.origin.x) + col_left;
+                layout.origin_y = f32::from(bounds.origin.y) + PAD_TOP - scroll_in;
+                let line_count = layout.lines.len();
+                let fk = prev_key.take().unwrap();
+                phase!("scroll");
+                (layout, scroll_in, fk, Vec::new(), line_count, 0usize, true)
+            } else {
+                let prev_lines = std::mem::take(&mut prev_layout.lines);
+                // Which lines to rebuild. The reveal state of every record is compared with the last
+                // frame: a frame where only the caret or selection moved rebuilds the lines whose records
+                // changed (and the lines of the IME range). Text, view mode, width and theme changes
+                // rebuild all lines.
+                // A block widget that holds the current find match is shown raw too (the find fallback).
+                let found = editor
+                    .search_current
+                    .and_then(|i| editor.search_matches.get(i))
+                    .cloned();
+                let revealed: Vec<bool> = hides
+                    .iter()
+                    .map(|h| {
+                        let found_here = map::found_reveals(h.deco, &h.src, found.as_ref());
+                        map::shows_source(live, read_only, &h.reveal, &sel_range, found_here)
+                    })
+                    .collect();
+                phase!("reveal");
+                // Fold keys and start states of the callouts, by block start. The ordinal counts the
+                // callouts with the same header in document order, whether or not each one is a widget.
+                let mut callout_keys: HashMap<usize, (u64, bool)> = HashMap::new();
+                {
+                    let mut ordinals: HashMap<u64, usize> = HashMap::new();
+                    for h in hides.iter() {
+                        if h.deco != map::Deco::Block(map::BlockKind::Callout) {
+                            continue;
+                        }
+                        let Some(c) = callout::parse(text, h.src.clone()) else {
+                            continue;
+                        };
+                        let header = text.get(c.header.clone()).unwrap_or("");
+                        let n = ordinals.entry(callout::header_hash(header)).or_insert(0);
+                        let key = callout::fold_key(header, *n);
+                        *n += 1;
+                        callout_keys.insert(h.src.start, (key, c.fold != callout::Fold::Closed));
+                    }
                 }
-                let Some(c) = callout::parse(&text, h.src.clone()) else {
-                    continue;
+                phase!("callouts");
+                // Logical lines as (start, len); a block widget may cover several of them.
+                let split: Vec<(usize, usize)> = {
+                    let mut start = 0usize;
+                    text.split('\n')
+                        .map(|line| {
+                            let item = (start, line.len());
+                            start += line.len() + 1;
+                            item
+                        })
+                        .collect()
                 };
-                let header = text.get(c.header.clone()).unwrap_or("");
-                let n = ordinals.entry(callout::header_hash(header)).or_insert(0);
-                let key = callout::fold_key(header, *n);
-                *n += 1;
-                callout_keys.insert(h.src.start, (key, c.fold != callout::Fold::Closed));
-            }
-        }
-        phase!("callouts");
-        // Logical lines as (start, len); a block widget may cover several of them.
-        let split: Vec<(usize, usize)> = {
-            let mut start = 0usize;
-            text.split('\n')
-                .map(|line| {
-                    let item = (start, line.len());
-                    start += line.len() + 1;
-                    item
-                })
-                .collect()
-        };
-        phase!("split");
-        let line_count = split.len();
-        // Index of the logical line that holds byte `offset`.
-        let line_of = |offset: usize| {
-            split
-                .partition_point(|&(s, _)| s <= offset)
-                .saturating_sub(1)
-        };
-        let wrap_bits = wrap_w.to_bits();
-        // Pass 1: every unit of the document in order. A unit keeps its built state from the last
-        // frame when the edit (see `invalidate`) left its text and styling alone; the others are
-        // placeholders with an estimated height. The reveal state of a record, and the IME range,
-        // rebuild the lines they touch.
-        let hide_src: Vec<Range<usize>> = hides.iter().map(|h| h.src.clone()).collect();
-        let sigs = style_signatures(styles, &split);
-        let mut dirty = vec![false; line_count];
-        let mut prev: Vec<LineLayout> = Vec::new();
-        let mut prev_sigs: Vec<u64> = Vec::new();
-        let mut span: Option<invalidate::EditSpan> = None;
-        let mut line_delta = 0isize;
-        let mut reuse = false;
-        // The unit at the top of the view in the last frame: the view keeps it at the top.
-        let anchor: Option<(usize, f32)> = {
-            let i = prev_lines.partition_point(|l| l.top + l.height() <= scroll_in);
-            prev_lines.get(i).map(|l| (l.start, scroll_in - l.top))
-        };
-        if let Some(k) = prev_key.as_mut() {
-            let same_view = k.live == live
-                && k.wrap_w == wrap_bits
-                && k.theme == theme_key
-                && k.notes == notes
-                && k.revealed.len() == revealed.len();
-            if same_view {
-                let es = (k.text != text).then(|| invalidate::edit_span(&k.text, &text));
-                if invalidate::records_match(&k.hide_src, &hide_src, es.as_ref()) {
-                    reuse = true;
-                    line_delta = newline_count(&text) as isize - newline_count(&k.text) as isize;
-                    for (idx, (&now, &was)) in revealed.iter().zip(&k.revealed).enumerate() {
-                        if now != was {
-                            let h = &hides[idx];
-                            for d in &mut dirty[line_of(h.src.start)..=line_of(h.src.end)] {
-                                *d = true;
+                phase!("split");
+                let line_count = split.len();
+                // Index of the logical line that holds byte `offset`.
+                let line_of = |offset: usize| {
+                    split
+                        .partition_point(|&(s, _)| s <= offset)
+                        .saturating_sub(1)
+                };
+                // Pass 1: every unit of the document in order. A unit keeps its built state from the last
+                // frame when the edit (see `invalidate`) left its text and styling alone; the others are
+                // placeholders with an estimated height. The reveal state of a record, and the IME range,
+                // rebuild the lines they touch.
+                let hide_src: Vec<Range<usize>> = hides.iter().map(|h| h.src.clone()).collect();
+                let sigs = style_signatures(styles, &split);
+                let mut dirty = vec![false; line_count];
+                let mut prev: Vec<LineLayout> = Vec::new();
+                let mut prev_sigs: Vec<u64> = Vec::new();
+                let mut span: Option<invalidate::EditSpan> = None;
+                let mut line_delta = 0isize;
+                let mut reuse = false;
+                // The unit at the top of the view in the last frame: the view keeps it at the top.
+                let anchor: Option<(usize, f32)> = {
+                    let i = prev_lines.partition_point(|l| l.top + l.height() <= scroll_in);
+                    prev_lines.get(i).map(|l| (l.start, scroll_in - l.top))
+                };
+                if let Some(k) = prev_key.as_mut() {
+                    let same_view = k.live == live
+                        && k.read_only == read_only
+                        && k.wrap_w == wrap_bits
+                        && k.theme == theme_key
+                        && k.notes == notes
+                        && k.revealed.len() == revealed.len();
+                    if same_view {
+                        let same_text = (k.state_id == state_id && Arc::ptr_eq(&k.text, &text_arc))
+                            || &*k.text == text;
+                        let es = (!same_text).then(|| invalidate::edit_span(&k.text, text));
+                        if invalidate::records_match(&k.hide_src, &hide_src, es.as_ref()) {
+                            reuse = true;
+                            line_delta = if same_text {
+                                0
+                            } else {
+                                newline_count(text) as isize - newline_count(&k.text) as isize
+                            };
+                            for (idx, (&now, &was)) in revealed.iter().zip(&k.revealed).enumerate()
+                            {
+                                if now != was {
+                                    let h = &hides[idx];
+                                    for d in &mut dirty[line_of(h.src.start)..=line_of(h.src.end)] {
+                                        *d = true;
+                                    }
+                                }
                             }
+                            for m in [k.marked.as_ref(), marked.as_ref()].into_iter().flatten() {
+                                dirty[line_of(m.start)] = true;
+                                dirty[line_of(m.end)] = true;
+                            }
+                            span = es;
+                            prev_sigs = std::mem::take(&mut k.sigs);
+                            prev = prev_lines;
                         }
                     }
-                    for m in [k.marked.as_ref(), marked.as_ref()].into_iter().flatten() {
-                        dirty[line_of(m.start)] = true;
-                        dirty[line_of(m.end)] = true;
-                    }
-                    span = es;
-                    prev_sigs = std::mem::take(&mut k.sigs);
-                    prev = prev_lines;
                 }
-            }
-        }
-        // A line with an inline formula is rebuilt every frame: the formula may have become ready.
-        for h in hides.iter().filter(|h| h.deco == map::Deco::InlineMath) {
-            dirty[line_of(h.src.start)] = true;
-        }
-        let ctx = LineCtx {
-            text: &text,
-            theme: &theme,
-            theme_key,
-            wrap_w,
-            sel: &sel_range,
-            marked: marked.as_ref(),
-            live,
-            read_only,
-            hides,
-            vault: vault.as_ref(),
-            note_path: &note_path,
-            pending: &pending,
-            split: &split,
-            styles,
-            revealed: &revealed,
-            callout_keys: &callout_keys,
-            folds: &folds,
-            wrap_bits,
-            vault_gen,
-        };
-        phase!("ctx");
-        // Nothing changed in the text, the records or the styling: the last frame's units stand.
-        let fast = reuse && span.is_none() && !dirty.iter().any(|&d| d);
-        // An edit that leaves the units around it alone rebuilds only the lines of its region; the
-        // units before the region stay in place and the units after it move by the change.
-        let plan = match span.as_ref() {
-            Some(s) if reuse && !fast => plan_splice(
-                s, &prev, &split, &hide_src, &dirty, &prev_sigs, &sigs, line_delta,
-            ),
-            _ => None,
-        };
-        let (lo, hi, splice) = match plan {
-            Some((a, b, lo, hi)) => (lo, hi, Some((a, b))),
-            None => (0, line_count, None),
-        };
-        let mid = if splice.is_some() { lo..hi } else { 0..0 };
-        // Whether the unit at new line `li` can take the last frame's unit at its start.
-        let reusable = |start: usize, len: usize, li: usize| -> Option<invalidate::Source> {
-            if !reuse || mid.contains(&li) {
-                return None;
-            }
-            let src = invalidate::source(start, len, li, span.as_ref(), line_delta)?;
-            (prev_sigs.get(src.old_line) == sigs.get(li)).then_some(src)
-        };
-        let mut lines: Vec<LineLayout> = Vec::with_capacity(hi - lo);
-        let mut cursor = 0usize;
-        let mut li = lo;
-        if fast {
-            lines = std::mem::take(&mut prev);
-            li = line_count;
-        }
-        while li < hi {
-            let (start, len) = split[li];
-            // A block widget that the caret does not touch replaces all of its source lines.
-            if let Some(idx) = live
-                .then(|| widget_record(hides, start, &revealed))
-                .flatten()
-            {
-                let h = &hides[idx];
-                let map::Deco::Block(kind) = h.deco else {
-                    li += 1;
-                    continue;
+                // A line with an inline formula is rebuilt every frame: the formula may have become ready.
+                for h in hides.iter().filter(|h| h.deco == map::Deco::InlineMath) {
+                    dirty[line_of(h.src.start)] = true;
+                }
+                let ctx = LineCtx {
+                    text,
+                    theme: &theme,
+                    theme_key,
+                    wrap_w,
+                    sel: &sel_range,
+                    marked: marked.as_ref(),
+                    live,
+                    read_only,
+                    hides,
+                    vault: vault.as_ref(),
+                    note_path: &note_path,
+                    pending: &pending,
+                    split: &split,
+                    styles,
+                    revealed: &revealed,
+                    callout_keys: &callout_keys,
+                    folds: &folds,
+                    wrap_bits,
+                    vault_gen,
                 };
-                let block_len = h.src.end - start;
-                let last = line_of(h.src.end);
-                let touched = dirty[li..=last].iter().any(|&d| d);
-                // A callout's fold: its key and whether it is open now (toggled, else its start state).
-                let fold = match kind {
-                    map::BlockKind::Callout => {
-                        let (key, default_open) =
-                            callout_keys.get(&start).copied().unwrap_or((0, true));
-                        (key, folds.get(&key).copied().unwrap_or(default_open))
-                    }
-                    _ => (0, false),
+                phase!("ctx");
+                // Nothing changed in the text, the records or the styling: the last frame's units stand.
+                let fast = reuse && span.is_none() && !dirty.iter().any(|&d| d);
+                // An edit that leaves the units around it alone rebuilds only the lines of its region; the
+                // units before the region stay in place and the units after it move by the change.
+                let plan = match span.as_ref() {
+                    Some(s) if reuse && !fast => plan_splice(
+                        s, &prev, &split, &hide_src, &dirty, &prev_sigs, &sigs, line_delta,
+                    ),
+                    _ => None,
                 };
-                let block = text.get(start..start + block_len).unwrap_or("");
-                let src = reusable(start, block_len, li);
-                let old = src.and_then(|s| take_prev(&mut prev, &mut cursor, s.old_start));
-                let unit = match old {
-                    Some(mut l)
-                        if !touched
-                            && l.built
-                            && l.len == block_len
-                            && l.widget.as_ref().is_some_and(|w| {
-                                w.open == fold.1 && widget_fresh(w, vault_gen)
-                            }) =>
+                let (lo, hi, splice) = match plan {
+                    Some((a, b, lo, hi)) => (lo, hi, Some((a, b))),
+                    None => (0, line_count, None),
+                };
+                let mid = if splice.is_some() { lo..hi } else { 0..0 };
+                // Whether the unit at new line `li` can take the last frame's unit at its start.
+                let reusable =
+                    |start: usize, len: usize, li: usize| -> Option<invalidate::Source> {
+                        if !reuse || mid.contains(&li) {
+                            return None;
+                        }
+                        let src = invalidate::source(start, len, li, span.as_ref(), line_delta)?;
+                        (prev_sigs.get(src.old_line) == sigs.get(li)).then_some(src)
+                    };
+                let mut lines: Vec<LineLayout> = Vec::with_capacity(hi - lo);
+                let mut cursor = 0usize;
+                let mut li = lo;
+                if fast {
+                    lines = std::mem::take(&mut prev);
+                    li = line_count;
+                }
+                while li < hi {
+                    let (start, len) = split[li];
+                    // A block widget that the caret does not touch replaces all of its source lines.
+                    if let Some(idx) = live
+                        .then(|| widget_record(hides, start, &revealed))
+                        .flatten()
                     {
-                        l.shift(src.map_or(0, |s| s.delta));
-                        l
+                        let h = &hides[idx];
+                        let map::Deco::Block(kind) = h.deco else {
+                            li += 1;
+                            continue;
+                        };
+                        let block_len = h.src.end - start;
+                        let last = line_of(h.src.end);
+                        let touched = dirty[li..=last].iter().any(|&d| d);
+                        // A callout's fold: its key and whether it is open now (toggled, else its start state).
+                        let fold = match kind {
+                            map::BlockKind::Callout => {
+                                let (key, default_open) =
+                                    callout_keys.get(&start).copied().unwrap_or((0, true));
+                                (key, folds.get(&key).copied().unwrap_or(default_open))
+                            }
+                            _ => (0, false),
+                        };
+                        let block = text.get(start..start + block_len).unwrap_or("");
+                        let src = reusable(start, block_len, li);
+                        let old = src.and_then(|s| take_prev(&mut prev, &mut cursor, s.old_start));
+                        let unit = match old {
+                            Some(mut l)
+                                if !touched
+                                    && l.built
+                                    && l.len == block_len
+                                    && l.widget.as_ref().is_some_and(|w| {
+                                        w.open == fold.1 && widget_fresh(w, vault_gen)
+                                    }) =>
+                            {
+                                l.shift(src.map_or(0, |s| s.delta));
+                                l
+                            }
+                            other => {
+                                let height = other
+                                    .as_ref()
+                                    .map_or_else(|| widget_estimate(kind, block), |l| l.height());
+                                placeholder(start, block_len, 1, height)
+                            }
+                        };
+                        lines.push(unit);
+                        li = last + 1;
+                        continue;
                     }
-                    other => {
-                        let height = other
-                            .as_ref()
-                            .map_or_else(|| widget_estimate(kind, block), |l| l.height());
-                        placeholder(start, block_len, 1, height)
-                    }
-                };
-                lines.push(unit);
-                li = last + 1;
-                continue;
-            }
-            let src = if dirty[li] {
-                None
-            } else {
-                reusable(start, len, li)
-            };
-            let old = src.and_then(|s| take_prev(&mut prev, &mut cursor, s.old_start));
-            let entry = match old {
-                Some(mut l) if l.built && l.widget.is_none() && l.len == len => {
-                    l.shift(src.map_or(0, |s| s.delta));
-                    l
-                }
-                other => {
-                    let (rows, line_h) = match other.as_ref() {
-                        Some(l) if l.widget.is_none() => (l.rows, l.line_h),
-                        _ => {
-                            let segs: &[Segment] =
-                                styles.and_then(|s| s.get(li)).map_or(&[], |v| v.as_slice());
-                            let (font_size, lh) = line_metrics(segs);
-                            let text_line = text.get(start..start + len).unwrap_or("");
-                            let gap = if read_only && len == 0 {
-                                READ_PARA_GAP
-                            } else {
-                                0.0
+                    let src = if dirty[li] {
+                        None
+                    } else {
+                        reusable(start, len, li)
+                    };
+                    let old = src.and_then(|s| take_prev(&mut prev, &mut cursor, s.old_start));
+                    let entry = match old {
+                        Some(mut l) if l.built && l.widget.is_none() && l.len == len => {
+                            l.shift(src.map_or(0, |s| s.delta));
+                            l
+                        }
+                        other => {
+                            let (rows, line_h) = match other.as_ref() {
+                                Some(l) if l.widget.is_none() => (l.rows, l.line_h),
+                                _ => {
+                                    let segs: &[Segment] = styles
+                                        .and_then(|s| s.get(li))
+                                        .map_or(&[], |v| v.as_slice());
+                                    let (font_size, lh) = line_metrics(segs);
+                                    let text_line = text.get(start..start + len).unwrap_or("");
+                                    let gap = if read_only && len == 0 {
+                                        READ_PARA_GAP
+                                    } else {
+                                        0.0
+                                    };
+                                    (estimate_rows(text_line, font_size, wrap_w), lh + gap)
+                                }
                             };
-                            (estimate_rows(text_line, font_size, wrap_w), lh + gap)
+                            placeholder(start, len, rows, line_h)
                         }
                     };
-                    placeholder(start, len, rows, line_h)
+                    lines.push(entry);
+                    li += 1;
                 }
-            };
-            lines.push(entry);
-            li += 1;
-        }
-        if let Some((a, b)) = splice {
-            let made = lines.len();
-            prev.splice(a..b, lines);
-            let delta = span.map_or(0, |s| s.delta());
-            for l in prev[a + made..].iter_mut() {
-                l.shift(delta);
-            }
-            lines = prev;
-        }
-        phase!("prev");
-        let mut layout = Layout {
-            origin_x: 0.0,
-            origin_y: 0.0,
-            wrap_width: wrap_w,
-            viewport_h: view_h,
-            lines,
-            checks: Vec::new(),
-            buttons: Vec::new(),
-            fold_hits: Vec::new(),
-            links: Vec::new(),
-            footnote_backs: Vec::new(),
-        };
-        place_lines(&mut layout.lines);
-        phase!("build");
-        // Pass 2: the units in the window around the view are built, and the units the caret, the
-        // current find match and the IME range need. The view then keeps its anchor unit at the top
-        // (heights of units above it may have become exact), or goes to the caret when it moved.
-        let mut forced: Vec<usize> = Vec::new();
-        let n = layout.lines.len();
-        if n > 0 {
-            let unit_at = |lines: &[LineLayout], offset: usize| {
-                lines
-                    .partition_point(|l| l.start + l.len < offset)
-                    .min(lines.len() - 1)
-            };
-            let c = unit_at(&layout.lines, sel.head);
-            forced.extend(c.saturating_sub(1)..=(c + 1).min(n - 1));
-            if let Some(r) = found.as_ref() {
-                forced.push(unit_at(&layout.lines, r.start));
-            }
-            if let Some(m) = marked.as_ref() {
-                forced.push(unit_at(&layout.lines, m.start));
-            }
-        }
-        let mut built = 0usize;
-        let mut caches = UnitCaches {
-            lines: &mut line_cache,
-            widgets: &mut widget_cache,
-        };
-        let mut scroll = scroll_in;
-        for _ in 0..4 {
-            let max_scroll = (PAD_TOP + layout.content_height() + PAD_BOTTOM - view_h).max(0.0);
-            scroll = scroll.clamp(0.0, max_scroll);
-            built += build_window(
-                window,
-                &ctx,
-                &mut caches,
-                &mut layout.lines,
-                &forced,
-                scroll,
-                view_h,
-            );
-            place_lines(&mut layout.lines);
-            let target = if reveal {
-                let (_, caret_y) = layout.point_for_index(sel.head);
-                scroll_to_reveal(
-                    PAD_TOP + caret_y,
-                    PAD_TOP + caret_y + layout.row_height_at(sel.head),
+                if let Some((a, b)) = splice {
+                    let made = lines.len();
+                    prev.splice(a..b, lines);
+                    let delta = span.map_or(0, |s| s.delta());
+                    for l in prev[a + made..].iter_mut() {
+                        l.shift(delta);
+                    }
+                    lines = prev;
+                }
+                phase!("prev");
+                let mut layout = Layout {
+                    origin_x: 0.0,
+                    origin_y: 0.0,
+                    wrap_width: wrap_w,
+                    viewport_h: view_h,
+                    lines,
+                    checks: Vec::new(),
+                    buttons: Vec::new(),
+                    fold_hits: Vec::new(),
+                    links: Vec::new(),
+                    footnote_backs: Vec::new(),
+                };
+                place_lines(&mut layout.lines);
+                phase!("build");
+                // Pass 2: the units in the window around the view are built, and the units the caret, the
+                // current find match and the IME range need. The view then keeps its anchor unit at the top
+                // (heights of units above it may have become exact), or goes to the caret when it moved.
+                let mut forced: Vec<usize> = Vec::new();
+                let n = layout.lines.len();
+                if n > 0 {
+                    let unit_at = |lines: &[LineLayout], offset: usize| {
+                        lines
+                            .partition_point(|l| l.start + l.len < offset)
+                            .min(lines.len() - 1)
+                    };
+                    let c = unit_at(&layout.lines, sel.head);
+                    forced.extend(c.saturating_sub(1)..=(c + 1).min(n - 1));
+                    if let Some(r) = found.as_ref() {
+                        forced.push(unit_at(&layout.lines, r.start));
+                    }
+                    if let Some(m) = marked.as_ref() {
+                        forced.push(unit_at(&layout.lines, m.start));
+                    }
+                }
+                let mut built = 0usize;
+                let mut caches = UnitCaches {
+                    lines: &mut line_cache,
+                    widgets: &mut widget_cache,
+                };
+                let mut scroll = scroll_in;
+                for _ in 0..4 {
+                    let max_scroll =
+                        (PAD_TOP + layout.content_height() + PAD_BOTTOM - view_h).max(0.0);
+                    scroll = scroll.clamp(0.0, max_scroll);
+                    built += build_window(
+                        window,
+                        &ctx,
+                        &mut caches,
+                        &mut layout.lines,
+                        &forced,
+                        scroll,
+                        view_h,
+                    );
+                    place_lines(&mut layout.lines);
+                    let target = if reveal {
+                        let (_, caret_y) = layout.point_for_index(sel.head);
+                        scroll_to_reveal(
+                            PAD_TOP + caret_y,
+                            PAD_TOP + caret_y + layout.row_height_at(sel.head),
+                            scroll,
+                            view_h,
+                        )
+                    } else if let Some((old_start, offset)) = anchor {
+                        let new_start = invalidate::map_offset(old_start, span.as_ref());
+                        let i = layout.lines.partition_point(|l| l.start < new_start);
+                        match layout.lines.get(i) {
+                            Some(l) if l.start == new_start => l.top + offset,
+                            _ => scroll,
+                        }
+                    } else {
+                        scroll
+                    };
+                    let settled = (target - scroll).abs() < 0.5;
+                    scroll = target;
+                    if settled {
+                        break;
+                    }
+                }
+                let max_scroll = (PAD_TOP + layout.content_height() + PAD_BOTTOM - view_h).max(0.0);
+                scroll = scroll.clamp(0.0, max_scroll);
+                built += build_window(
+                    window,
+                    &ctx,
+                    &mut caches,
+                    &mut layout.lines,
+                    &forced,
                     scroll,
                     view_h,
+                );
+                place_lines(&mut layout.lines);
+                let requests = pending.into_inner();
+                let frame_key = FrameKey {
+                    text: Arc::clone(&text_arc),
+                    state_id,
+                    sel,
+                    marked: marked.clone(),
+                    live,
+                    read_only,
+                    wrap_w: wrap_bits,
+                    view_h_bits,
+                    bounds_x_bits,
+                    bounds_y_bits,
+                    scroll_bits: scroll.to_bits(),
+                    theme: theme_key,
+                    notes,
+                    vault_gen,
+                    folds_hash,
+                    search_hash,
+                    has_inline_math,
+                    revealed,
+                    hide_src,
+                    sigs,
+                };
+                layout.origin_x = f32::from(bounds.origin.x) + col_left;
+                layout.origin_y = f32::from(bounds.origin.y) + PAD_TOP - scroll;
+                phase!("scroll");
+                (
+                    layout, scroll, frame_key, requests, line_count, built, false,
                 )
-            } else if let Some((old_start, offset)) = anchor {
-                let new_start = invalidate::map_offset(old_start, span.as_ref());
-                let i = layout.lines.partition_point(|l| l.start < new_start);
-                match layout.lines.get(i) {
-                    Some(l) if l.start == new_start => l.top + offset,
-                    _ => scroll,
-                }
-            } else {
-                scroll
             };
-            let settled = (target - scroll).abs() < 0.5;
-            scroll = target;
-            if settled {
-                break;
-            }
-        }
-        let max_scroll = (PAD_TOP + layout.content_height() + PAD_BOTTOM - view_h).max(0.0);
-        scroll = scroll.clamp(0.0, max_scroll);
-        built += build_window(
-            window,
-            &ctx,
-            &mut caches,
-            &mut layout.lines,
-            &forced,
-            scroll,
-            view_h,
-        );
-        place_lines(&mut layout.lines);
-        let requests = pending.into_inner();
-        let frame_key = FrameKey {
-            text,
-            live,
-            wrap_w: wrap_bits,
-            theme: theme_key,
-            notes,
-            revealed,
-            marked: marked.clone(),
-            hide_src,
-            sigs,
-        };
-        layout.origin_x = f32::from(bounds.origin.x) + col_left;
-        layout.origin_y = f32::from(bounds.origin.y) + PAD_TOP - scroll;
         let (ox, oy) = (layout.origin_x, layout.origin_y);
-        phase!("scroll");
         // Decorations of replaced markers: rules, quote bars and task boxes. The boxes are also
         // kept in document space for clicks.
         let mut decos: Vec<PaintQuad> = Vec::new();
@@ -3586,12 +3891,15 @@ impl Element for TextElement {
         let mut footnote_backs: Vec<(f32, f32, f32, f32, u32)> = Vec::new();
         let mut images: Vec<(Bounds<Pixels>, Arc<RenderImage>)> = Vec::new();
         let mut inline_images: Vec<(Bounds<Pixels>, Arc<RenderImage>)> = Vec::new();
-        let deco_top = f32::from(bounds.origin.y);
-        let deco_bottom = deco_top + view_h;
-        for line in &layout.lines {
+        let view_top = f32::from(bounds.origin.y);
+        let view_bottom = view_top + view_h;
+        let first_vis = layout
+            .lines
+            .partition_point(|l| oy + l.top + l.height() < view_top);
+        for line in &layout.lines[first_vis..] {
             let row_top = oy + line.top;
-            if row_top + line.height() < deco_top || row_top > deco_bottom {
-                continue;
+            if row_top > view_bottom {
+                break;
             }
             if let Some(w) = &line.widget {
                 if let Some(((x, y, iw, ih), img)) = &w.image {
@@ -3771,8 +4079,7 @@ impl Element for TextElement {
                     }
                     map::Deco::FootnoteDef { ordinal: None, .. } => {
                         // An unused definition shows its label, dimmed.
-                        if let Some(label) =
-                            footnote::def_label_at(editor.state.text(), p.src.start)
+                        if let Some(label) = footnote::def_label_at(text, p.src.start)
                             && let Some(wl) = shape_one(
                                 window,
                                 label,
@@ -3807,35 +4114,37 @@ impl Element for TextElement {
             }
         }
         phase!("decos");
-        layout.checks = checks;
-        layout.footnote_backs = footnote_backs;
-        layout.buttons = layout
-            .lines
-            .iter()
-            .filter_map(|l| {
-                let ((x, y, bw, bh), body) = l.widget.as_ref()?.button.clone()?;
-                Some((x, l.top + y, bw, bh, body))
-            })
-            .collect();
-        let mut links: Vec<(f32, f32, f32, f32, String)> = Vec::new();
-        for l in &layout.lines {
-            if let Some(w) = &l.widget {
-                for ((x, y, lw, lh), raw) in &w.links {
-                    links.push((*x, l.top + *y, *lw, *lh, raw.clone()));
+        if !fast_reused {
+            layout.checks = checks;
+            layout.footnote_backs = footnote_backs;
+            layout.buttons = layout
+                .lines
+                .iter()
+                .filter_map(|l| {
+                    let ((x, y, bw, bh), body) = l.widget.as_ref()?.button.clone()?;
+                    Some((x, l.top + y, bw, bh, body))
+                })
+                .collect();
+            let mut links: Vec<(f32, f32, f32, f32, String)> = Vec::new();
+            for l in &layout.lines {
+                if let Some(w) = &l.widget {
+                    for ((x, y, lw, lh), raw) in &w.links {
+                        links.push((*x, l.top + *y, *lw, *lh, raw.clone()));
+                    }
                 }
             }
+            layout.links = links;
+            layout.fold_hits = layout
+                .lines
+                .iter()
+                .filter_map(|l| {
+                    let w = l.widget.as_ref()?;
+                    let c = w.callout.as_ref()?;
+                    let width = w.panel.map_or(wrap_w, |p| p.2);
+                    Some((0.0, l.top, width, c.title_h, c.key, c.open))
+                })
+                .collect();
         }
-        layout.links = links;
-        layout.fold_hits = layout
-            .lines
-            .iter()
-            .filter_map(|l| {
-                let w = l.widget.as_ref()?;
-                let c = w.callout.as_ref()?;
-                let width = w.panel.map_or(wrap_w, |p| p.2);
-                Some((0.0, l.top, width, c.title_h, c.key, c.open))
-            })
-            .collect();
 
         phase!("hits");
         let selection = layout
@@ -3894,14 +4203,11 @@ impl Element for TextElement {
 
         phase!("sel");
         // Only lines that overlap the viewport are painted.
-        let view_top = f32::from(bounds.origin.y);
-        let view_bottom = view_top + view_h;
         let mut visible: Vec<VisibleText> = label_texts;
-        for l in layout.lines.iter() {
+        for l in &layout.lines[first_vis..] {
             let y = oy + l.top;
-            let bottom = y + l.height();
-            if bottom < view_top || y > view_bottom {
-                continue;
+            if y > view_bottom {
+                break;
             }
             if let Some(w) = &l.widget {
                 for t in &w.texts {
@@ -4839,15 +5145,19 @@ ef";
     #[test]
     fn hand_cursor_follows_the_mode() {
         // Read mode: any link or clickable widget.
-        assert!(hand_cursor(true, true, false, false, true));
-        assert!(hand_cursor(true, true, false, true, false));
-        assert!(!hand_cursor(true, true, false, false, false));
-        // Live preview: text links need Ctrl, widgets do not.
-        assert!(!hand_cursor(false, true, false, false, true));
-        assert!(hand_cursor(false, true, true, false, true));
-        assert!(hand_cursor(false, true, false, true, false));
-        // Source mode: always the I-beam.
-        assert!(!hand_cursor(false, false, true, true, true));
+        assert!(hand_cursor(true, true, false, false, false, true, false));
+        assert!(hand_cursor(true, true, false, false, true, false, false));
+        assert!(!hand_cursor(true, true, false, false, false, false, false));
+        // Live preview: collapsed links show hand without Ctrl; revealed links need Ctrl; Alt suppresses link hand.
+        assert!(hand_cursor(false, true, false, false, false, true, false));
+        assert!(!hand_cursor(false, true, false, true, false, true, false));
+        assert!(!hand_cursor(false, true, false, false, false, true, true));
+        assert!(hand_cursor(false, true, true, false, false, true, true));
+        assert!(hand_cursor(false, true, false, false, true, false, false));
+        // Source mode: text links only while Ctrl is held (without Alt).
+        assert!(!hand_cursor(false, false, false, false, false, true, true));
+        assert!(hand_cursor(false, false, true, false, false, true, true));
+        assert!(!hand_cursor(false, false, true, true, false, true, true));
     }
 
     #[test]

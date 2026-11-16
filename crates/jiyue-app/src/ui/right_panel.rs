@@ -71,19 +71,9 @@ pub fn render_right_panel(
 
     match tab {
         RightPanelTab::Outline => {
-            let headings: Vec<HeadingItem> = match app.vault.active_note() {
-                Some(n) => {
-                    // A `# comment` inside the frontmatter block is not a heading.
-                    let block = attach_ui::props::leading_block_lines(n.content());
-                    n.extract_headings()
-                        .into_iter()
-                        .filter(|h| h.line_number > block)
-                        .collect()
-                }
-                None => Vec::new(),
-            };
+            let (headings, block) = cached_inspector_data(app);
             content = content
-                .child(properties_section(app, cx))
+                .child(properties_section(app, &block, cx))
                 .child(section_title(
                     &t,
                     &crate::t!("panel-outline"),
@@ -166,19 +156,47 @@ fn section_title(t: &ActiveTheme, title: &str, count: usize, mt: f32) -> impl In
         )
 }
 
+fn cached_inspector_data(app: &RustdianApp) -> super::files_ui::InspectorData {
+    let Some(note) = app.vault.active_note() else {
+        return (Rc::new(Vec::new()), Rc::new(Block::None));
+    };
+    let arc = note.content_arc();
+    let mut cache = app.ext.files.inspector_cache.borrow_mut();
+    if let Some((cached_path, cached_arc, data)) = cache.as_ref()
+        && cached_path == &note.path
+        && std::sync::Arc::ptr_eq(cached_arc, &arc)
+    {
+        return (Rc::clone(&data.0), Rc::clone(&data.1));
+    }
+    let text: &str = &arc;
+    let block_lines = props::leading_block_lines(text);
+    // A `# comment` inside the frontmatter block is not a heading.
+    let headings: Vec<HeadingItem> = note
+        .extract_headings()
+        .into_iter()
+        .filter(|h| h.line_number > block_lines)
+        .collect();
+    let block = props::block_state(text);
+    let data = (Rc::new(headings), Rc::new(block));
+    *cache = Some((
+        note.path.clone(),
+        arc,
+        (Rc::clone(&data.0), Rc::clone(&data.1)),
+    ));
+    data
+}
+
 /// 属性: the active note's frontmatter as rows. Checkboxes flip, tags can be removed, rows can be
 /// deleted, and 添加属性 adds an empty text property. Values are edited in the source view.
 /// Collapsed state is kept for the session.
-fn properties_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyElement {
+fn properties_section(
+    app: &RustdianApp,
+    block: &Block,
+    cx: &mut Context<RustdianApp>,
+) -> AnyElement {
     let t = app.theme;
     let collapsed = app.ext.attach.props_collapsed;
-    let text = app
-        .vault
-        .active_note()
-        .map(|n| n.content().to_string())
-        .unwrap_or_default();
-    let block = props::block_state(&text);
-    let count = match &block {
+    let count = match block {
         Block::Props(p) => p.len(),
         _ => 0,
     };

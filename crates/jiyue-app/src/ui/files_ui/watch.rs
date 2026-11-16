@@ -157,6 +157,9 @@ pub fn handle_events(
     for path in modified {
         handle_modified(app, &path, cx);
     }
+    if changed.iter().any(|p| p == ".jiyue/config.toml") {
+        app.vault.refresh_daily_settings();
+    }
     app.vault.rebuild_graph();
     crate::ui::ext::on_event(app, &ExtEvent::VaultFilesChanged(changed), cx);
 }

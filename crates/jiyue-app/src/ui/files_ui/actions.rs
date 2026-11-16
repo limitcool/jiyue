@@ -598,12 +598,17 @@ fn rekey_editor(app: &mut RustdianApp, old: &str, new: &str, cx: &mut Context<Ru
     let observe = cx.observe(&editor, move |this, _, cx| this.on_editor_changed(&key, cx));
     let links = cx.subscribe(
         &editor,
-        |this, _, ev: &crate::ui::text_input::OpenWikilink, cx| {
-            crate::ui::attach_ui::navigate_link(this, &ev.0, cx);
+        |this, _, ev: &crate::ui::text_input::OpenLink, cx| match ev {
+            crate::ui::text_input::OpenLink::Wiki(raw) => {
+                crate::ui::attach_ui::navigate_link(this, raw, cx);
+            }
+            crate::ui::text_input::OpenLink::Markdown(dest) => {
+                crate::ui::attach_ui::navigate_md_link(this, dest, cx);
+            }
         },
     );
     let dirty = editor.read(cx).is_dirty() || entry.restored;
-    let mut moved = crate::NoteEditor::new(editor, observe, links);
+    let mut moved = crate::NoteEditor::new(editor, entry.seen_state_id, observe, links);
     moved.dirty_seen = entry.dirty_seen;
     moved.restored = entry.restored;
     moved.base_mtime_ms = entry.base_mtime_ms;

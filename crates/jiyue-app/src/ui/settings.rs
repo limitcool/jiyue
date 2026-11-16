@@ -390,7 +390,9 @@ impl RustdianApp {
             .clone()
             .unwrap_or_else(|| self.vault.daily_settings());
         change(&mut settings);
-        let _ = settings.save(&self.vault.root_dir);
+        if settings.save(&self.vault.root_dir).is_ok() {
+            self.vault.refresh_daily_settings();
+        }
         self.settings.daily = Some(settings);
     }
 

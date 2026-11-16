@@ -485,9 +485,9 @@ fn norm_path(path: &str) -> String {
 }
 
 impl Vault {
-    /// Settings for this vault.
+    /// Settings for this vault (cached in memory; call `refresh_daily_settings` on config reload).
     pub fn daily_settings(&self) -> DailySettings {
-        DailySettings::load(&self.root_dir)
+        self.daily_settings_cache.clone()
     }
 
     /// Path-relative-to-vault of the daily note for `date`.
@@ -603,7 +603,7 @@ impl Vault {
 
     /// True if `note` lives directly in the daily folder and its title parses as a date.
     pub fn is_daily_note(&self, note: &Note) -> bool {
-        let settings = self.daily_settings();
+        let settings = &self.daily_settings_cache;
         let norm = norm_path(&note.path);
         let parent = norm.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
         if !parent.eq_ignore_ascii_case(settings.folder.trim_matches('/')) {

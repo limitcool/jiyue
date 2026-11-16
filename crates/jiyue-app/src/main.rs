@@ -31,7 +31,7 @@ use session::{
     mode_after_setting, retain_paths, save_status,
 };
 use theme::*;
-use ui::text_input::{MoveDocEnd, OpenWikilink, TextEditor};
+use ui::text_input::{MoveDocEnd, OpenLink, TextEditor};
 use vault::Vault;
 
 /// Viewport display mode
@@ -99,6 +99,8 @@ pub struct NoteEditor {
     _links: Subscription,
     /// Dirty flag as of the last observed change (the tab strip repaints when it flips).
     dirty_seen: bool,
+    /// Last `EditorState::state_id()` synced into `Vault::notes`.
+    pub seen_state_id: u64,
     autosave_debounce: Debounce,
     /// The pending autosave timer. Replacing it cancels the previous one.
     autosave: Option<Task<()>>,
@@ -115,12 +117,18 @@ pub struct NoteEditor {
 }
 
 impl NoteEditor {
-    fn new(editor: Entity<TextEditor>, observe: Subscription, links: Subscription) -> Self {
+    fn new(
+        editor: Entity<TextEditor>,
+        seen_state_id: u64,
+        observe: Subscription,
+        links: Subscription,
+    ) -> Self {
         Self {
             editor,
             _observe: observe,
             _links: links,
             dirty_seen: false,
+            seen_state_id,
             autosave_debounce: Debounce::default(),
             autosave: None,
             restored: false,
@@ -274,6 +282,13 @@ impl RustdianApp {
             i18n::set_locale(&config_store::saved_locale());
             ui::keymap::init_from_disk();
             ui::keymap::rebind(cx);
+        }
+        let vault_config = jiyue_core::config::vault_file(
+            &self.vault.root_dir,
+            jiyue_core::config::VAULT_CONFIG_FILE,
+        );
+        if changed.iter().any(|p| p == &vault_config) {
+            self.vault.refresh_daily_settings();
         }
         match self.configs.broken().first() {
             Some(issue) => self.toast(
@@ -478,13 +493,17 @@ impl RustdianApp {
         let editor = cx.new(|cx| TextEditor::new(&text, theme, cx));
         let live = self.ext.attach.live.clone();
         let vault_path = path.to_string();
-        editor.update(cx, |ed, cx| ed.set_vault(live, &vault_path, cx));
+        let seen_state_id = editor.update(cx, |ed, cx| {
+            ed.set_vault(live, &vault_path, cx);
+            ed.state_id()
+        });
         let key = path.to_string();
         let observe = cx.observe(&editor, move |this, _, cx| this.on_editor_changed(&key, cx));
-        let links = cx.subscribe(&editor, |this, _, ev: &OpenWikilink, cx| {
-            ui::attach_ui::navigate_link(this, &ev.0, cx);
+        let links = cx.subscribe(&editor, |this, _, ev: &OpenLink, cx| match ev {
+            OpenLink::Wiki(raw) => ui::attach_ui::navigate_link(this, raw, cx),
+            OpenLink::Markdown(dest) => ui::attach_ui::navigate_md_link(this, dest, cx),
         });
-        let mut entry = NoteEditor::new(editor, observe, links);
+        let mut entry = NoteEditor::new(editor, seen_state_id, observe, links);
         // Recovered text: the note already holds it, and it stays unsaved until the user saves.
         if let Some(pending) = self.pending_restore.remove(path) {
             entry.restored = true;
@@ -493,26 +512,36 @@ impl RustdianApp {
         self.editors.insert(path.to_string(), entry);
     }
 
-    /// Runs when an editor notifies: copies its text into the note (the editor is the source of
-    /// truth), schedules the autosave and the graph rebuild, and follows the caret and dirty flag.
+    /// Runs when an editor notifies: copies its text into the note only when `state_id` changed,
+    /// schedules autosave and graph rebuild, and follows the caret and dirty flag.
     fn on_editor_changed(&mut self, path: &str, cx: &mut Context<Self>) {
         let Some(editor) = self.editor_for(path) else {
             return;
         };
-        let (text, dirty, cursor) = {
+        let (state_id, dirty, cursor) = {
             let ed = editor.read(cx);
-            (ed.text(), ed.is_dirty(), ed.cursor_row_col())
+            (ed.state_id(), ed.is_dirty(), ed.cursor_row_col())
         };
         let mut changed = false;
         let mut edited = false;
-        if let Some(note) = self
-            .note_index(path)
-            .and_then(|idx| self.vault.notes.get_mut(idx))
-            && note.content() != text
-        {
-            note.set_content(&text);
-            self.vault.bump_revision();
-            edited = true;
+        let text_changed = self
+            .editors
+            .get(path)
+            .is_some_and(|e| e.seen_state_id != state_id);
+        if text_changed {
+            let text = editor.read(cx).text();
+            if let Some(entry) = self.editors.get_mut(path) {
+                entry.seen_state_id = state_id;
+            }
+            if let Some(note) = self
+                .note_index(path)
+                .and_then(|idx| self.vault.notes.get_mut(idx))
+                && note.content() != text
+            {
+                note.set_content(&text);
+                self.vault.bump_revision();
+                edited = true;
+            }
         }
         let mut turned_dirty = false;
         let mut turned_clean = false;
@@ -936,13 +965,15 @@ impl RustdianApp {
         // sets `caret_to_end`. `caret_at` wins.
         let caret_at = self.caret_at.take();
         let caret_end = std::mem::take(&mut self.caret_to_end);
-        if (caret_at.is_some() || caret_end)
-            && self.view_mode.is_source()
+        let focus_editor = self.view_mode != ViewMode::Read;
+        if (caret_at.is_some() || (caret_end && self.view_mode.is_source()))
             && let Some(editor) = active.as_deref().and_then(|p| self.editor_for(p))
         {
             window.refresh();
             window.on_next_frame(move |window, cx| {
-                editor.read(cx).focus(window);
+                if focus_editor {
+                    editor.read(cx).focus(window);
+                }
                 match caret_at {
                     Some((row, col)) => {
                         editor.update(cx, |ed, cx| ed.set_caret_to_row_col(row, col, cx));
@@ -1016,6 +1047,12 @@ impl RustdianApp {
     /// from an outline entry.
     pub fn request_source_caret(&mut self, row: usize, col: usize) {
         self.set_view_mode(ViewMode::Source);
+        self.request_caret(row, col);
+    }
+
+    /// Moves the caret of the active note to `row` and `col` (zero based) while preserving the
+    /// current view mode.
+    pub fn request_caret(&mut self, row: usize, col: usize) {
         self.caret_at = Some((row, col));
         self.want_focus = true;
         self.cursor_row = row + 1;
@@ -1023,18 +1060,42 @@ impl RustdianApp {
     }
 
     /// Opens the note a wikilink points at. `raw` is the link body (`Title`, `Title|alias`,
-    /// `Title#Heading`) or a bare title. The target is opened like a sidebar click, so the view
-    /// mode stays as it was. A missing note is created in the vault root and opened in Source
-    /// with the caret in its body, like Ctrl+N. An unsafe title does nothing.
+    /// `Title#Heading`, `dir/note`) or a bare title. Matches relative paths, frontmatter aliases,
+    /// and folder/index notes before creating a missing note at `raw`.
     pub fn open_wikilink(&mut self, raw: &str) {
-        let Some(title) = vault::safe_note_title(ui::inline::wikilink_target(raw)) else {
+        let target = ui::inline::wikilink_target(raw).trim();
+        if target.is_empty() {
             return;
-        };
-        if let Some(idx) = self.vault.note_index_by_title(&title) {
+        }
+        let from_path = self.active_path().unwrap_or("").to_string();
+        let refs = ui::files_ui::cached_note_refs(self);
+        if let Some(idx) = jiyue_core::links::resolve_link(&refs, target, &from_path) {
             self.open_note_by_index(idx);
-        } else if let Ok(idx) = self.vault.create_link_note(&title) {
-            self.open_note_by_index(idx);
-            self.pending_new_note = true;
+            return;
+        }
+        match ui::attach_ui::resolve_folder_or_index(
+            &self.vault.notes,
+            &self.vault.folders,
+            target,
+            &from_path,
+        ) {
+            ui::attach_ui::FolderResolution::EntryNote(idx) => {
+                self.open_note_by_index(idx);
+            }
+            ui::attach_ui::FolderResolution::FolderOnly(folder_key) => {
+                self.viewport_mode = ViewportMode::Editor;
+                self.sidebar_tab = ui::sidebar::SidebarTab::Files;
+                self.left_sidebar_open = true;
+                config_store::sync_ui(self);
+                ui::files_ui::expand_folder(self, &folder_key);
+                ui::files_ui::reveal_path(self, &folder_key);
+            }
+            ui::attach_ui::FolderResolution::None => {
+                if let Ok(idx) = self.vault.create_link_note_at(target) {
+                    self.open_note_by_index(idx);
+                    self.pending_new_note = true;
+                }
+            }
         }
     }
 

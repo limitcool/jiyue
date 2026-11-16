@@ -96,6 +96,14 @@ impl EditorState {
         self.buf.as_str()
     }
 
+    pub fn text_arc(&self) -> std::sync::Arc<str> {
+        self.buf.arc()
+    }
+
+    pub fn state_id(&self) -> u64 {
+        self.state_id
+    }
+
     pub fn len(&self) -> usize {
         self.buf.len()
     }

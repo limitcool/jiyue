@@ -1,7 +1,7 @@
 name: jiyue_mobile
 description: "Jiyue Mobile (霁月) - Fast, elegant local-first Markdown notes with S3/WebDAV sync."
 publish_to: 'none'
-version: 0.3.5+6
+version: 0.3.6+7
 
 environment:
   sdk: ^3.7.2

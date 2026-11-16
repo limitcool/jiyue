@@ -579,30 +579,216 @@ pub fn copy_block_link(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     cx.notify();
 }
 
-/// Splits a link body (`笔记#Heading`, `笔记#^id`, `#Heading`) into the note title and the anchor.
-pub fn split_target(inner: &str) -> (&str, Option<Anchor>) {
-    match inner.split_once('#') {
-        None => (inner.trim(), None),
-        Some((title, anchor)) => {
-            let anchor = anchor.trim();
-            let parsed = match anchor.strip_prefix('^') {
-                Some(id) if !id.is_empty() => Some(Anchor::Block(id.to_string())),
-                Some(_) => None,
-                None if !anchor.is_empty() => Some(Anchor::Heading(anchor.to_string())),
-                None => None,
-            };
-            (title.trim(), parsed)
-        }
+/// Parses an anchor fragment (`^block-id` or `Heading`) after `#`.
+fn parse_anchor(raw_anchor: &str) -> Option<Anchor> {
+    let anchor = raw_anchor.trim();
+    match anchor.strip_prefix('^') {
+        Some(id) if !id.is_empty() => Some(Anchor::Block(id.to_string())),
+        Some(_) => None,
+        None if !anchor.is_empty() => Some(Anchor::Heading(anchor.to_string())),
+        None => None,
     }
 }
 
+/// Splits a link body (`笔记#Heading`, `笔记#^id`, `#Heading`) into the note target and the anchor.
+pub fn split_target(inner: &str) -> (&str, Option<Anchor>) {
+    match inner.split_once('#') {
+        None => (inner.trim(), None),
+        Some((title, anchor)) => (title.trim(), parse_anchor(anchor)),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FolderResolution {
+    EntryNote(usize),
+    FolderOnly(String),
+    None,
+}
+
+fn find_note_path_ci(notes: &[jiyue_core::buffer::Note], candidate: &str) -> Option<usize> {
+    notes
+        .iter()
+        .position(|n| n.path.replace('\\', "/").eq_ignore_ascii_case(candidate))
+}
+
+fn strip_index_prefix(stem: &str) -> &str {
+    let bytes = stem.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 {
+        return stem;
+    }
+    while i < bytes.len() && matches!(bytes[i], b'-' | b'_' | b'.' | b' ') {
+        i += 1;
+    }
+    let rest = stem[i..].trim();
+    if rest.is_empty() { stem } else { rest }
+}
+
+/// Matches a link target against vault folders and known index/entry notes (`<dir>/<dir>.md`,
+/// `<dir>/README.md`, `<dir>/index.md`, `_indexes/<name>.md`).
+pub(crate) fn resolve_folder_or_index(
+    notes: &[jiyue_core::buffer::Note],
+    folders: &[String],
+    target_raw: &str,
+    from_path: &str,
+) -> FolderResolution {
+    let normalized = target_raw.trim().replace('\\', "/");
+    let clean = normalized
+        .strip_prefix("./")
+        .unwrap_or(&normalized)
+        .trim_matches('/');
+    if clean.is_empty() {
+        return FolderResolution::None;
+    }
+    let base = clean.rsplit('/').next().unwrap_or(clean).trim();
+
+    let from_dir = from_path
+        .replace('\\', "/")
+        .rsplit_once('/')
+        .map(|(d, _)| d.to_string())
+        .unwrap_or_default();
+
+    let mut matched_folder: Option<String> = None;
+    if !from_dir.is_empty() {
+        let rel_cand = format!("{from_dir}/{clean}");
+        matched_folder = folders
+            .iter()
+            .find(|f| f.eq_ignore_ascii_case(&rel_cand))
+            .cloned();
+    }
+    if matched_folder.is_none() {
+        matched_folder = folders
+            .iter()
+            .find(|f| f.eq_ignore_ascii_case(clean))
+            .cloned();
+    }
+    if matched_folder.is_none() && !clean.contains('/') {
+        let mut leaf_matches: Vec<&String> = folders
+            .iter()
+            .filter(|f| {
+                f.rsplit('/')
+                    .next()
+                    .is_some_and(|seg| seg.eq_ignore_ascii_case(clean))
+            })
+            .collect();
+        leaf_matches.sort_by_key(|f| (f.chars().count(), f.as_str()));
+        if let Some(first) = leaf_matches.first() {
+            matched_folder = Some((*first).clone());
+        }
+    }
+
+    if let Some(folder) = matched_folder.as_deref() {
+        let folder_base = folder.rsplit('/').next().unwrap_or(folder);
+        for candidate in [
+            format!("{folder}/{folder_base}.md"),
+            format!("{folder}/README.md"),
+            format!("{folder}/index.md"),
+        ] {
+            if let Some(idx) = find_note_path_ci(notes, &candidate) {
+                return FolderResolution::EntryNote(idx);
+            }
+        }
+    }
+
+    if !base.is_empty() {
+        if let Some(idx) = find_note_path_ci(notes, &format!("_indexes/{base}.md")) {
+            return FolderResolution::EntryNote(idx);
+        }
+        let mut idx_matches: Vec<usize> = notes
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| {
+                let p = n.path.replace('\\', "/");
+                let prefix = "_indexes/";
+                let Some(file) = p
+                    .get(..prefix.len())
+                    .filter(|s| s.eq_ignore_ascii_case(prefix))
+                    .and_then(|_| p.get(prefix.len()..))
+                else {
+                    return false;
+                };
+                if file.is_empty() || file.contains('/') {
+                    return false;
+                }
+                let stem = if file.len() >= 3
+                    && file.as_bytes()[file.len() - 3..].eq_ignore_ascii_case(b".md")
+                {
+                    &file[..file.len() - 3]
+                } else {
+                    file
+                };
+                strip_index_prefix(stem).eq_ignore_ascii_case(base)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if idx_matches.len() == 1 {
+            return FolderResolution::EntryNote(idx_matches.remove(0));
+        }
+    }
+
+    match matched_folder {
+        Some(folder) => FolderResolution::FolderOnly(folder),
+        None => FolderResolution::None,
+    }
+}
+
+fn note_snippet(note: &jiyue_core::buffer::Note, label: &str) -> String {
+    let snippet: Vec<&str> = note
+        .content()
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .take(3)
+        .collect();
+    if snippet.is_empty() {
+        format!("[[{label}]]\n(空笔记)")
+    } else {
+        format!("[[{label}]]\n{}", snippet.join("\n"))
+    }
+}
+
+/// Returns hover tooltip text for a wikilink target (`Title`, path, alias, or folder).
+pub fn tooltip_preview(app: &RustdianApp, clean_title: &str) -> String {
+    let from_path = app.active_path().unwrap_or("");
+    let refs = crate::ui::files_ui::cached_note_refs(app);
+    if let Some(idx) = jiyue_core::links::resolve_link(&refs, clean_title, from_path) {
+        return note_snippet(&app.vault.notes[idx], clean_title);
+    }
+    match resolve_folder_or_index(&app.vault.notes, &app.vault.folders, clean_title, from_path) {
+        FolderResolution::EntryNote(idx) => note_snippet(&app.vault.notes[idx], clean_title),
+        FolderResolution::FolderOnly(folder) => {
+            format!("📁 文件夹: {folder} · 点击在侧栏展开")
+        }
+        FolderResolution::None => format!("未创建笔记: [[{clean_title}]] · 点击立即新建"),
+    }
+}
+
+fn open_resolved_note(app: &mut RustdianApp, idx: usize, anchor: Option<&Anchor>) {
+    app.open_note_by_index(idx);
+    if let Some(anchor) = anchor {
+        jump_to_anchor(app, idx, anchor);
+    }
+}
+
+fn reveal_folder_in_sidebar(app: &mut RustdianApp, folder: &str) {
+    app.viewport_mode = crate::ViewportMode::Editor;
+    app.sidebar_tab = crate::ui::sidebar::SidebarTab::Files;
+    app.left_sidebar_open = true;
+    crate::config_store::sync_ui(app);
+    crate::ui::files_ui::expand_folder(app, folder);
+    crate::ui::files_ui::reveal_path(app, folder);
+}
+
 /// Opens the note a wikilink points at and moves the caret to its heading or block. `raw` is the
-/// link body as written (`笔记`, `笔记|别名`, `笔记#标题`, `笔记#^id`, `#标题`). A missing note is
-/// created, like a plain wikilink.
+/// link body as written (`笔记`, `笔记|别名`, `笔记#标题`, `笔记#^id`, `目录/笔记`, `#标题`).
+/// Matches relative paths, frontmatter aliases, and folders before falling back to note creation.
 pub fn navigate_link(app: &mut RustdianApp, raw: &str, cx: &mut Context<RustdianApp>) {
     let inner = raw.split('|').next().unwrap_or("").trim();
-    let (title, anchor) = split_target(inner);
-    if title.is_empty() {
+    let (target_raw, anchor) = split_target(inner);
+    if target_raw.is_empty() {
         // `[[#Heading]]`: a link inside the open note.
         if let (Some(anchor), Some(path)) = (anchor, app.active_path().map(str::to_string))
             && let Some(idx) = app.vault.notes.iter().position(|n| n.path == path)
@@ -612,7 +798,85 @@ pub fn navigate_link(app: &mut RustdianApp, raw: &str, cx: &mut Context<Rustdian
         cx.notify();
         return;
     }
-    open_target(app, title, anchor, cx);
+
+    let from_path = app.active_path().unwrap_or("").to_string();
+    let refs = crate::ui::files_ui::cached_note_refs(app);
+    if let Some(idx) = jiyue_core::links::resolve_link(&refs, target_raw, &from_path) {
+        open_resolved_note(app, idx, anchor.as_ref());
+        cx.notify();
+        return;
+    }
+
+    match resolve_folder_or_index(&app.vault.notes, &app.vault.folders, target_raw, &from_path) {
+        FolderResolution::EntryNote(idx) => open_resolved_note(app, idx, anchor.as_ref()),
+        FolderResolution::FolderOnly(folder) => reveal_folder_in_sidebar(app, &folder),
+        FolderResolution::None => match app.vault.create_link_note_at(target_raw) {
+            Ok(idx) => {
+                app.open_note_by_index(idx);
+                app.pending_new_note = true;
+            }
+            Err(err) => app.toast(ToastKind::Warn, format!("无法打开或创建链接：{err}")),
+        },
+    }
+    cx.notify();
+}
+
+/// Opens an internal Markdown link `[text](rel_path#anchor)`, decoding percent-escapes and
+/// falling back cleanly to matching folders without creating stray files.
+pub fn navigate_md_link(app: &mut RustdianApp, raw_dest: &str, cx: &mut Context<RustdianApp>) {
+    let trimmed = raw_dest.trim();
+    let (raw_path, raw_anchor) = match trimmed.split_once('#') {
+        Some((p, a)) => (p, Some(a)),
+        None => (trimmed, None),
+    };
+    let decoded_path = jiyue_core::links::percent_decode(raw_path)
+        .trim()
+        .to_string();
+    let anchor = raw_anchor
+        .map(jiyue_core::links::percent_decode)
+        .and_then(|s| parse_anchor(&s));
+
+    if decoded_path.is_empty() {
+        if let (Some(anchor), Some(path)) = (anchor, app.active_path().map(str::to_string))
+            && let Some(idx) = app.vault.notes.iter().position(|n| n.path == path)
+        {
+            jump_to_anchor(app, idx, &anchor);
+        }
+        cx.notify();
+        return;
+    }
+
+    let from_path = app.active_path().unwrap_or("").to_string();
+    let refs = crate::ui::files_ui::cached_note_refs(app);
+    let occ = jiyue_core::links::LinkOccurrence {
+        range: 0..0,
+        target_range: 0..0,
+        kind: jiyue_core::links::LinkKind::MdLink,
+        target: decoded_path.clone(),
+        anchor: None,
+        alias: None,
+    };
+    if let Some(idx) = jiyue_core::links::resolve_occurrence(&refs, &occ, &from_path)
+        .or_else(|| jiyue_core::links::resolve_link(&refs, &decoded_path, &from_path))
+    {
+        open_resolved_note(app, idx, anchor.as_ref());
+        cx.notify();
+        return;
+    }
+
+    match resolve_folder_or_index(
+        &app.vault.notes,
+        &app.vault.folders,
+        &decoded_path,
+        &from_path,
+    ) {
+        FolderResolution::EntryNote(idx) => open_resolved_note(app, idx, anchor.as_ref()),
+        FolderResolution::FolderOnly(folder) => reveal_folder_in_sidebar(app, &folder),
+        FolderResolution::None => {
+            app.toast(ToastKind::Warn, format!("未找到链接目标：{decoded_path}"));
+        }
+    }
+    cx.notify();
 }
 
 /// Opens the note `title` and, when there is an anchor, moves the caret to it. A missing note is
@@ -623,27 +887,22 @@ pub fn open_target(
     anchor: Option<Anchor>,
     cx: &mut Context<RustdianApp>,
 ) {
-    match anchor {
-        None => app.open_wikilink(title),
-        Some(anchor) => match app.vault.note_index_by_title(title) {
-            Some(idx) => {
-                app.open_note_by_index(idx);
-                jump_to_anchor(app, idx, &anchor);
-            }
-            None => app.open_wikilink(title),
-        },
-    }
-    cx.notify();
+    let raw = match anchor {
+        Some(Anchor::Heading(h)) => format!("{title}#{h}"),
+        Some(Anchor::Block(id)) => format!("{title}#^{id}"),
+        None => title.to_string(),
+    };
+    navigate_link(app, &raw, cx);
 }
 
-/// Moves the caret of note `idx` to the line of `anchor`, opening it in Source. Does nothing when
-/// the anchor is not in the note.
+/// Moves the caret of note `idx` to the line of `anchor` without forcing Source mode. Does nothing
+/// when the anchor is not in the note.
 fn jump_to_anchor(app: &mut RustdianApp, idx: usize, anchor: &Anchor) {
     let Some(note) = app.vault.notes.get(idx) else {
         return;
     };
     if let Some(row) = anchor_row(note.content(), anchor) {
-        app.request_source_caret(row, 0);
+        app.request_caret(row, 0);
     }
 }
 
@@ -690,4 +949,65 @@ pub fn save_settings(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         Err(e) => app.toast(ToastKind::Error, format!("保存附件设置失败：{e}")),
     }
     cx.notify();
+}
+
+#[cfg(test)]
+mod link_resolution_tests {
+    use super::*;
+    use jiyue_core::buffer::Note;
+    use jiyue_core::links::{self, NoteRef};
+
+    #[test]
+    fn folder_and_index_resolution_handles_readme_indexes_and_folder_only() {
+        let notes = vec![
+            Note::new(
+                "后端与数据库",
+                "💻 后端与数据库/README.md",
+                "# README\n正文",
+            ),
+            Note::new("01-安全与逆向", "_indexes/01-安全与逆向.md", "# 索引\n正文"),
+            Note::new(
+                "工作流指南",
+                "docs/workflow.md",
+                "---\naliases:\n  - \"🧠 AI 与智能工作流\"\n---\n# 内容\n",
+            ),
+        ];
+        let folders = vec![
+            "_indexes".to_string(),
+            "💻 后端与数据库".to_string(),
+            "🏗️ 运维与基础设施".to_string(),
+            "🔒 账号与隐私".to_string(),
+        ];
+
+        assert_eq!(
+            resolve_folder_or_index(&notes, &folders, "💻 后端与数据库", "README.md"),
+            FolderResolution::EntryNote(0)
+        );
+        assert_eq!(
+            resolve_folder_or_index(&notes, &folders, "安全与逆向", "README.md"),
+            FolderResolution::EntryNote(1)
+        );
+        assert_eq!(
+            resolve_folder_or_index(&notes, &folders, "🏗️ 运维与基础设施", "README.md"),
+            FolderResolution::FolderOnly("🏗️ 运维与基础设施".to_string())
+        );
+        assert_eq!(
+            resolve_folder_or_index(&notes, &folders, "不存在的笔记", "README.md"),
+            FolderResolution::None
+        );
+
+        let refs = vec![
+            NoteRef::new(notes[0].path.clone()),
+            NoteRef::new(notes[1].path.clone()),
+            NoteRef::with_aliases(notes[2].path.clone(), &["🧠 AI 与智能工作流"]),
+        ];
+        assert_eq!(
+            links::resolve_link(&refs, "🧠 AI 与智能工作流", "README.md"),
+            Some(2)
+        );
+        assert_eq!(
+            links::resolve_link(&refs, "💻 后端与数据库/README", "README.md"),
+            Some(0)
+        );
+    }
 }

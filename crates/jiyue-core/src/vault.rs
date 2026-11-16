@@ -88,6 +88,74 @@ mod title_tests {
 
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn create_link_note_at_supports_subfolders_and_rejects_traversal() {
+        let dir = std::env::temp_dir().join(format!("jiyue-link-at-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let mut vault = Vault::open_or_create(&dir);
+
+        let idx = vault
+            .create_link_note_at("_indexes/💻 后端与数据库.MD")
+            .expect("create nested note");
+        assert_eq!(vault.notes[idx].path, "_indexes/💻 后端与数据库.md");
+        assert_eq!(vault.notes[idx].title, "💻 后端与数据库");
+        assert!(dir.join("_indexes").join("💻 后端与数据库.md").is_file());
+        assert!(vault.folders.contains(&"_indexes".to_string()));
+        assert_eq!(
+            vault.create_link_note_at("_indexes\\💻 后端与数据库"),
+            Ok(idx)
+        );
+
+        assert!(vault.create_link_note_at("../escape").is_err());
+        assert!(vault.create_link_note_at("a//b").is_err());
+        assert!(vault.create_link_note_at("/abs").is_err());
+        assert!(vault.create_link_note_at("").is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn is_daily_note_uses_cached_settings_until_refreshed() {
+        let dir = std::env::temp_dir().join(format!("jiyue-daily-cache-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("Daily")).expect("mkdir");
+        fs::create_dir_all(dir.join("Journal")).expect("mkdir");
+        fs::write(dir.join("Daily").join("2026-11-16.md"), "# daily\n").expect("write");
+        fs::write(dir.join("Journal").join("2026-11-16.md"), "# journal\n").expect("write");
+
+        let mut vault = Vault::open_or_create(&dir);
+        let d_idx = vault
+            .notes
+            .iter()
+            .position(|n| n.path == "Daily/2026-11-16.md")
+            .unwrap();
+        let j_idx = vault
+            .notes
+            .iter()
+            .position(|n| n.path == "Journal/2026-11-16.md")
+            .unwrap();
+        assert!(vault.is_daily_note(&vault.notes[d_idx]));
+        assert!(!vault.is_daily_note(&vault.notes[j_idx]));
+
+        // Writing config on disk does not affect cached check until refresh_daily_settings() runs.
+        let cfg = crate::daily::DailySettings {
+            folder: "Journal".to_string(),
+            date_format: "YYYY-MM-DD".to_string(),
+            template_path: String::new(),
+        };
+        cfg.save(&dir).unwrap();
+        assert!(vault.is_daily_note(&vault.notes[d_idx]));
+        assert!(!vault.is_daily_note(&vault.notes[j_idx]));
+
+        let rev_before = vault.revision;
+        vault.refresh_daily_settings();
+        assert_eq!(vault.revision, rev_before + 1);
+        assert!(!vault.is_daily_note(&vault.notes[d_idx]));
+        assert!(vault.is_daily_note(&vault.notes[j_idx]));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
 /// A note title that is safe to use as the file name `<title>.md` in the vault root, or `None`.
@@ -443,6 +511,7 @@ pub struct Vault {
     pub folders: Vec<String>,
     /// Monotonically incremented whenever notes, note contents, or folders change.
     pub revision: u64,
+    pub(crate) daily_settings_cache: crate::daily::DailySettings,
 }
 
 impl Vault {
@@ -465,12 +534,19 @@ impl Vault {
             graph: KnowledgeGraph::default(),
             folders: Vec::new(),
             revision: 1,
+            daily_settings_cache: crate::daily::DailySettings::default(),
         };
 
         // Scan directory for .md files
         vault.load_from_disk();
         vault.rebuild_graph();
         vault
+    }
+
+    /// Refreshes the in-memory `[daily]` settings cache from disk and bumps the vault revision.
+    pub fn refresh_daily_settings(&mut self) {
+        self.daily_settings_cache = crate::daily::DailySettings::load(&self.root_dir);
+        self.bump_revision();
     }
 
     /// Bumps the vault revision after any mutation to `notes` or `folders`.
@@ -483,6 +559,7 @@ impl Vault {
         let (loaded, folders) = Self::scan_vault_parallel(&self.root_dir);
         self.notes = loaded;
         self.folders = folders;
+        self.daily_settings_cache = crate::daily::DailySettings::load(&self.root_dir);
         self.bump_revision();
     }
 
@@ -611,6 +688,7 @@ impl Vault {
         let paths: Vec<String> = loaded.iter().map(|n| n.path.clone()).collect();
         self.notes = loaded;
         self.folders = folders;
+        self.daily_settings_cache = crate::daily::DailySettings::load(&self.root_dir);
         self.bump_revision();
 
         let (tabs, tab, note) =
@@ -811,6 +889,77 @@ impl Vault {
         }
         let content = format!("# {}\n\n", title);
         self.notes.push(Note::new(&title, &filename, &content));
+        let idx = self.notes.len() - 1;
+        if let Err(err) = self.save_note_to_disk(idx) {
+            self.notes.pop();
+            return Err(err.to_string());
+        }
+        self.bump_revision();
+        self.rebuild_graph();
+        Ok(idx)
+    }
+
+    /// Creates a note at a safe vault-relative target path (e.g. `_indexes/Backend` or `Sub/Note.md`),
+    /// creating any missing parent folders and adding them to `self.folders`.
+    /// Returns the existing note index if a matching path already exists.
+    pub fn create_link_note_at(&mut self, raw_target: &str) -> Result<usize, String> {
+        let trimmed = raw_target.trim();
+        if trimmed.is_empty() {
+            return Err("invalid note path".to_string());
+        }
+        let segments: Vec<&str> = trimmed.split(['/', '\\']).collect();
+        if segments
+            .iter()
+            .any(|s| s.is_empty() || *s == "." || *s == "..")
+        {
+            return Err("invalid note path".to_string());
+        }
+        let (dir_segs, last_seg) = segments.split_at(segments.len() - 1);
+        let mut folder_accum = String::new();
+        let mut parent_folders = Vec::new();
+        for seg in dir_segs {
+            let clean_dir =
+                safe_note_title(seg).ok_or_else(|| "invalid folder name".to_string())?;
+            if !folder_accum.is_empty() {
+                folder_accum.push('/');
+            }
+            folder_accum.push_str(&clean_dir);
+            parent_folders.push(folder_accum.clone());
+        }
+        let raw_leaf = last_seg[0];
+        let leaf_stem = if fsops::ends_with_ignore_case(raw_leaf, ".md") {
+            &raw_leaf[..raw_leaf.len() - 3]
+        } else {
+            raw_leaf
+        };
+        let title = safe_note_title(leaf_stem).ok_or_else(|| "invalid note title".to_string())?;
+        let rel_path = if folder_accum.is_empty() {
+            format!("{title}.md")
+        } else {
+            format!("{folder_accum}/{title}.md")
+        };
+        if let Some(idx) = self
+            .notes
+            .iter()
+            .position(|n| n.path.eq_ignore_ascii_case(&rel_path))
+        {
+            return Ok(idx);
+        }
+        let abs = self.root_dir.join(&rel_path);
+        if abs.exists() {
+            return Err(format!("{rel_path} already exists"));
+        }
+        if let Some(parent) = abs.parent() {
+            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+        }
+        for folder in parent_folders {
+            if !self.folders.iter().any(|existing| existing == &folder) {
+                self.folders.push(folder);
+            }
+        }
+        self.folders.sort();
+        let content = format!("# {title}\n\n");
+        self.notes.push(Note::new(&title, &rel_path, &content));
         let idx = self.notes.len() - 1;
         if let Err(err) = self.save_note_to_disk(idx) {
             self.notes.pop();

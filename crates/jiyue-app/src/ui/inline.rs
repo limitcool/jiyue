@@ -147,11 +147,13 @@ fn markdown_link_at(line: &str, rel: usize) -> Option<String> {
 /// The bare `http://`, `https://` or `mailto:` address covering byte `rel` of `line`. The address
 /// ends at a space or a bracket, and trailing punctuation or an unpaired `)` is not part of it.
 fn bare_url_at(line: &str, rel: usize) -> Option<String> {
-    let lower = line.to_ascii_lowercase();
-    for scheme in ["https://", "http://", "mailto:"] {
+    if !line.contains(':') {
+        return None;
+    }
+    let bytes = line.as_bytes();
+    for scheme in [b"https://" as &[u8], b"http://", b"mailto:"] {
         let mut search = 0;
-        while let Some(p) = lower[search..].find(scheme) {
-            let start = search + p;
+        while let Some(start) = find_ascii_ci(bytes, scheme, search) {
             let body = &line[start..];
             let stop = body
                 .find(|c: char| c.is_whitespace() || "<>\"'`[]".contains(c))
@@ -175,6 +177,90 @@ fn bare_url_at(line: &str, rel: usize) -> Option<String> {
         }
     }
     None
+}
+
+fn find_ascii_ci(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+    haystack
+        .get(from..)?
+        .windows(needle.len())
+        .position(|w| w.eq_ignore_ascii_case(needle))
+        .map(|p| from + p)
+}
+
+/// The vault-relative Markdown link target `[text](path)` covering byte `offset` in `text`.
+/// Returns `None` for images, wikilinks, web/mailto URLs (handled by `url_at`), or disallowed schemes.
+pub fn md_link_target_at(text: &str, offset: usize) -> Option<String> {
+    if offset > text.len() || !text.is_char_boundary(offset) {
+        return None;
+    }
+    if wikilink_inner_at(text, offset).is_some() {
+        return None;
+    }
+    let line_start = text[..offset].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = text[offset..].find('\n').map_or(text.len(), |i| offset + i);
+    let line = &text[line_start..line_end];
+    let rel = offset - line_start;
+    let raw_dest = markdown_dest_at(line, rel)?;
+    if raw_dest.is_empty() || is_openable_url(&raw_dest) || has_url_scheme(&raw_dest) {
+        return None;
+    }
+    Some(raw_dest)
+}
+
+fn markdown_dest_at(line: &str, rel: usize) -> Option<String> {
+    let mut search = 0;
+    while let Some(p) = line[search..].find("](") {
+        let mid = search + p;
+        let url_start = mid + 2;
+        let Some(q) = line[url_start..].find(')') else {
+            break;
+        };
+        let end = url_start + q + 1;
+        search = end;
+        let Some(open) = line[..mid].rfind('[') else {
+            continue;
+        };
+        if line[open + 1..mid].contains(']') || line[..open].ends_with('!') {
+            continue;
+        }
+        if (open..end).contains(&rel) {
+            return Some(extract_md_link_dest(&line[url_start..url_start + q]));
+        }
+    }
+    None
+}
+
+fn extract_md_link_dest(raw_inner: &str) -> String {
+    let inner = raw_inner.trim();
+    if let Some(rest) = inner.strip_prefix('<')
+        && let Some(gt) = rest.find('>')
+    {
+        return rest[..gt].trim().to_string();
+    }
+    for quote in ['"', '\''] {
+        if inner.ends_with(quote) && inner.len() >= 2 {
+            let body = &inner[..inner.len() - 1];
+            if let Some(open_q) = body.rfind(quote) {
+                let before = &body[..open_q];
+                if before.ends_with(char::is_whitespace) {
+                    return before.trim_end().to_string();
+                }
+            }
+        }
+    }
+    inner.to_string()
+}
+
+fn has_url_scheme(s: &str) -> bool {
+    let Some((prefix, _)) = s.split_once(':') else {
+        return false;
+    };
+    let mut chars = prefix.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphabetic()
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
 }
 
 /// Splits source text into styled segments.
@@ -506,23 +592,7 @@ pub fn rich_text_geo(
             *t,
             move |cx| {
                 let app = entity_clone.read(cx);
-                if let Some(idx) = app.vault.note_index_by_title(&clean_title) {
-                    let note = &app.vault.notes[idx];
-                    let snippet: Vec<&str> = note
-                        .content()
-                        .lines()
-                        .map(str::trim)
-                        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                        .take(3)
-                        .collect();
-                    if snippet.is_empty() {
-                        format!("[[{}]]\n(空笔记)", clean_title)
-                    } else {
-                        format!("[[{}]]\n{}", clean_title, snippet.join("\n"))
-                    }
-                } else {
-                    format!("未创建笔记: [[{}]] · 点击立即新建", clean_title)
-                }
+                crate::ui::attach_ui::tooltip_preview(app, &clean_title)
             },
         ));
     }
@@ -676,6 +746,30 @@ mod tests {
         assert!(is_openable_url("HTTPS://a.b"));
         assert!(!is_openable_url("https://"));
         assert!(!is_openable_url("file:///etc/passwd"));
+    }
+
+    #[test]
+    fn md_link_target_at_handles_internal_paths_spaces_and_rejections() {
+        let text =
+            "见 [后端](./_indexes/后端.md#章节) 与 [💻 后端](💻 后端与数据库/README.md \"标题\")";
+        let pos1 = text.find("后端]").unwrap();
+        assert_eq!(
+            md_link_target_at(text, pos1),
+            Some("./_indexes/后端.md#章节".to_string())
+        );
+        let pos2 = text.find("💻").unwrap();
+        assert_eq!(
+            md_link_target_at(text, pos2),
+            Some("💻 后端与数据库/README.md".to_string())
+        );
+        assert_eq!(
+            md_link_target_at("[doc](<dir with space/a.md> \"title\")", 2),
+            Some("dir with space/a.md".to_string())
+        );
+        assert_eq!(md_link_target_at("![img](a.png)", 3), None);
+        assert_eq!(md_link_target_at("[web](https://example.com)", 2), None);
+        assert_eq!(md_link_target_at("[bad](javascript:alert(1))", 2), None);
+        assert_eq!(md_link_target_at("[[note.md]]", 4), None);
     }
 
     #[test]

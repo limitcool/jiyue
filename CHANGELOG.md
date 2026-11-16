@@ -3,6 +3,49 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.3.6] - 2026-11-16
+
+### 中文
+
+**链接导航与库内路径解析重构**
+- **实时预览折叠态蓝链免 Ctrl 单击直达与精确字形命中**：
+  - 在实时预览（Live）模式下，处于折叠状态的双链 `[[...]]`、Markdown 链接 `[文本](...)` 及脚注引用悬停即显示手型光标，左键单击即可直接跳转；按住 `Alt + 单击` 可绕过跳转直接进入源码编辑，已展开链接与源码模式仍保持 `Ctrl + 单击` 跳转。
+  - 链接点击与悬停改用字形包围盒（`hit_index_at`）精确判定，彻底消除中文蓝链末尾字符边缘滑向后续标点（如 `:`）导致的点击失灵，同时确保点击行尾空白处正常放置光标。
+- **相对子目录、YAML 别名（`aliases`）、文件夹与索引页智能解析**：
+  - 放开带 `/` 相对路径双链限制并接入全库 `resolve_link`（支持相对路径、`aliases` / `alias` 前置属性），对面向文件夹的入口链接（如知识库主页的一级主题目录）智能匹配 `<目录>/<同名>.md`、`README.md`、`index.md`、`_indexes/<名称>.md` 及去序号前缀的 `_indexes/01-xxx.md`；纯文件夹则在左侧栏自动展开并滚动定位，缺失子目录双链支持安全新建。
+  - 新增库内相对路径 Markdown 链接 `[文本](路径.md)` 点击跳转支持（含 `%20` 编码还原、中文/Emoji 含空格路径与 `<...>` 包裹格式），并打通 `Live` / `Read` / `Source` 三种视图模式的 `#标题` 与 `#^块ID` 锚点跳转。
+
+**大型知识库跟手度与渲染帧率深度优化**
+- **消除渲染期同步读盘 `.jiyue/config.toml` 风暴**：
+  - 为 `Vault::is_daily_note` 新增内存配置缓存 `daily_settings_cache`，仅在加载知识库、修改设置或配置文件热重载时刷新，消除文件树遍历每篇笔记产生的海量同步磁盘 I/O。
+- **侧栏文件树与长标签列表虚拟化**：
+  - 左侧栏文件树（无内联创建/重命名行时）与超 20 项的标签列表全面切换为 `gpui::uniform_list` 虚拟滚动，仅构建并绘制视口可见行；保留 `reveal_path` 定位自动居中滚动，显著降低大型 Obsidian 知识库下的悬停与滚动延迟。
+- **右侧栏检查器缓存、编辑器零拷贝与非编辑帧直通快路径**：
+  - 为右侧大纲与 YAML 属性面板（基于笔记路径与 `Arc::ptr_eq` $O(1)$ 校验）及正文元数据“创建于”日期标签增加内存缓存，消除侧栏悬停触发顶层重绘时的重复全文扫描与 `fs::metadata` 调用。
+  - 将 `TextEditor` 鼠标悬停探测优化为二分 `style_at` $O(\log N)$ 查询 + `HoverMemo` 同字形 $O(1)$ 早退，并将裸链接检测改为无堆分配字节扫描；新增 `EditorState::text_arc()` 与 `state_id()` 快照，在 `TextElement::prepaint` 中为 500ms 光标闪烁/悬停/侧栏联动等非编辑帧建立全量布局直通快路径与视口二分裁剪。
+
+---
+
+### English
+
+**Link Navigation & Vault Path Resolution Overhaul**
+- **Direct Plain Click on Collapsed Links in Live Preview & Glyph-Exact Hit Testing**:
+  - Collapsed wikilinks `[[...]]`, Markdown links `[text](...)`, and footnote references in Live preview now show a pointer cursor on hover and navigate on a plain left click (`Alt + click` enters source editing; revealed links and Source mode retain `Ctrl + click`).
+  - Added glyph-bounds hit testing (`hit_index_at`) so clicking the trailing edge of CJK link text no longer slips onto adjacent punctuation (such as `:`) and clicking trailing line whitespace places the caret normally.
+- **Subdirectory Paths, Frontmatter `aliases`, Folder & Index Resolution**:
+  - Removed the `safe_note_title` restriction on `/` paths and wired wikilink navigation and hover previews through `resolve_link` with cached `aliases`/`alias` frontmatter metadata.
+  - Links targeting vault directories fall back cleanly to `<dir>/<dir>.md`, `README.md`, `index.md`, `_indexes/<name>.md`, or numeric-prefixed index notes before revealing and scrolling to the folder in the sidebar; missing subdirectory targets are created cleanly via `create_link_note_at`.
+  - Enabled clicking vault-relative Markdown links (`[text](path.md)`, percent-encoded URLs, `<...>` destinations, and spaces in CJK/Emoji folder names) and cross-mode `#Heading` / `#^block` anchor scrolling across `Live`, `Read`, and `Source` views.
+
+**Large Vault Responsiveness & Frame-Time Optimization**
+- **Eliminated Per-Note `.jiyue/config.toml` Synchronous Disk I/O**:
+  - Cached daily note settings in memory on `Vault` (`daily_settings_cache`), refreshed only on vault load, settings update, or config reload.
+- **Virtualized Sidebar File Tree & Long Tag Lists**:
+  - Switched the sidebar file tree (when no inline rename/create input is active) and long tag lists (> 20 tags) to `gpui::uniform_list` virtual scrolling with cached flattened rows and center-aligned `reveal_path` scrolling.
+- **Inspector/Metadata Caching & Zero-Copy Editor Fast Paths**:
+  - Cached right-panel outline headings and YAML frontmatter blocks keyed by `(note.path, content_arc)` via `Arc::ptr_eq`, and cached file creation labels to remove repeated `fs::metadata` calls.
+  - Optimized editor `on_mouse_move` with binary-searched `StyleCache::style_at` ($O(\log N)$), allocation-free `bare_url_at` scanning, and `HoverMemo` $O(1)$ glyph-level early return; added `EditorState::text_arc()`/`state_id()` and a full layout bypass fast path plus viewport `partition_point` culling in `TextElement::prepaint` for non-editing repaints (cursor blink, hover, sidebar hover).
+
 ## [0.3.5] - 2026-11-16
 
 ### 中文

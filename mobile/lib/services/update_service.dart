@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 
 const String defaultRepoOwner = 'limitcool';
 const String defaultRepoName = 'jiyue';
-const String currentAppVersion = '0.3.5';
+const String currentAppVersion = '0.3.6';
 const Duration _networkTimeout = Duration(seconds: 12);
 const MethodChannel _updaterChannel =
     MethodChannel('cool.jiyue.jiyue_mobile/app_updater');
