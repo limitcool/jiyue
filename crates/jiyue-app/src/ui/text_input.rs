@@ -2668,6 +2668,30 @@ impl TextEditor {
         window.focus(&self.focus_handle);
     }
 
+    /// True when this editor currently holds keyboard focus in `window`.
+    pub fn is_focused(&self, window: &Window) -> bool {
+        self.focus_handle.is_focused(window)
+    }
+
+    /// Moves the caret to the character closest to window position `pos` and focuses the editor.
+    pub fn place_caret_at_window(
+        &mut self,
+        pos: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.read_only {
+            return;
+        }
+        window.focus(&self.focus_handle);
+        self.commit_composition();
+        let idx = self.index_at_window(pos);
+        self.goal_x = None;
+        self.hover_memo = None;
+        self.state.set_selection(idx, idx);
+        self.after_edit(cx);
+    }
+
     /// True while an IME composition is open (the marked text is not committed yet).
     pub fn is_composing(&self) -> bool {
         self.composition.is_some() || self.marked_range.is_some()

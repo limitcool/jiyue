@@ -172,7 +172,7 @@ impl LineInput {
             focus_handle: cx.focus_handle(),
             placeholder: placeholder.into(),
             state: TextState::new(""),
-            theme: ActiveTheme::dark(),
+            theme: crate::theme::current_theme(),
             password: false,
             disabled: false,
             error: false,
@@ -892,6 +892,10 @@ pub fn scroll_for_caret(caret_x: f32, total_w: f32, scroll: f32, view_w: f32) ->
 
 impl Render for LineInput {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let latest = crate::theme::current_theme();
+        if self.theme.kind != latest.kind {
+            self.theme = latest;
+        }
         let t = self.theme;
         let focused = self.focus_handle.is_focused(window);
         let disabled = self.disabled;

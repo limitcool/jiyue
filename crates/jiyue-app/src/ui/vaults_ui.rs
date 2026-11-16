@@ -1030,6 +1030,7 @@ pub struct VaultChooser {
 
 impl VaultChooser {
     pub fn new(_cx: &mut Context<Self>, kind: crate::theme::ThemeKind) -> Self {
+        crate::theme::set_current_theme(kind);
         let (store, warning) = vaults::load_store(&vaults::store_path());
         Self {
             kind,
@@ -1084,6 +1085,7 @@ impl VaultChooser {
 
 impl Render for VaultChooser {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::theme::set_current_theme(self.kind);
         let t = ActiveTheme::from_kind(self.kind);
         let me = cx.entity();
         let rows = vaults::recent_rows(&self.store, None, |p| Path::new(p).is_dir());

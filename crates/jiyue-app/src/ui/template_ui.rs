@@ -15,7 +15,8 @@
 mod pure;
 mod settings;
 
-pub use settings::{daily_template_row, folder_row};
+pub use pure::{choose_folder, moment, row_col};
+pub use settings::{daily_template_row, folder_row, inbox_template_row, todo_template_row};
 
 use gpui::{
     AnyElement, Context, Entity, FontWeight, IntoElement, KeyDownEvent, MouseButton, SharedString,
@@ -42,6 +43,10 @@ pub enum Command {
     Insert,
     /// 用模板新建笔记…
     NewNote,
+    /// 在待办目录新建一篇待办清单笔记
+    NewTodoNote,
+    /// 在模板目录生成标准模板文件（日记、待办、随手记）
+    InitStandardTemplates,
 }
 
 /// What the picker does with the chosen template.
@@ -163,6 +168,32 @@ fn confirm(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
 }
 
 /// Variables of a template for the note `title` at `path`.
+pub(crate) fn render_template_for_note(
+    app: &RustdianApp,
+    template: &str,
+    title: &str,
+    path: &str,
+    selection: &str,
+    cx: &gpui::App,
+) -> Option<jiyue_export::RenderedTemplate> {
+    let now = pure::moment(jiyue_history::system_now_ms())?;
+    let clipboard = cx
+        .read_from_clipboard()
+        .and_then(|item| item.text())
+        .unwrap_or_default();
+    let vault = app
+        .vault
+        .root_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let mut ctx = TemplateCtx::new(now, title, path, &vault, Locale::Zh);
+    ctx.clipboard = clipboard;
+    ctx.selection = selection.to_owned();
+    ctx.uuid_seed = jiyue_history::system_now_ms() as u64;
+    Some(render_template(template, &ctx))
+}
+
 fn context(
     app: &RustdianApp,
     title: &str,
@@ -287,11 +318,57 @@ fn new_note_from(
     app.toast(ToastKind::Success, format!("已用模板新建笔记：{stem}"));
 }
 
+/// Creates a new note in the configured todo folder using the todo template (or built-in).
+pub fn new_todo_note(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    let root = app.vault.root_dir.clone();
+    let inbox = jiyue_core::inbox::InboxSettings::load(&root);
+    let todo_dir = inbox.todo_folder.trim().replace('\\', "/");
+    let todo_dir = todo_dir.trim_matches('/');
+    if !todo_dir.is_empty() && !root.join(todo_dir).is_dir() {
+        let _ = fsops::create_folder(&root, todo_dir);
+    }
+    match files_ui::actions::create_note(app, todo_dir, pure::NEW_NOTE_TITLE, cx) {
+        Ok(_) => app.toast(ToastKind::Success, "已在待办目录新建待办清单"),
+        Err(msg) => app.toast(ToastKind::Error, msg),
+    }
+    cx.notify();
+}
+
+/// Generates standard daily / todo / inbox templates into the configured templates folder
+/// without overwriting existing files.
+pub fn init_standard_templates(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    let root = app.vault.root_dir.clone();
+    let configured = TemplateRules::load(&root).templates_folder;
+    let folder = pure::choose_folder(&configured, |f| root.join(f).is_dir());
+    match jiyue_core::inbox::ensure_standard_templates(&root, &folder) {
+        Ok(created) if created.is_empty() => {
+            app.toast(
+                ToastKind::Info,
+                format!("「{folder}」中已包含全套标准模板，未覆盖现有文件"),
+            );
+        }
+        Ok(created) => {
+            files_ui::actions::reload(app, &[], cx);
+            files_ui::expand_folder(app, &folder);
+            app.toast(
+                ToastKind::Success,
+                format!("已在「{folder}」生成 {} 个标准模板", created.len()),
+            );
+        }
+        Err(err) => {
+            app.toast(ToastKind::Error, format!("生成标准模板失败：{err}"));
+        }
+    }
+    cx.notify();
+}
+
 /// Runs a command of this module.
 pub fn run(app: &mut RustdianApp, cmd: Command, cx: &mut Context<RustdianApp>) {
     match cmd {
         Command::Insert => open(app, Mode::Insert, cx),
         Command::NewNote => open(app, Mode::NewNote, cx),
+        Command::NewTodoNote => new_todo_note(app, cx),
+        Command::InitStandardTemplates => init_standard_templates(app, cx),
     }
 }
 
@@ -309,6 +386,18 @@ pub fn palette_commands() -> Vec<PaletteCommand> {
             icon: "square-rounded-plus",
             shortcut: "",
             command: AppCommand::Ext(ExtCommand::Template(Command::NewNote)),
+        },
+        PaletteCommand {
+            label: "新建待办清单",
+            icon: "checkbox",
+            shortcut: "",
+            command: AppCommand::Ext(ExtCommand::Template(Command::NewTodoNote)),
+        },
+        PaletteCommand {
+            label: "生成标准模板文件",
+            icon: "sparkles",
+            shortcut: "",
+            command: AppCommand::Ext(ExtCommand::Template(Command::InitStandardTemplates)),
         },
     ]
 }
@@ -380,7 +469,7 @@ pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElem
                 .text_size(px(13.0))
                 .text_color(t.tx3)
                 .child(SharedString::from(format!(
-                    "「{}」文件夹里没有模板。把笔记放进这个文件夹即可。可在 设置 → 日记 中修改文件夹。",
+                    "「{}」文件夹里没有模板。把笔记放进这个文件夹即可。可在 设置 → 目录与模板 中修改文件夹或一键生成标准模板。",
                     s.folder
                 ))),
         );

@@ -3319,7 +3319,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "fluent-bundle",
  "futures-channel",
@@ -3338,6 +3338,7 @@ dependencies = [
  "jiyue-sync",
  "pulldown-cmark",
  "qrcode",
+ "raw-window-handle",
  "reqwest",
  "serde",
  "serde_json",
@@ -3346,12 +3347,14 @@ dependencies = [
  "time",
  "toml 0.8.23",
  "unic-langid",
+ "windows 0.61.3",
+ "windows-core 0.61.2",
  "winresource",
 ]
 
 [[package]]
 name = "jiyue-ai"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "reqwest",
  "serde",
@@ -3362,7 +3365,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-core"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "notify",
  "serde",
@@ -3375,7 +3378,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-diagram"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "blake3",
  "fontdb 0.23.0",
@@ -3390,7 +3393,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-export"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "jiyue-core",
  "jiyue-md",
@@ -3401,7 +3404,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-ffi"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "jiyue-core",
  "jiyue-md",
@@ -3413,7 +3416,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-history"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "blake3",
  "lz4_flex",
@@ -3424,7 +3427,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-math"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "blake3",
  "image",
@@ -3435,7 +3438,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-mcp"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "blake3",
  "jiyue-core",
@@ -3447,7 +3450,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-md"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "blake3",
  "imagesize 0.15.0",
@@ -3458,7 +3461,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-memos"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "reqwest",
  "serde",
@@ -3469,7 +3472,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-query"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "jiyue-md",
  "serde",
@@ -3478,7 +3481,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-search"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "serde",
  "tantivy",
@@ -3486,7 +3489,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-sync"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "blake3",
  "opendal",

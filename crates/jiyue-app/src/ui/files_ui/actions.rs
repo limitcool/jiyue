@@ -47,7 +47,51 @@ pub struct RenameStep {
 // Create
 // ---------------------------------------------------------------------------
 
+fn dir_matches_rule(dir: &str, folder: &str) -> bool {
+    let d = dir.trim().replace('\\', "/");
+    let d = d.trim_matches('/');
+    let f = folder.trim().replace('\\', "/");
+    let f = f.trim_matches('/');
+    if d.is_empty() || f.is_empty() {
+        return false;
+    }
+    d.eq_ignore_ascii_case(f)
+        || (d.len() > f.len()
+            && d.as_bytes()[f.len()] == b'/'
+            && d[..f.len()].eq_ignore_ascii_case(f))
+}
+
+fn resolve_folder_template(root: &Path, dir: &str) -> Option<String> {
+    let rules = jiyue_export::TemplateRules::load(root);
+    if let Some(tpl_path) = rules.default_template_for(dir)
+        && let Some(text) = jiyue_export::templates::read_template(root, tpl_path)
+    {
+        return Some(text);
+    }
+    let inbox = jiyue_core::inbox::InboxSettings::load(root);
+    if dir_matches_rule(dir, &inbox.todo_folder) {
+        let custom = inbox.todo_template_path.trim();
+        if !custom.is_empty()
+            && let Some(text) = jiyue_export::templates::read_template(root, custom)
+        {
+            return Some(text);
+        }
+        return Some(jiyue_core::inbox::DEFAULT_TODO_TEMPLATE.to_string());
+    }
+    if dir_matches_rule(dir, &inbox.folder) {
+        let custom = inbox.inbox_template_path.trim();
+        if !custom.is_empty()
+            && let Some(text) = jiyue_export::templates::read_template(root, custom)
+        {
+            return Some(text);
+        }
+        return Some(jiyue_core::inbox::DEFAULT_INBOX_CARD_TEMPLATE.to_string());
+    }
+    None
+}
+
 /// Creates the note `title` in `dir` and opens it in Source mode with the caret in the body.
+/// Automatically applies a folder template when one matches `dir`.
 pub fn create_note(
     app: &mut RustdianApp,
     dir: &str,
@@ -56,12 +100,41 @@ pub fn create_note(
 ) -> Result<String, String> {
     let root = app.vault.root_dir.clone();
     let rel = fsops::create_note(&root, dir, title).map_err(|err| pure::fs_error_zh(&err))?;
-    autoname::track_new(app, &rel);
+
+    let mut caret_pos: Option<(usize, usize)> = None;
+    let mut skip_autoname = false;
+    if let Some(tpl) = resolve_folder_template(&root, dir) {
+        let stem = Path::new(&rel)
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| title.to_string());
+        if let Some(rendered) =
+            crate::ui::template_ui::render_template_for_note(app, &tpl, &stem, &rel, "", cx)
+            && fsops::write_atomic(&root.join(&rel), rendered.text.as_bytes()).is_ok()
+        {
+            let off = rendered.cursor_offset.unwrap_or(rendered.text.len());
+            caret_pos = Some(crate::ui::template_ui::row_col(&rendered.text, off));
+            let is_default_untitled = stem == "无标题"
+                || stem.starts_with("无标题 ")
+                || crate::ui::files_ui::autoname::pure::is_default_name(&stem);
+            if !is_default_untitled {
+                skip_autoname = true;
+            }
+        }
+    }
+
+    if !skip_autoname {
+        autoname::track_new(app, &rel);
+    }
     super::expand_folder(app, dir);
     reload(app, &[], cx);
     if let Some(idx) = app.note_index(&rel) {
         app.open_note_by_index(idx);
-        app.pending_new_note = true;
+        if let Some((row, col)) = caret_pos {
+            app.request_source_caret(row, col);
+        } else {
+            app.pending_new_note = true;
+        }
     }
     super::reveal_path(app, &rel);
     cx.notify();

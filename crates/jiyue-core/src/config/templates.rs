@@ -91,6 +91,22 @@ date_format = "YYYY-MM-DD"
 # 新建日记使用的模板文件（相对笔记库根目录）。留空 = 不使用模板。
 template_path = ""
 
+[inbox]
+# 随手记 / 收集箱所在文件夹（相对笔记库根目录）。
+folder = "Inbox"
+# 待办清单所在文件夹（相对笔记库根目录）。
+todo_folder = "Todo"
+# 快速捕捉默认保存方式："stream_file"（流文件）、"daily_note"（今日日记）或 "card_note"（独立卡片）。
+capture_mode = "stream_file"
+# 流文件命名（支持字面文件名如 "随手记" 或日期格式 "YYYY-MM" / "YYYY"）。
+stream_file = "随手记"
+# 侧栏待办默认聚合范围："core_folders"（仅核心目录）或 "all_notes"（全库）。
+todo_scope = "core_folders"
+# 随手记卡片模板（相对笔记库根目录，留空 = 内置标准模板）。
+inbox_template_path = ""
+# 待办清单模板（相对笔记库根目录，留空 = 内置标准模板）。
+todo_template_path = ""
+
 [templates]
 # 模板所在的文件夹。
 templates_folder = "Templates"

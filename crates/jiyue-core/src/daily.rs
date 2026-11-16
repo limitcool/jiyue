@@ -388,9 +388,9 @@ pub fn parse_date(s: &str, fmt: &str) -> Option<Date> {
 // ---------------------------------------------------------------------------
 
 /// Render a template. Placeholders:
-/// `{{date}}` (formatted with `date_format`), `{{date:FORMAT}}`, `{{title}}`,
-/// `{{weekday}}`, `{{time}}` (the supplied `hhmm`). Unknown placeholders are
-/// left unchanged.
+/// `{{date}}` (formatted with `date_format`), `{{date:FORMAT}}`, `{{date+Nd}}`, `{{date-Nd}}`,
+/// `{{date-1d:FORMAT}}`, `{{title}}`, `{{weekday}}`, `{{time}}`, `{{datetime}}`, `{{cursor}}`
+/// (stripped). Unknown placeholders are left unchanged.
 pub fn render_template(
     tpl: &str,
     date: Date,
@@ -413,7 +413,9 @@ pub fn render_template(
             "title" => Some(title.to_string()),
             "weekday" => Some(weekday_name_zh(date).to_string()),
             "time" => Some(hhmm.to_string()),
-            _ => inner.strip_prefix("date:").map(|f| format_date(date, f)),
+            "datetime" => Some(format!("{} {}", format_date(date, date_format), hhmm)),
+            "cursor" => Some(String::new()),
+            _ => render_date_expr(inner, date, date_format),
         };
         match replacement {
             Some(text) => out.push_str(&text),
@@ -423,6 +425,34 @@ pub fn render_template(
     }
     out.push_str(rest);
     out
+}
+
+fn render_date_expr(inner: &str, base: Date, default_fmt: &str) -> Option<String> {
+    let tail = inner.strip_prefix("date")?;
+    if let Some(fmt) = tail.strip_prefix(':') {
+        return Some(format_date(base, fmt));
+    }
+    let sign: i64 = if tail.starts_with('-') {
+        -1
+    } else if tail.starts_with('+') {
+        1
+    } else {
+        return None;
+    };
+    let num_part = &tail[1..];
+    let digits = num_part.bytes().take_while(|b| b.is_ascii_digit()).count();
+    if digits == 0 || digits > 6 {
+        return None;
+    }
+    let days: i64 = num_part[..digits].parse().ok()?;
+    let after_digits = &num_part[digits..];
+    let after_unit = after_digits.strip_prefix('d')?;
+    let fmt = if after_unit.is_empty() {
+        default_fmt
+    } else {
+        after_unit.strip_prefix(':')?
+    };
+    Some(format_date(base.add_days(sign * days), fmt))
 }
 
 // ---------------------------------------------------------------------------
@@ -523,7 +553,7 @@ impl Vault {
         let settings = self.daily_settings();
         let title = format_date(date, &settings.date_format);
         let rel = Self::daily_rel_path(&settings, date);
-        let rel_str = rel.to_string_lossy().into_owned();
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
         let abs = self.root_dir.join(&rel);
         let wanted = norm_path(&rel_str);
 
@@ -774,9 +804,12 @@ mod tests {
 
     #[test]
     fn template_placeholders() {
-        let tpl = "{{title}}|{{date}}|{{date:YY/MM/DD}}|{{weekday}}|{{time}}|{{unknown}}|{{date:[Day] D}}";
+        let tpl = "{{title}}|{{date}}|{{date:YY/MM/DD}}|{{date-1d}}|{{date+1d:YYYY/MM/DD}}|{{weekday}}|{{time}}|{{datetime}}|{{cursor}}end|{{unknown}}|{{date:[Day] D}}";
         let out = render_template(tpl, d(2026, 11, 4), "T", "YYYY-MM-DD", "21:05");
-        assert_eq!(out, "T|2026-11-04|26/11/04|星期三|21:05|{{unknown}}|Day 4");
+        assert_eq!(
+            out,
+            "T|2026-11-04|26/11/04|2026-11-03|2026/11/05|星期三|21:05|2026-11-04 21:05|end|{{unknown}}|Day 4"
+        );
         let unclosed = render_template("a {{date", d(2026, 11, 4), "T", "YYYY-MM-DD", "00:00");
         assert_eq!(unclosed, "a {{date");
     }
@@ -909,6 +942,28 @@ mod tests {
             .find(|n| n.title == "普通笔记")
             .expect("regular note exists");
         assert!(!vault.is_daily_note(regular));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn daily_in_nested_subfolder_can_be_deleted_to_trash() {
+        let dir = temp_vault("nested-delete");
+        DailySettings {
+            folder: "笔记/日记".into(),
+            ..DailySettings::default()
+        }
+        .save(&dir)
+        .unwrap();
+        let mut vault = Vault::open_or_create(&dir);
+        let date = d(2026, 11, 17);
+        let idx = vault.open_or_create_daily(date).unwrap();
+        let rel = vault.notes[idx].path.clone();
+        assert_eq!(rel, "笔记/日记/2026-11-17.md");
+        assert!(!rel.contains('\\'));
+        crate::fsops::delete_to_trash(&vault.root_dir, &rel)
+            .expect("nested daily note must trash cleanly");
+        assert!(!vault.root_dir.join(&rel).exists());
 
         let _ = fs::remove_dir_all(&dir);
     }

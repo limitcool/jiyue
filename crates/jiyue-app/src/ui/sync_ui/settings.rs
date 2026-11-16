@@ -782,6 +782,14 @@ fn test_card(t: &ActiveTheme, test: &TestState) -> Option<AnyElement> {
                 .text_color(t.tx3)
                 .child("在桶上开启版本控制后，才能恢复历史版本。应用不会修改桶的设置。"),
         );
+    } else if report.message.contains("s3:ListBucketVersions") {
+        card = card.child(
+            div()
+                .pt(px(6.0))
+                .text_size(px(12.0))
+                .text_color(t.tx3)
+                .child("桶已开启版本控制，但策略缺少 s3:ListBucketVersions 权限：日常同步与删除不受影响；如需查看远端历史版本，请在桶级策略中添加 s3:ListBucketVersions。"),
+        );
     }
     if !report.conditional_put_supported {
         card = card.child(

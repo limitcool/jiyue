@@ -227,10 +227,11 @@ fn font_row(
             }),
         );
     }
+    let mut wrap = div().relative().flex_none().w(px(240.0)).child(trigger);
     if open && let Some(panel) = picker_panel(app, cx, slot, value) {
-        return form_row_with_extra(&t, &title, &desc, trigger, panel, last);
+        wrap = wrap.child(gpui::deferred(panel).with_priority(10));
     }
-    form_row(&t, &title, &desc, trigger, last)
+    form_row(&t, &title, &desc, wrap, last)
 }
 
 /// The searchable list under a font row: the default entry first, then the matches.
@@ -301,13 +302,16 @@ fn picker_panel(
 
     Some(
         div()
-            .ml_auto()
-            .w(px(260.0))
+            .absolute()
+            .top(px(CONTROL_MD + 4.0))
+            .right_0()
+            .w(px(280.0))
             .rounded(px(RADIUS_M))
             .border_1()
             .border_color(t.border_default)
-            .bg(t.surface)
-            .shadow_md()
+            .bg(t.elevated)
+            .shadow_lg()
+            .occlude()
             .overflow_hidden()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_mouse_down_out(cx.listener(|this, _, _, cx| {

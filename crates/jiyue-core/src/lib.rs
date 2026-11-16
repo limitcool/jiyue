@@ -8,6 +8,7 @@ pub mod config;
 pub mod daily;
 pub mod editor_state;
 pub mod fsops;
+pub mod inbox;
 pub mod links;
 pub mod md_edit;
 pub mod platform;

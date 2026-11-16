@@ -7,12 +7,16 @@
 //! Text edits go through `TextEditor::set_text_undoable`, which changes only the bytes that differ
 //! and records one undo step, so Ctrl+Z reverts a property or link edit. The note is saved at once.
 
+pub mod clipboard_win;
+pub mod drop_win;
 pub mod import;
 pub mod index;
 pub mod props;
 pub mod resolve;
 pub mod settings;
 pub mod view;
+
+pub use drop_win::install_window_drop;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -27,7 +31,7 @@ use crate::session::ViewMode;
 use crate::ui::ext::{ExtCommand, ExtEvent, PaletteCommand, ToastKind};
 use crate::ui::widgets::LineInput;
 use import::{Outcome, Source};
-use jiyue_md::attach::AttachSettings;
+use jiyue_md::attach::{AttachSettings, LinkStyle};
 use resolve::VaultFiles;
 
 /// An open inline editor of a property value.
@@ -81,6 +85,8 @@ pub struct State {
     /// Vault data of the live view's image and note widgets, shared with every editor (see
     /// `ui/text_input/context.rs`). Synced once per frame by the app.
     pub live: crate::ui::text_input::context::LiveHandle,
+    /// True while a native OS file/image drag is hovering over the window.
+    pub os_drag_over: bool,
 }
 
 impl State {
@@ -120,9 +126,8 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     // This interceptor runs before the bindings: when Ctrl+V would import a clipboard image, the
     // binding is skipped and the key listener (`handle_key`) does the import.
     let weak = cx.entity().downgrade();
-    app.ext.attach.key_intercept = Some(cx.intercept_keystrokes(move |ev, _window, cx| {
-        // Backspace in an empty 添加标签 field removes the note's last tag. Handled here, before
-        // the text field sees the key, because an empty field reports no change of its own.
+    app.ext.attach.key_intercept = Some(cx.intercept_keystrokes(move |ev, window, cx| {
+        // Backspace in a focused empty 添加标签 field removes the note's last tag.
         if ev.keystroke.key == "backspace" {
             let m = ev.keystroke.modifiers;
             if m.control || m.alt || m.platform {
@@ -131,7 +136,7 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
             let Some(entity) = weak.upgrade() else {
                 return;
             };
-            if tag_field_is_empty(entity.read(cx), cx) {
+            if tag_field_is_focused_and_empty(entity.read(cx), window, cx) {
                 cx.stop_propagation();
                 entity.update(cx, remove_last_tag);
             }
@@ -152,7 +157,7 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         let Some(entity) = weak.upgrade() else {
             return;
         };
-        if !paste_takes_image(entity.read(cx), cx) {
+        if !paste_takes_image(entity.read(cx), window, cx) {
             return;
         }
         // Stopping here also ends the key dispatch, so the import runs now, from the interceptor.
@@ -161,13 +166,12 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     }));
 }
 
-/// True when the 添加标签 field is open and empty.
-fn tag_field_is_empty(app: &RustdianApp, cx: &App) -> bool {
-    app.ext
-        .attach
-        .tag_input
-        .as_ref()
-        .is_some_and(|(input, _)| input.read(cx).text().is_empty())
+/// True when the 添加标签 field is open, focused in `window`, and empty.
+fn tag_field_is_focused_and_empty(app: &RustdianApp, window: &gpui::Window, cx: &App) -> bool {
+    app.ext.attach.tag_input.as_ref().is_some_and(|(input, _)| {
+        let field = input.read(cx);
+        field.is_focused(window) && field.text().is_empty()
+    })
 }
 
 /// Removes the last tag of the active note (Backspace in an empty 添加标签 field).
@@ -182,23 +186,27 @@ fn remove_last_tag(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     }
 }
 
-/// Imports the clipboard image at the caret of the open note (Ctrl+V in Source).
+/// Imports the clipboard image or copied files at the caret of the open note (Ctrl+V).
 fn import_clipboard_at_caret(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
-    if let Some((ext, bytes)) = clipboard_image(cx) {
-        import_sources(app, vec![Source::Clipboard { bytes, ext }], true, cx);
+    let sources = clipboard_sources(cx);
+    if !sources.is_empty() {
+        import_sources(app, sources, true, cx);
     }
 }
 
-/// True when Ctrl+V should import a clipboard image: a note is open in Source, no overlay is
-/// open, and the clipboard holds an image.
-fn paste_takes_image(app: &RustdianApp, cx: &App) -> bool {
-    app.view_mode.is_source()
-        && app.active_path().is_some()
+/// True when Ctrl+V should import a clipboard image or file: the active note's editor is focused
+/// in Source or Live mode, no overlay is open, and the clipboard holds media.
+fn paste_takes_image(app: &RustdianApp, window: &gpui::Window, cx: &App) -> bool {
+    app.viewport_mode == crate::ViewportMode::Editor
+        && matches!(app.view_mode, ViewMode::Source | ViewMode::Live)
         && !app.show_palette
         && !app.settings.open
-        && !app.ext.attach.settings_open
-        && app.ext.attach.lightbox.is_none()
-        && clipboard_has_image(cx)
+        && !crate::ui::ext::overlay_open(app)
+        && app
+            .active_path()
+            .and_then(|path| app.editor_for(path))
+            .is_some_and(|editor| editor.read(cx).is_focused(window))
+        && clipboard_has_pasteable(cx)
 }
 
 /// Lightbox and the settings modal.
@@ -229,10 +237,23 @@ pub fn handle_key(app: &mut RustdianApp, ev: &KeyDownEvent, cx: &mut Context<Rus
     false
 }
 
-/// Module events: the index follows the vault files.
+/// Module events: the index follows the vault files; active inline fields follow note switches and theme.
 pub fn on_event(app: &mut RustdianApp, ev: &ExtEvent, cx: &mut Context<RustdianApp>) {
-    if matches!(ev, ExtEvent::Started | ExtEvent::VaultFilesChanged(_)) {
-        refresh_index(app, cx);
+    match ev {
+        ExtEvent::Started | ExtEvent::VaultFilesChanged(_) => refresh_index(app, cx),
+        ExtEvent::NoteOpened(_) => {
+            app.ext.attach.tag_input = None;
+            app.ext.attach.prop_edit = None;
+            app.ext.attach.key_edit = None;
+        }
+        ExtEvent::ThemeChanged => {
+            let theme = app.theme;
+            if let Some(input) = app.ext.attach.folder_input.as_ref() {
+                let input = input.clone();
+                input.update(cx, |field, cx| field.set_theme(theme, cx));
+            }
+        }
+        _ => {}
     }
 }
 
@@ -321,41 +342,151 @@ pub fn refresh_index(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
 // Import
 // ---------------------------------------------------------------------------
 
-/// The clipboard's image bytes, if it holds an image.
-fn clipboard_image(cx: &App) -> Option<(Option<&'static str>, Vec<u8>)> {
+#[cfg(not(windows))]
+fn is_image_path(path: &std::path::Path) -> bool {
+    path.is_file()
+        && path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| {
+                matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg"
+                )
+            })
+}
+
+fn clipboard_gpui_image(cx: &App) -> Option<Source> {
     let item = cx.read_from_clipboard()?;
     item.entries().iter().find_map(|entry| match entry {
-        ClipboardEntry::Image(image) => {
-            Some((import::ext_for_format(image.format), image.bytes.clone()))
-        }
+        ClipboardEntry::Image(image) => Some(Source::Clipboard {
+            bytes: image.bytes.clone(),
+            ext: import::ext_for_format(image.format),
+        }),
         _ => None,
     })
 }
 
-/// True when the clipboard holds an image (without copying it).
-fn clipboard_has_image(cx: &App) -> bool {
-    cx.read_from_clipboard().is_some_and(|item| {
-        item.entries()
-            .iter()
-            .any(|entry| matches!(entry, ClipboardEntry::Image(_)))
-    })
+/// Sources available from the clipboard (encoded images, `CF_DIB` screenshots, or copied image files).
+fn clipboard_sources(cx: &App) -> Vec<Source> {
+    #[cfg(windows)]
+    {
+        let sources = clipboard_win::read_pasteable_sources();
+        if !sources.is_empty() {
+            return sources;
+        }
+    }
+    if let Some(src) = clipboard_gpui_image(cx) {
+        return vec![src];
+    }
+    #[cfg(not(windows))]
+    if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() && !trimmed.contains(['\n', '\r']) {
+            let path = PathBuf::from(trimmed);
+            if is_image_path(&path) {
+                return vec![Source::File(path)];
+            }
+        }
+    }
+    Vec::new()
 }
 
-/// Ctrl+V from the palette: switches to Source and imports the clipboard image at the end of the note.
+/// True when the clipboard holds pasteable image bytes or files.
+fn clipboard_has_pasteable(cx: &App) -> bool {
+    #[cfg(windows)]
+    {
+        clipboard_win::has_pasteable_media() || clipboard_gpui_image(cx).is_some()
+    }
+    #[cfg(not(windows))]
+    {
+        !clipboard_sources(cx).is_empty()
+    }
+}
+
+/// Ctrl+V or palette: imports the clipboard image/file at the caret when editing.
 fn paste_image(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     if app.active_path().is_none() {
         app.toast(ToastKind::Warn, "没有打开的笔记");
         return;
     }
-    let Some((ext, bytes)) = clipboard_image(cx) else {
+    let sources = clipboard_sources(cx);
+    if sources.is_empty() {
         app.toast(ToastKind::Warn, "剪贴板里没有图片");
         return;
-    };
-    import_sources(app, vec![Source::Clipboard { bytes, ext }], false, cx);
+    }
+    let at_caret = matches!(app.view_mode, ViewMode::Source | ViewMode::Live);
+    import_sources(app, sources, at_caret, cx);
 }
 
-/// Files dropped on the editor. Inserted at the caret in Source mode, else appended.
-pub fn drop_files(app: &mut RustdianApp, paths: &[PathBuf], cx: &mut Context<RustdianApp>) {
+/// Resolves an OS file path inside `vault_root` to a vault-relative Markdown note path.
+fn vault_note_rel(vault_root: &std::path::Path, file: &std::path::Path) -> Option<String> {
+    let rel = if let Ok(r) = file.strip_prefix(vault_root) {
+        r.to_path_buf()
+    } else {
+        let root_c = std::fs::canonicalize(vault_root).ok()?;
+        let file_c = std::fs::canonicalize(file).ok()?;
+        file_c.strip_prefix(&root_c).ok()?.to_path_buf()
+    };
+    let rel_str = rel.to_string_lossy().replace('\\', "/");
+    rel_str.ends_with(".md").then_some(rel_str)
+}
+
+/// Handles external files or clipboard images dropped onto the editor window.
+/// Moves the caret to `at_pos` when editing in Source or Live mode before importing.
+pub fn drop_sources_at(
+    app: &mut RustdianApp,
+    sources: Vec<Source>,
+    at_pos: Option<gpui::Point<gpui::Pixels>>,
+    window: &mut gpui::Window,
+    cx: &mut Context<RustdianApp>,
+) {
+    if sources.is_empty()
+        || app.show_palette
+        || app.settings.open
+        || crate::ui::ext::overlay_open(app)
+    {
+        return;
+    }
+    let Some(note_path) = app.active_path().map(str::to_string) else {
+        let mut opened = false;
+        for src in &sources {
+            if let Source::File(path) = src
+                && let Some(rel) = vault_note_rel(&app.vault.root_dir, path)
+                && let Some(idx) = app.note_index(&rel)
+            {
+                app.open_note_by_index(idx);
+                opened = true;
+            }
+        }
+        if !opened {
+            app.toast(ToastKind::Warn, "请先打开一篇笔记再拖入图片或附件");
+        }
+        cx.notify();
+        return;
+    };
+
+    let at_caret = app.viewport_mode == crate::ViewportMode::Editor
+        && matches!(app.view_mode, ViewMode::Source | ViewMode::Live);
+    if at_caret && let Some(pos) = at_pos {
+        app.ensure_editor(&note_path, cx);
+        if let Some(editor) = app.editor_for(&note_path) {
+            editor.update(cx, |ed, cx| {
+                ed.place_caret_at_window(pos, window, cx);
+            });
+        }
+    }
+    import_sources(app, sources, at_caret, cx);
+}
+
+/// Files dropped from the OS via GPUI `ExternalPaths` (macOS / Linux).
+pub fn drop_files(
+    app: &mut RustdianApp,
+    paths: &[PathBuf],
+    at_pos: Option<gpui::Point<gpui::Pixels>>,
+    window: &mut gpui::Window,
+    cx: &mut Context<RustdianApp>,
+) {
     let sources: Vec<Source> = paths
         .iter()
         .filter(|p| p.is_file())
@@ -366,8 +497,163 @@ pub fn drop_files(app: &mut RustdianApp, paths: &[PathBuf], cx: &mut Context<Rus
         app.toast(ToastKind::Warn, "拖入的不是文件");
         return;
     }
-    let at_caret = app.view_mode.is_source();
-    import_sources(app, sources, at_caret, cx);
+    drop_sources_at(app, sources, at_pos, window, cx);
+}
+
+/// Percent-encodes one path segment matching `jiyue_md::attach` link conventions.
+fn encode_link_segment(seg: &str) -> String {
+    let mut out = String::with_capacity(seg.len());
+    for b in seg.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// Relative, percent-encoded href from folder `from_dir` to vault-relative file `target_rel`.
+pub(crate) fn relative_href(from_dir: &str, target_rel: &str) -> String {
+    let from: Vec<&str> = from_dir.split('/').filter(|s| !s.is_empty()).collect();
+    let target: Vec<&str> = target_rel.split('/').filter(|s| !s.is_empty()).collect();
+    let common = from
+        .iter()
+        .zip(target.iter())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut parts = Vec::new();
+    for _ in common..from.len() {
+        parts.push("..".to_string());
+    }
+    for seg in &target[common..] {
+        parts.push(encode_link_segment(seg));
+    }
+    parts.join("/")
+}
+
+/// Formats a vault-relative file dropped from the sidebar tree as a Markdown/Wiki link.
+pub(crate) fn format_tree_link(
+    target_rel: &str,
+    active_note_path: &str,
+    link_style: LinkStyle,
+    dup_note_stem: bool,
+    dup_file_name: bool,
+) -> String {
+    let name = resolve::basename(target_rel);
+    if let Some(stem_rel) = target_rel.strip_suffix(".md") {
+        let stem = name.strip_suffix(".md").unwrap_or(name);
+        let target = if dup_note_stem { stem_rel } else { stem };
+        return format!("[[{target}]]");
+    }
+    let stem = name.rsplit_once('.').map_or(name, |(s, _)| s);
+    match link_style {
+        LinkStyle::WikiEmbed => {
+            let target = if dup_file_name { target_rel } else { name };
+            format!("![[{target}]]")
+        }
+        LinkStyle::Markdown => {
+            let href = relative_href(resolve::dir_of(active_note_path), target_rel);
+            if jiyue_md::embeds::embed_kind(target_rel) == jiyue_md::embeds::EmbedKind::Image {
+                format!("![{stem}]({href})")
+            } else {
+                format!("[{name}]({href})")
+            }
+        }
+    }
+}
+
+/// Handles items dragged from the left file tree onto the editor at `pos`, inserting links.
+pub fn drop_tree_items_at(
+    app: &mut RustdianApp,
+    items: &[(String, bool)],
+    pos: gpui::Point<gpui::Pixels>,
+    window: &mut gpui::Window,
+    cx: &mut Context<RustdianApp>,
+) {
+    app.ext.files.drag_hover = None;
+    if app.show_palette || app.settings.open || crate::ui::ext::overlay_open(app) {
+        return;
+    }
+    let Some(note_path) = app.active_path().map(str::to_string) else {
+        let mut opened = false;
+        for (path, is_dir) in items {
+            if !*is_dir
+                && path.ends_with(".md")
+                && let Some(idx) = app.note_index(path)
+            {
+                app.open_note_by_index(idx);
+                opened = true;
+            }
+        }
+        if !opened {
+            app.toast(ToastKind::Warn, "请先打开一篇笔记");
+        }
+        cx.notify();
+        return;
+    };
+
+    let link_style = app.ext.attach.settings.link_style;
+    let mut links = Vec::new();
+    for (path, is_dir) in items {
+        if *is_dir {
+            continue;
+        }
+        let name = resolve::basename(path);
+        let dup_note_stem = if let Some(stem) = name.strip_suffix(".md") {
+            app.vault
+                .notes
+                .iter()
+                .filter(|n| resolve::basename(&n.path).strip_suffix(".md") == Some(stem))
+                .count()
+                > 1
+        } else {
+            false
+        };
+        let dup_file_name = app
+            .ext
+            .attach
+            .files
+            .files
+            .iter()
+            .filter(|f| resolve::basename(f) == name)
+            .count()
+            > 1;
+        links.push(format_tree_link(
+            path,
+            &note_path,
+            link_style,
+            dup_note_stem,
+            dup_file_name,
+        ));
+    }
+    if links.is_empty() {
+        return;
+    }
+
+    if app.view_mode == ViewMode::Read {
+        app.set_view_mode(ViewMode::Live);
+    }
+    app.ensure_editor(&note_path, cx);
+    let Some(editor) = app.editor_for(&note_path) else {
+        return;
+    };
+    let live_mode = app.view_mode == ViewMode::Live;
+    let (text, row, col) = editor.update(cx, |ed, cx| {
+        ed.set_read_only(false, cx);
+        ed.set_live(live_mode, cx);
+        ed.place_caret_at_window(pos, window, cx);
+        let (r, c) = ed.cursor_row_col();
+        (ed.text(), r, c)
+    });
+    let joined = links.join(" ");
+    let (new_text, r, c) = import::insert_at(&text, row - 1, col - 1, &joined);
+    editor.update(cx, |ed, cx| {
+        ed.set_text_undoable(&new_text, cx);
+        ed.set_caret_to_row_col(r, c, cx);
+    });
+    app.save_path(&note_path, cx);
+    cx.notify();
 }
 
 /// Imports `sources` for the active note: the files are copied on a background thread, then the
@@ -465,8 +751,8 @@ fn finish_import(
         ed.set_caret_to_row_col(r, c, cx);
     });
     app.save_path(note_path, cx);
-    if is_active && !app.view_mode.is_source() {
-        app.set_view_mode(ViewMode::Source);
+    if is_active && app.view_mode == ViewMode::Read {
+        app.set_view_mode(ViewMode::Live);
     }
 
     let message = if saved.len() == 1 {
@@ -1008,6 +1294,44 @@ mod link_resolution_tests {
         assert_eq!(
             links::resolve_link(&refs, "💻 后端与数据库/README", "README.md"),
             Some(0)
+        );
+    }
+
+    #[test]
+    fn tree_drop_formats_notes_and_attachments() {
+        assert_eq!(
+            format_tree_link(
+                "笔记/随笔.md",
+                "首页.md",
+                LinkStyle::WikiEmbed,
+                false,
+                false
+            ),
+            "[[随笔]]"
+        );
+        assert_eq!(
+            format_tree_link("笔记/随笔.md", "首页.md", LinkStyle::Markdown, true, false),
+            "[[笔记/随笔]]"
+        );
+        assert_eq!(
+            format_tree_link(
+                "附件/截图 1.png",
+                "笔记/首页.md",
+                LinkStyle::WikiEmbed,
+                false,
+                false
+            ),
+            "![[截图 1.png]]"
+        );
+        assert_eq!(
+            format_tree_link(
+                "附件/pic 1.png",
+                "笔记/sub/首页.md",
+                LinkStyle::Markdown,
+                false,
+                false
+            ),
+            "![pic 1](../../%E9%99%84%E4%BB%B6/pic%201.png)"
         );
     }
 }

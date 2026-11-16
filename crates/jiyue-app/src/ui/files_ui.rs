@@ -7,7 +7,7 @@
 //! (watcher polling, reloads, external edits), `files_ui/menu.rs` (context menus),
 //! `files_ui/modals.rs` (trash, move picker, diff, confirmations, undo toast).
 
-mod actions;
+pub mod actions;
 pub mod autoname;
 pub mod batch;
 pub mod dnd;
@@ -84,7 +84,7 @@ pub struct State {
     conflicts: Vec<String>,
     /// The text this process last wrote to each note's file. Watcher events that just repeat it
     /// are not external changes.
-    last_written: HashMap<String, String>,
+    pub(crate) last_written: HashMap<String, String>,
     /// The closed folder under the dragged row and when the pointer arrived (see `dnd`).
     pub drag_hover: Option<(String, Instant)>,
     /// The automatic file name of new notes (see `autoname`).

@@ -7,6 +7,8 @@ use crate::ui::history_ui::pure::local_parts;
 
 /// Folder used when the settings do not name one.
 pub const DEFAULT_FOLDER: &str = "Templates";
+/// Obsidian-compatible hidden-underscore template folder.
+pub const OBSIDIAN_FOLDER: &str = "_templates";
 /// Folder used when the vault has this one and not the default.
 pub const ENGLISH_FOLDER: &str = "Templates";
 pub const CHINESE_FOLDER: &str = "模板";
@@ -14,8 +16,8 @@ pub const CHINESE_FOLDER: &str = "模板";
 pub const NEW_NOTE_TITLE: &str = "无标题";
 
 /// The folder the templates are read from: the configured one when it exists; otherwise the
-/// default, then `Templates` when that one exists. `exists` tells whether a vault-relative folder
-/// is there.
+/// default, then `_templates`, then `模板` when those exist. `exists` tells whether a vault-relative
+/// folder is there.
 pub fn choose_folder(configured: &str, exists: impl Fn(&str) -> bool) -> String {
     let configured = configured.trim();
     let configured = if configured.is_empty() {
@@ -26,8 +28,13 @@ pub fn choose_folder(configured: &str, exists: impl Fn(&str) -> bool) -> String 
     if exists(configured) {
         return configured.to_owned();
     }
-    if configured == DEFAULT_FOLDER && exists(CHINESE_FOLDER) {
-        return CHINESE_FOLDER.to_owned();
+    if configured == DEFAULT_FOLDER {
+        if exists(OBSIDIAN_FOLDER) {
+            return OBSIDIAN_FOLDER.to_owned();
+        }
+        if exists(CHINESE_FOLDER) {
+            return CHINESE_FOLDER.to_owned();
+        }
     }
     configured.to_owned()
 }
@@ -135,6 +142,8 @@ mod tests {
         assert_eq!(choose_folder("", none), "Templates");
         let only_chinese = |f: &str| f == "模板";
         assert_eq!(choose_folder("", only_chinese), "模板");
+        let only_obsidian = |f: &str| f == "_templates";
+        assert_eq!(choose_folder("", only_obsidian), "_templates");
         let both = |f: &str| f == "模板" || f == "Templates";
         assert_eq!(choose_folder("", both), "Templates");
     }

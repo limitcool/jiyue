@@ -345,12 +345,22 @@ impl OpendalStore {
 
         // Delete everything we created, including versions and delete markers.
         let mut can_delete = true;
+        let mut cleanup_notes: Vec<String> = Vec::new();
         for path in &created {
-            if let Err(err) = self.delete_probe(path) {
-                can_delete = false;
-                notes.push(format!("cleanup of {path} failed: {err}"));
+            match self.delete_probe(path, supports_versions) {
+                Ok(Some(note)) => {
+                    if !cleanup_notes.contains(&note) {
+                        cleanup_notes.push(note);
+                    }
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    can_delete = false;
+                    notes.push(format!("cleanup of {path} failed: {err}"));
+                }
             }
         }
+        notes.extend(cleanup_notes);
 
         let mut parts = vec![
             format!("list {}", ok_word(can_list)),
@@ -402,24 +412,30 @@ impl OpendalStore {
         }
     }
 
-    /// Removes a probe object: plain delete, then every version and delete marker it left.
-    fn delete_probe(&self, object: &str) -> Result<(), StoreError> {
-        self.delete_plain(object)?;
-        for version in self.list_version_details(object)? {
-            let Some(id) = version.entry.version_id else {
-                continue;
-            };
-            let options = DeleteOptions {
-                version: Some(id),
-                ..Default::default()
-            };
-            with_retries(true, || self.op.delete_options(object, options.clone()))
-                .map_err(|e| self.map(e, false))?;
-        }
-        match self.stat(object)? {
-            None => Ok(()),
-            Some(_) => Err(StoreError::Other("probe object still present".into())),
-        }
+    /// Removes a probe object: plain delete, then (when versioning is on) every version and delete
+    /// marker it left. Plain deletion succeeding proves `s3:DeleteObject` works; version-cleanup
+    /// failures become non-fatal notes instead of misreporting `can_delete` as false.
+    fn delete_probe(
+        &self,
+        object: &str,
+        supports_versions: bool,
+    ) -> Result<Option<String>, StoreError> {
+        let plain_res = self.delete_plain(object);
+        let note = run_probe_delete(
+            plain_res,
+            supports_versions,
+            || self.list_version_details(object),
+            |id| {
+                let options = DeleteOptions {
+                    version: Some(id.to_string()),
+                    ..Default::default()
+                };
+                with_retries(true, || self.op.delete_options(object, options.clone()))
+                    .map_err(|e| self.map(e, false))
+            },
+            || self.stat(object).map(|entry| entry.is_some()),
+        )?;
+        Ok(note)
     }
 
     /// Asks the server whether versions exist. Returns `None` when the listing is empty or
@@ -556,6 +572,48 @@ impl RemoteStore for OpendalStore {
             None => false,
         }
     }
+}
+
+fn run_probe_delete(
+    plain_result: Result<(), StoreError>,
+    supports_versions: bool,
+    list_versions: impl FnOnce() -> Result<Vec<VersionEntry>, StoreError>,
+    mut delete_version: impl FnMut(&str) -> Result<(), StoreError>,
+    stat_present: impl FnOnce() -> Result<bool, StoreError>,
+) -> Result<Option<String>, StoreError> {
+    plain_result?;
+    if stat_present()? {
+        return Err(StoreError::Other("probe object still present".into()));
+    }
+    if !supports_versions {
+        return Ok(None);
+    }
+    let note = match list_versions() {
+        Ok(versions) => {
+            let mut note = None;
+            for version in versions {
+                let Some(id) = version.entry.version_id else {
+                    continue;
+                };
+                if let Err(err) = delete_version(&id) {
+                    note = Some(match err {
+                        StoreError::Unauthorized => {
+                            "version cleanup unauthorized (missing s3:DeleteObjectVersion)"
+                                .to_string()
+                        }
+                        other => format!("version cleanup note: {other}"),
+                    });
+                    break;
+                }
+            }
+            note
+        }
+        Err(StoreError::Unauthorized) => Some(
+            "version listing unauthorized (missing s3:ListBucketVersions on bucket)".to_string(),
+        ),
+        Err(other) => Some(format!("version cleanup note: {other}")),
+    };
+    Ok(note)
 }
 
 /// Runs `attempt`, retrying transient failures with exponential backoff when `retry` is true.
@@ -1132,6 +1190,55 @@ mod tests {
             vec!["keep.md".to_string()],
             "probe objects must be removed"
         );
+    }
+
+    #[test]
+    fn probe_delete_keeps_delete_ok_when_version_listing_is_unauthorized() {
+        let res = run_probe_delete(
+            Ok(()),
+            true,
+            || Err(StoreError::Unauthorized),
+            |_| unreachable!("no versions to delete"),
+            || Ok(false),
+        );
+        let note = res
+            .expect("plain delete succeeded so probe delete must not fail")
+            .expect("expected missing s3:ListBucketVersions note");
+        assert!(note.contains("s3:ListBucketVersions"), "{note}");
+
+        let ver_del = run_probe_delete(
+            Ok(()),
+            true,
+            || {
+                Ok(vec![VersionEntry {
+                    entry: RemoteEntry {
+                        path: ".jiyue-probe-x".into(),
+                        size: 0,
+                        etag: None,
+                        version_id: Some("v1".into()),
+                        modified_ms: None,
+                        is_dir: false,
+                    },
+                    is_delete_marker: false,
+                    is_latest: false,
+                }])
+            },
+            |_| Err(StoreError::Unauthorized),
+            || Ok(false),
+        );
+        let del_note = ver_del
+            .expect("plain delete succeeded")
+            .expect("expected missing s3:DeleteObjectVersion note");
+        assert!(del_note.contains("s3:DeleteObjectVersion"), "{del_note}");
+
+        let plain_err = run_probe_delete(
+            Err(StoreError::Unauthorized),
+            true,
+            || unreachable!(),
+            |_| unreachable!(),
+            || unreachable!(),
+        );
+        assert_eq!(plain_err, Err(StoreError::Unauthorized));
     }
 
     #[test]

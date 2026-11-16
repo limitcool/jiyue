@@ -3,6 +3,61 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.3.8] - 2026-11-16
+
+### 中文
+
+**本地优先「随手记 · 待办 · 日记」闭环与 Memos 可选增强化**
+- **无需 Memos 即可开箱即用的本地随手记与待办工作流**：
+  - 新增本地随手记与待办核心引擎（配置存于 `<vault>/.jiyue/config.toml` 的 `[inbox]` 段）：默认采用「单文件时间流」（写入 `Inbox/随手记.md`，按 `## YYYY-MM-DD` 日期分段且最新条目置顶），同时支持「追加到今日日记」与「每条新建独立卡片」。
+  - 侧边栏「随手记与待办」面板全面切换为纯本地 Markdown 实时读写并与已打开的编辑器无感同步（保留光标位置）：支持快速记录随手记或待办、原地勾选完成状态、点击跳转对应笔记行与删除条目；Memos 降级为可选远端增强服务，未启用时完全静默。
+  - 待办聚合默认扫描「核心目录」（日记 + 随手记 + 待办目录），自动排除模板目录与空 `- [ ]` 占位行，并支持按需切换全库扫描。
+
+**五大核心目录一站式设置与统一模板体系**
+- **「目录与模板」统一配置页**：
+  - 设置面板将「日记」升级为「目录与模板」，集中管理**日记、随手记、待办、模板、附件**五大核心目录；自动扫描并展示库内现有顶层目录芯片（兼容 Obsidian `_templates` 等命名）供一键选配。
+- **统一标准模板与目录模板联动**：
+  - 内置标准模板（日记、待办清单、随手记卡片）并支持一键生成（不覆盖已有文件）；模板变量新增支持 `{{cursor}}` 光标定位、`{{datetime}}` 与 `{{date-1d}}` / `{{date+1d:FORMAT}}` 日期偏移；在待办/随手记/自定义映射目录下新建笔记时自动套用对应模板。
+
+**剪贴板粘贴与拖拽导入图片/附件**
+- **Windows 原生剪贴板 `Ctrl+V` 粘贴与编辑器智能分流**：
+  - 支持读取剪贴板中的 `PNG` / `GIF` / `JFIF` / `SVG`、将 `CF_DIB` 截图位图转为 PNG（并修复 32bpp GDI 零 Alpha 透明问题）以及复制的本地文件（`CF_HDROP`）；在编辑器按 `Ctrl+V` 时，若剪贴板包含图片则直接导入并插入链接，纯文本时正常粘贴文字。
+- **Windows 原生 `IDropTarget` 外部拖拽与库内文件树拖拽**：
+  - 替换 GPUI 在 Windows 平台对外部拖拽路径的处理实现，支持从资源管理器、浏览器或聊天软件将本地文件或图片数据直接拖入正文按鼠标落点插入链接；同时支持从左侧文件树拖拽笔记进入编辑器插入 `[[WikiLink]]` 或嵌入链接。
+
+**S3 删除权限探测与桌面端交互细节修复**
+- **解耦 S3 删除探测与桶级版本列举**：修复 S3 兼容存储开启版本控制但受限策略未授予 `s3:ListBucketVersions` 时连接测试误报「不可删除」的问题，普通 `DeleteObject` 探测通过即可正常识别为可删除并给出清晰指引。
+- **多项桌面端交互与主题问题修复**：
+  - 修复标签输入框未聚焦时误拦截全局 `Backspace` 导致编辑器与单行输入框退格键失灵的问题。
+  - 修复嵌套子目录（如 `笔记/日记`）下日记移入回收站时报名称不可用的问题。
+  - 修复浅色主题下单行输入框暗色背景、欢迎页显示右侧检查器栏、设置弹窗右侧圆角被遮挡，并将外观页字体选择器改造为带遮罩的浮动下拉列表。
+
+---
+
+### English
+
+**Local-First Captures, Todos & Daily Workflow (Optional Memos)**
+- **Out-of-the-box local captures and todo aggregation without Memos**:
+  - Added a local capture & todo engine (`[inbox]` in `<vault>/.jiyue/config.toml`) defaulting to a chronological stream file (`Inbox/随手记.md` grouped by `## YYYY-MM-DD`, newest first), with options to append into today's daily note or create standalone card notes.
+  - Upgraded the sidebar capture/todo panel to read and write local Markdown directly while keeping open editor buffers synchronized in place (quick capture, inline todo checkbox toggle, jump-to-line navigation, and entry deletion). Memos is now strictly optional and silent when disabled.
+  - Default todo aggregation scopes to core workflow folders (daily + inbox + todo) to reduce noise, skips template folders and empty `- [ ]` placeholders, and supports toggling to all vault notes.
+
+**One-Stop Core Folders & Unified Templates**
+- **Unified Folders & Templates settings tab**:
+  - Consolidated **Daily, Inbox, Todo, Templates, and Attachments** folder settings in one place, featuring clickable chips discovered from existing top-level vault folders (including Obsidian `_templates` detection).
+- **Standard templates & folder-aware note creation**:
+  - Added built-in standard templates (Daily, Todo Checklist, Inbox Card) with non-destructive one-click generation, extended template variables with `{{cursor}}`, `{{datetime}}`, and `{{date-1d}}` / `{{date+1d:FORMAT}}` offsets, and auto-applied matching folder templates when creating notes.
+
+**Clipboard Paste (`Ctrl+V`) & Drag-and-Drop Media Import**
+- **Native Windows clipboard media & `Ctrl+V` routing**:
+  - Reads clipboard `PNG` / `GIF` / `JFIF` / `SVG`, converts `CF_DIB` screenshots to PNG (fixing 32bpp zero-alpha bitmaps), and imports `CF_HDROP` files; pressing `Ctrl+V` in the editor automatically imports clipboard images or falls back to text paste.
+- **Native Windows `IDropTarget` & file-tree drag-and-drop**:
+  - Replaced GPUI's broken Windows external drop path handling so local files and dragged image payloads from browsers/chat apps insert at the drop position; dragging notes from the sidebar tree into the editor inserts `[[WikiLink]]` or embed links.
+
+**S3 Probe & Desktop Polish**
+- **Decoupled S3 delete probe from bucket versioning**: S3 connection testing no longer flags deletion as unsupported when `DeleteObject` works under strict IAM policies without `s3:ListBucketVersions`.
+- **Desktop UX fixes**: Restored `Backspace` across editor and inputs when the tag input is unfocused, fixed trashing daily notes inside nested subfolders, fixed light-theme single-line input backgrounds, hid the right inspector on the empty welcome state, restored right-side rounded corners on the settings modal, and turned the font selector into a proper floating dropdown with backdrop dismissal.
+
 ## [0.3.7] - 2026-11-16
 
 ### 中文

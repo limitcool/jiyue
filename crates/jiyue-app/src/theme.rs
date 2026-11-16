@@ -110,6 +110,32 @@ impl ThemeKind {
     }
 }
 
+static CURRENT_THEME: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1);
+
+/// Records the active window theme globally so newly created controls stay in sync.
+pub fn set_current_theme(kind: ThemeKind) {
+    let code = match kind {
+        ThemeKind::Paper => 0,
+        ThemeKind::Ink => 1,
+        ThemeKind::Moss => 2,
+        ThemeKind::Graphite => 3,
+        ThemeKind::Fog => 4,
+    };
+    CURRENT_THEME.store(code, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Returns the active theme recorded by the window.
+pub fn current_theme() -> ActiveTheme {
+    let kind = match CURRENT_THEME.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => ThemeKind::Paper,
+        2 => ThemeKind::Moss,
+        3 => ThemeKind::Graphite,
+        4 => ThemeKind::Fog,
+        _ => ThemeKind::Ink,
+    };
+    ActiveTheme::from_kind(kind)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThemeMode {
     Dark,

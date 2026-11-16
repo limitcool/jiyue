@@ -308,6 +308,7 @@ impl RustdianApp {
         open: Option<&str>,
         launch_notes: &[String],
     ) -> Self {
+        theme::set_current_theme(kind);
         let vault = Vault::open_or_create(vault_dir);
         let journals = journal::Journals::start(vault.root_dir.clone());
         let mut app = Self {
@@ -718,7 +719,7 @@ impl RustdianApp {
     /// Writes the editor text of the note at `path` to its file and marks it saved.
     /// Returns false when the write failed (the status bar then shows `保存失败`).
     /// The caller repaints.
-    fn save_path(&mut self, path: &str, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn save_path(&mut self, path: &str, cx: &mut Context<Self>) -> bool {
         let Some(idx) = self.note_index(path) else {
             return true;
         };
@@ -1174,6 +1175,7 @@ impl RustdianApp {
     /// Cycles through the five themes (Ctrl+T).
     pub fn cycle_theme(&mut self) {
         self.theme = ActiveTheme::from_kind(self.theme.kind.next());
+        theme::set_current_theme(self.theme.kind);
     }
 
     /// Toggle heading collapse
@@ -1276,7 +1278,10 @@ impl RustdianApp {
             AppCommand::NewNote => self.new_note(),
             AppCommand::SaveNote => self.save_requested = true,
             AppCommand::CycleTheme => self.cycle_theme(),
-            AppCommand::SetTheme(kind) => self.theme = ActiveTheme::from_kind(kind),
+            AppCommand::SetTheme(kind) => {
+                self.theme = ActiveTheme::from_kind(kind);
+                theme::set_current_theme(kind);
+            }
             AppCommand::OpenGraph => self.viewport_mode = ViewportMode::GraphView,
             AppCommand::ToggleSplit => ui::split::toggle(self),
             AppCommand::SplitRight => ui::split::split(self, ui::split_model::SplitDir::Right),
@@ -1367,12 +1372,14 @@ impl RustdianApp {
 
 impl Render for RustdianApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        theme::set_current_theme(self.theme.kind);
         self.ensure_settings_watch(cx);
         self.drive_ext(cx);
         self.sync_editors(window, cx);
 
         let t = self.theme;
         let this: &RustdianApp = self;
+        let welcome = this.is_welcome_view();
 
         let main_column = div()
             .flex()
@@ -1382,7 +1389,7 @@ impl Render for RustdianApp {
             .h_full()
             .bg(t.surface)
             .child(ui::tabbar::render_tabbar(this, window, cx))
-            .child(ui::crumb::render_crumb(this, cx))
+            .when(!welcome, |d| d.child(ui::crumb::render_crumb(this, cx)))
             .child(
                 div()
                     .flex()
@@ -1391,9 +1398,12 @@ impl Render for RustdianApp {
                     .min_h_0()
                     .min_w_0()
                     .child(this.editor_area(cx))
-                    .when(this.right_sidebar_open, |d| {
-                        d.child(ui::right_panel::render_right_panel(this, cx))
-                    }),
+                    .when(
+                        this.right_sidebar_open
+                            && !welcome
+                            && this.viewport_mode == ViewportMode::Editor,
+                        |d| d.child(ui::right_panel::render_right_panel(this, cx)),
+                    ),
             )
             .child(ui::statusbar::render_statusbar(this, cx));
 
@@ -1453,6 +1463,13 @@ impl Render for RustdianApp {
 }
 
 impl RustdianApp {
+    /// True when the center slot displays the welcome screen (no active note, split, or graph).
+    pub fn is_welcome_view(&self) -> bool {
+        self.viewport_mode == ViewportMode::Editor
+            && self.vault.active_note().is_none()
+            && self.layout.split.is_none()
+    }
+
     /// The editor slot: graph view, the note, or the two panes of a split (see `ui/split.rs`).
     fn editor_area(&self, cx: &mut Context<Self>) -> AnyElement {
         ui::split::render_editor_area(self, cx)
@@ -1590,6 +1607,7 @@ fn main() {
             cx.open_window(options, move |window, cx| {
                 let view =
                     cx.new(|cx| RustdianApp::new(cx, kind, &vault_dir, open.as_deref(), &notes));
+                ui::attach_ui::install_window_drop(window, &view, cx);
                 // Focus: check the configuration files again (cheap, once per activation).
                 let activation = view.update(cx, |_, cx| {
                     cx.observe_window_activation(window, |app: &mut RustdianApp, _, cx| {

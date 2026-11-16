@@ -231,8 +231,6 @@ pub fn render_tabbar(
         strips = strips.child(render_strip(app, pane, ratio, cx));
     }
 
-    let split_on = app.layout.split.is_some();
-    let right_on = app.right_sidebar_open;
     let tool_btn = |id: &'static str, icon_name: &'static str, on: bool| {
         div()
             .id(id)
@@ -246,32 +244,6 @@ pub fn render_tabbar(
             .when(!on, |d| d.hover(|s| s.bg(t.hover)))
             .child(icon(icon_name, 15.0, if on { t.ac } else { t.tx2 }))
     };
-
-    let tools = div()
-        .flex()
-        .items_center()
-        .flex_none()
-        .px(px(6.0))
-        .gap(px(2.0))
-        .child(
-            tool_btn("tabbar_split", "layout-columns", split_on).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    super::split::toggle(this);
-                    cx.notify();
-                }),
-            ),
-        )
-        .child(
-            tool_btn("tabbar_right_panel", "layout-sidebar-right", right_on).on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.right_sidebar_open = !this.right_sidebar_open;
-                    crate::config_store::sync_ui(this);
-                    cx.notify();
-                }),
-            ),
-        );
 
     let mut row = div()
         .flex()
@@ -298,7 +270,37 @@ pub fn render_tabbar(
         ));
     }
 
-    row = row.child(strips).child(tools);
+    row = row.child(strips);
+    if !app.is_welcome_view() {
+        let split_on = app.layout.split.is_some();
+        let right_on = app.right_sidebar_open;
+        let tools = div()
+            .flex()
+            .items_center()
+            .flex_none()
+            .px(px(6.0))
+            .gap(px(2.0))
+            .child(
+                tool_btn("tabbar_split", "layout-columns", split_on).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        super::split::toggle(this);
+                        cx.notify();
+                    }),
+                ),
+            )
+            .child(
+                tool_btn("tabbar_right_panel", "layout-sidebar-right", right_on).on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, cx| {
+                        this.right_sidebar_open = !this.right_sidebar_open;
+                        crate::config_store::sync_ui(this);
+                        cx.notify();
+                    }),
+                ),
+            );
+        row = row.child(tools);
+    }
     if !MAC_TITLEBAR {
         row = row.child(div().flex_none().w(px(CAPTION_AREA_W)).h_full());
     }

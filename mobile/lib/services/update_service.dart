@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 
 const String defaultRepoOwner = 'limitcool';
 const String defaultRepoName = 'jiyue';
-const String currentAppVersion = '0.3.7';
+const String currentAppVersion = '0.3.8';
 const bool kIsFossBuild = bool.fromEnvironment('FOSS_BUILD', defaultValue: false);
 const Duration _networkTimeout = Duration(seconds: 12);
 const MethodChannel _updaterChannel =

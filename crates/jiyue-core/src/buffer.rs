@@ -213,12 +213,13 @@ pub fn wikilink_targets(content: &str) -> Vec<String> {
 
 impl Note {
     pub fn new(title: &str, path: &str, content: &str) -> Self {
-        let id = path.to_lowercase().replace(' ', "-");
+        let clean_path = path.replace('\\', "/");
+        let id = clean_path.to_lowercase().replace(' ', "-");
         let buffer = ZedBuffer::new(content);
         let mut note = Self {
             id,
             title: title.to_string(),
-            path: path.to_string(),
+            path: clean_path,
             buffer,
             tags: Vec::new(),
             wikilinks: Vec::new(),

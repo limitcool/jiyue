@@ -18,6 +18,7 @@ use crate::ui::ext::ToastKind;
 use crate::ui::files_ui::autoname::EditorSettings;
 use jiyue_ai::AiConfig;
 use jiyue_core::daily::DailySettings;
+use jiyue_core::inbox::InboxSettings;
 use jiyue_export::templates::TemplateRules;
 use jiyue_md::attach::AttachSettings;
 
@@ -31,6 +32,7 @@ pub struct VaultConfigDoc {
     pub vault: jiyue_core::config::vault_meta::VaultMeta,
     pub editor: EditorSettings,
     pub daily: DailySettings,
+    pub inbox: InboxSettings,
     pub templates: TemplateRules,
     pub attachments: AttachSettings,
     pub sync: SyncConfig,

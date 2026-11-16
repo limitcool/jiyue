@@ -35,10 +35,10 @@ pub const CAT_LIBRARY: usize = 7;
 const CATEGORIES: [(&str, &str); 9] = [
     ("编辑器", "pencil"),
     ("外观", "palette"),
-    ("日记", "calendar-event"),
+    ("目录与模板", "folder"),
     ("同步", "link"),
     ("AI", "bulb"),
-    ("Memos", "checkbox"),
+    ("随手记与待办", "checkbox"),
     ("快捷键", "keyboard"),
     ("笔记库", "folder"),
     ("关于", "info-circle"),
@@ -61,7 +61,13 @@ pub fn category_label(idx: usize) -> String {
 }
 
 /// Daily folder presets, shown as a segmented control.
-const FOLDER_PRESETS: [&str; 3] = ["Daily", "Journal", "Notes/Daily"];
+const FOLDER_PRESETS: [&str; 3] = ["Daily", "日记", "Notes/Daily"];
+/// Inbox folder presets.
+const INBOX_PRESETS: [&str; 2] = ["Inbox", "随手记"];
+/// Todo folder presets.
+const TODO_PRESETS: [&str; 2] = ["Todo", "待办"];
+/// Attachment fixed/subfolder name presets.
+const ATTACH_PRESETS: [&str; 3] = ["_resources", "附件", "assets"];
 /// Daily date format presets, cycled by clicking the format button.
 const DATE_FORMAT_PRESETS: [&str; 3] = ["YYYY-MM-DD", "YYYY年M月D日", "YYYYMMDD"];
 
@@ -81,14 +87,27 @@ pub struct SettingsState {
     pub update: crate::update::UpdateState,
     /// Input entity for custom daily folder.
     pub daily_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
+    /// Input entity for custom inbox folder.
+    pub inbox_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
+    /// Input entity for custom todo folder.
+    pub todo_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
     /// Input entity for custom template folder.
     pub template_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
+    /// Input entity for attachment folder name.
+    pub attach_folder_input: Option<Entity<crate::ui::widgets::LineInput>>,
     /// Whether the daily date-format dropdown is open.
     pub daily_format_open: bool,
     /// Whether the daily note template dropdown is open.
     pub daily_template_open: bool,
+    /// Whether the todo checklist template dropdown is open.
+    pub todo_template_open: bool,
+    /// Whether the inbox card template dropdown is open.
+    pub inbox_template_open: bool,
     pub _daily_sub: Option<gpui::Subscription>,
+    pub _inbox_sub: Option<gpui::Subscription>,
+    pub _todo_sub: Option<gpui::Subscription>,
     pub _tmpl_sub: Option<gpui::Subscription>,
+    pub _attach_sub: Option<gpui::Subscription>,
     /// State of mobile config export QR modal.
     pub export_qr_open: bool,
     pub export_include_sync: bool,
@@ -106,11 +125,19 @@ impl Default for SettingsState {
             fonts: Default::default(),
             update: crate::update::UpdateState::Idle,
             daily_folder_input: None,
+            inbox_folder_input: None,
+            todo_folder_input: None,
             template_folder_input: None,
+            attach_folder_input: None,
             daily_format_open: false,
             daily_template_open: false,
+            todo_template_open: false,
+            inbox_template_open: false,
             _daily_sub: None,
+            _inbox_sub: None,
+            _todo_sub: None,
             _tmpl_sub: None,
+            _attach_sub: None,
             export_qr_open: false,
             export_include_sync: true,
             export_include_ai: true,
@@ -129,7 +156,7 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         .unwrap_or_else(|| app.vault.daily_settings());
     let initial_daily_folder = daily.folder.clone();
     let daily_input = cx.new(|cx| {
-        let mut input = crate::ui::widgets::LineInput::new(cx, "自定义目录");
+        let mut input = crate::ui::widgets::LineInput::new(cx, "自定义日记目录");
         input.set_theme(t, cx);
         input.set_text(&initial_daily_folder, cx);
         input
@@ -151,6 +178,83 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     this.toast(
                         crate::ui::ext::ToastKind::Info,
                         format!("日记目录已设为: {trimmed}"),
+                    );
+                    cx.notify();
+                }
+            }
+            crate::ui::widgets::LineInputEvent::Cancel => {}
+        },
+    );
+
+    let inbox_cfg = jiyue_core::inbox::InboxSettings::load(&app.vault.root_dir);
+    let initial_inbox_folder = inbox_cfg.folder.clone();
+    let inbox_input = cx.new(|cx| {
+        let mut input = crate::ui::widgets::LineInput::new(cx, "自定义随手记目录");
+        input.set_theme(t, cx);
+        input.set_text(&initial_inbox_folder, cx);
+        input
+    });
+    let sub_inbox = cx.subscribe(
+        &inbox_input,
+        |this: &mut RustdianApp, _, ev: &crate::ui::widgets::LineInputEvent, cx| match ev {
+            crate::ui::widgets::LineInputEvent::Changed(text) => {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    let root = this.vault.root_dir.clone();
+                    let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
+                    cfg.folder = trimmed.to_string();
+                    let _ = cfg.save(&root);
+                    cx.notify();
+                }
+            }
+            crate::ui::widgets::LineInputEvent::Submit(text) => {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    let root = this.vault.root_dir.clone();
+                    let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
+                    cfg.folder = trimmed.to_string();
+                    let _ = cfg.save(&root);
+                    this.toast(
+                        crate::ui::ext::ToastKind::Info,
+                        format!("随手记目录已设为: {trimmed}"),
+                    );
+                    cx.notify();
+                }
+            }
+            crate::ui::widgets::LineInputEvent::Cancel => {}
+        },
+    );
+
+    let initial_todo_folder = inbox_cfg.todo_folder.clone();
+    let todo_input = cx.new(|cx| {
+        let mut input = crate::ui::widgets::LineInput::new(cx, "自定义待办目录");
+        input.set_theme(t, cx);
+        input.set_text(&initial_todo_folder, cx);
+        input
+    });
+    let sub_todo = cx.subscribe(
+        &todo_input,
+        |this: &mut RustdianApp, _, ev: &crate::ui::widgets::LineInputEvent, cx| match ev {
+            crate::ui::widgets::LineInputEvent::Changed(text) => {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    let root = this.vault.root_dir.clone();
+                    let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
+                    cfg.todo_folder = trimmed.to_string();
+                    let _ = cfg.save(&root);
+                    cx.notify();
+                }
+            }
+            crate::ui::widgets::LineInputEvent::Submit(text) => {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    let root = this.vault.root_dir.clone();
+                    let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
+                    cfg.todo_folder = trimmed.to_string();
+                    let _ = cfg.save(&root);
+                    this.toast(
+                        crate::ui::ext::ToastKind::Info,
+                        format!("待办目录已设为: {trimmed}"),
                     );
                     cx.notify();
                 }
@@ -197,10 +301,53 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         },
     );
 
+    let attach_name = crate::ui::attach_ui::settings::folder_name(&app.ext.attach.settings.folder);
+    let attach_input = cx.new(|cx| {
+        let mut input = crate::ui::widgets::LineInput::new(cx, "附件目录名");
+        input.set_theme(t, cx);
+        input.set_text(&attach_name, cx);
+        input
+    });
+    let sub_attach = cx.subscribe(
+        &attach_input,
+        |this: &mut RustdianApp, _, ev: &crate::ui::widgets::LineInputEvent, cx| match ev {
+            crate::ui::widgets::LineInputEvent::Changed(text)
+            | crate::ui::widgets::LineInputEvent::Submit(text) => {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    let mode = crate::ui::attach_ui::settings::mode_index(
+                        &this.ext.attach.settings.folder,
+                    );
+                    let target_mode = if mode == 1 || mode == 3 { mode } else { 1 };
+                    this.ext.attach.settings.folder =
+                        crate::ui::attach_ui::settings::folder_for(target_mode, trimmed);
+                    let _ = crate::ui::attach_ui::settings::save(
+                        &this.vault.root_dir,
+                        &this.ext.attach.settings,
+                    );
+                    if matches!(ev, crate::ui::widgets::LineInputEvent::Submit(_)) {
+                        this.toast(
+                            crate::ui::ext::ToastKind::Info,
+                            format!("附件目录已设为: {trimmed}"),
+                        );
+                    }
+                    cx.notify();
+                }
+            }
+            crate::ui::widgets::LineInputEvent::Cancel => {}
+        },
+    );
+
     app.settings.daily_folder_input = Some(daily_input);
+    app.settings.inbox_folder_input = Some(inbox_input);
+    app.settings.todo_folder_input = Some(todo_input);
     app.settings.template_folder_input = Some(template_input);
+    app.settings.attach_folder_input = Some(attach_input);
     app.settings._daily_sub = Some(sub_daily);
+    app.settings._inbox_sub = Some(sub_inbox);
+    app.settings._todo_sub = Some(sub_todo);
     app.settings._tmpl_sub = Some(sub_tmpl);
+    app.settings._attach_sub = Some(sub_attach);
 }
 
 /// Keyboard handling while the dialog is open. Return true when the key was consumed.
@@ -209,9 +356,15 @@ pub fn handle_key(app: &mut RustdianApp, ev: &KeyDownEvent) -> bool {
         if crate::ui::fonts_ui::handle_escape(app) {
             return true;
         }
-        if app.settings.daily_format_open || app.settings.daily_template_open {
+        if app.settings.daily_format_open
+            || app.settings.daily_template_open
+            || app.settings.todo_template_open
+            || app.settings.inbox_template_open
+        {
             app.settings.daily_format_open = false;
             app.settings.daily_template_open = false;
+            app.settings.todo_template_open = false;
+            app.settings.inbox_template_open = false;
             return true;
         }
         app.settings.open = false;
@@ -505,6 +658,7 @@ impl RustdianApp {
             .min_w_0()
             .h_full()
             .bg(t.surface)
+            .rounded_r(px(RADIUS_L))
             .px(px(28.0))
             .pt(px(20.0))
             .flex()
@@ -607,6 +761,15 @@ fn nav_row(
             this.settings.category = idx;
             this.settings.daily_format_open = false;
             this.settings.daily_template_open = false;
+            this.settings.todo_template_open = false;
+            this.settings.inbox_template_open = false;
+            if idx == CAT_DAILY
+                && let Some(inp) = &this.settings.attach_folder_input
+            {
+                let name =
+                    crate::ui::attach_ui::settings::folder_name(&this.ext.attach.settings.folder);
+                inp.update(cx, |i, cx| i.set_text(&name, cx));
+            }
             this.settings.scroll.scroll_to_item(0);
             cx.notify();
         }),
@@ -897,36 +1060,62 @@ fn appearance_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
 
 fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
+    let root = app.vault.root_dir.clone();
     let daily = app
         .settings
         .daily
         .clone()
         .unwrap_or_else(|| app.vault.daily_settings());
+    let inbox_cfg = jiyue_core::inbox::InboxSettings::load(&root);
+    let top_folders = jiyue_core::inbox::list_vault_top_folders(&root);
 
-    if let Some(inp) = &app.settings.daily_folder_input {
+    for inp in [
+        &app.settings.daily_folder_input,
+        &app.settings.inbox_folder_input,
+        &app.settings.todo_folder_input,
+        &app.settings.template_folder_input,
+        &app.settings.attach_folder_input,
+    ]
+    .into_iter()
+    .flatten()
+    {
         inp.update(cx, |i, cx| i.set_theme(t, cx));
     }
-    if let Some(inp) = &app.settings.template_folder_input {
-        inp.update(cx, |i, cx| i.set_theme(t, cx));
-    }
 
-    let mut folder_presets = div().flex().items_center().justify_end().gap(px(6.0));
-    for name in FOLDER_PRESETS {
+    // 1. Daily folder row
+    let mut folder_presets = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .justify_end()
+        .gap(px(6.0));
+    let mut daily_candidates: Vec<String> =
+        FOLDER_PRESETS.iter().map(|s| (*s).to_string()).collect();
+    for f in &top_folders {
+        let low = f.to_lowercase();
+        if (low.contains("daily") || low.contains("日记") || low.contains("journal"))
+            && !daily_candidates.iter().any(|x| x == f)
+        {
+            daily_candidates.push(f.clone());
+        }
+    }
+    for name in daily_candidates {
         let on = name == daily.folder;
+        let name_click = name.clone();
         folder_presets = folder_presets.child(choice_chip(
             &t,
-            name,
+            &name,
             on,
             cx.listener(move |this, _, _, cx| {
-                this.update_daily(|d| d.folder = name.to_string());
+                let target = name_click.clone();
+                this.update_daily(|d| d.folder = target.clone());
                 if let Some(inp) = &this.settings.daily_folder_input {
-                    inp.update(cx, |i, cx| i.set_text(name, cx));
+                    inp.update(cx, |i, cx| i.set_text(&target, cx));
                 }
                 cx.notify();
             }),
         ));
     }
-
     let folder_input = div()
         .w(px(200.0))
         .h(px(30.0))
@@ -934,6 +1123,239 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
             d.child(inp)
         });
 
+    // 2. Inbox / fleeting capture folder row (smart-matches existing folders like `📥 Inbox ...`)
+    let mut inbox_candidates: Vec<String> =
+        INBOX_PRESETS.iter().map(|s| (*s).to_string()).collect();
+    for f in &top_folders {
+        let low = f.to_lowercase();
+        if (low.contains("inbox") || f.contains("收集") || f.contains("闪念") || f.contains("随手"))
+            && !inbox_candidates.iter().any(|x| x == f)
+        {
+            inbox_candidates.push(f.clone());
+        }
+    }
+    let mut inbox_presets = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .justify_end()
+        .gap(px(6.0));
+    for name in inbox_candidates {
+        let on = name == inbox_cfg.folder;
+        let name_click = name.clone();
+        inbox_presets = inbox_presets.child(choice_chip(
+            &t,
+            &name,
+            on,
+            cx.listener(move |this, _, _, cx| {
+                let root = this.vault.root_dir.clone();
+                let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
+                cfg.folder = name_click.clone();
+                let _ = cfg.save(&root);
+                if let Some(inp) = &this.settings.inbox_folder_input {
+                    inp.update(cx, |i, cx| i.set_text(&name_click, cx));
+                }
+                cx.notify();
+            }),
+        ));
+    }
+    let inbox_input = div()
+        .w(px(200.0))
+        .h(px(30.0))
+        .when_some(app.settings.inbox_folder_input.clone(), |d, inp| {
+            d.child(inp)
+        });
+
+    // 3. Todo folder row
+    let mut todo_candidates: Vec<String> = TODO_PRESETS.iter().map(|s| (*s).to_string()).collect();
+    for f in &top_folders {
+        let low = f.to_lowercase();
+        if (low.contains("todo") || f.contains("待办") || f.contains("任务"))
+            && !todo_candidates.iter().any(|x| x == f)
+        {
+            todo_candidates.push(f.clone());
+        }
+    }
+    let mut todo_presets = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .justify_end()
+        .gap(px(6.0));
+    for name in todo_candidates {
+        let on = name == inbox_cfg.todo_folder;
+        let name_click = name.clone();
+        todo_presets = todo_presets.child(choice_chip(
+            &t,
+            &name,
+            on,
+            cx.listener(move |this, _, _, cx| {
+                let root = this.vault.root_dir.clone();
+                let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
+                cfg.todo_folder = name_click.clone();
+                let _ = cfg.save(&root);
+                if let Some(inp) = &this.settings.todo_folder_input {
+                    inp.update(cx, |i, cx| i.set_text(&name_click, cx));
+                }
+                cx.notify();
+            }),
+        ));
+    }
+    let todo_input = div()
+        .w(px(200.0))
+        .h(px(30.0))
+        .when_some(app.settings.todo_folder_input.clone(), |d, inp| {
+            d.child(inp)
+        });
+
+    // 4. Attachments folder row (synced directly with `[attachments]` and `app.ext.attach.settings`)
+    let attach_settings = &app.ext.attach.settings;
+    let attach_mode = crate::ui::attach_ui::settings::mode_index(&attach_settings.folder);
+    let attach_uses_name = attach_mode == 1 || attach_mode == 3;
+    let attach_cur_name = crate::ui::attach_ui::settings::folder_name(&attach_settings.folder);
+
+    let mut attach_extra = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .justify_between()
+        .gap(px(8.0));
+    let mut mode_chips = div().flex().flex_wrap().items_center().gap(px(6.0));
+    for (idx, label) in [
+        (1usize, "固定目录"),
+        (2usize, "同目录"),
+        (3usize, "笔记子目录"),
+        (0usize, "根目录"),
+    ] {
+        let on = attach_mode == idx;
+        mode_chips = mode_chips.child(choice_chip(
+            &t,
+            label,
+            on,
+            cx.listener(move |this, _, _, cx| {
+                let current_name = this
+                    .settings
+                    .attach_folder_input
+                    .as_ref()
+                    .map(|i| i.read(cx).text())
+                    .unwrap_or_else(|| {
+                        crate::ui::attach_ui::settings::folder_name(
+                            &this.ext.attach.settings.folder,
+                        )
+                    });
+                let next = crate::ui::attach_ui::settings::folder_for(idx, &current_name);
+                this.ext.attach.settings.folder = next.clone();
+                let _ = crate::ui::attach_ui::settings::save(
+                    &this.vault.root_dir,
+                    &this.ext.attach.settings,
+                );
+                let display = crate::ui::attach_ui::settings::folder_name(&next);
+                if let Some(inp) = &this.settings.attach_folder_input {
+                    inp.update(cx, |i, cx| i.set_text(&display, cx));
+                }
+                cx.notify();
+            }),
+        ));
+    }
+    attach_extra = attach_extra.child(mode_chips);
+
+    if attach_uses_name {
+        let mut attach_name_chips = div().flex().flex_wrap().items_center().gap(px(6.0));
+        let mut attach_candidates: Vec<String> =
+            ATTACH_PRESETS.iter().map(|s| (*s).to_string()).collect();
+        for f in &top_folders {
+            let low = f.to_lowercase();
+            if (low.contains("resource") || low.contains("asset") || f.contains("附件"))
+                && !attach_candidates.iter().any(|x| x == f)
+            {
+                attach_candidates.push(f.clone());
+            }
+        }
+        for name in attach_candidates {
+            let on = name == attach_cur_name;
+            let name_click = name.clone();
+            attach_name_chips = attach_name_chips.child(choice_chip(
+                &t,
+                &name,
+                on,
+                cx.listener(move |this, _, _, cx| {
+                    let mode = crate::ui::attach_ui::settings::mode_index(
+                        &this.ext.attach.settings.folder,
+                    );
+                    let target_mode = if mode == 1 || mode == 3 { mode } else { 1 };
+                    let target = name_click.clone();
+                    this.ext.attach.settings.folder =
+                        crate::ui::attach_ui::settings::folder_for(target_mode, &target);
+                    let _ = crate::ui::attach_ui::settings::save(
+                        &this.vault.root_dir,
+                        &this.ext.attach.settings,
+                    );
+                    if let Some(inp) = &this.settings.attach_folder_input {
+                        inp.update(cx, |i, cx| i.set_text(&target, cx));
+                    }
+                    cx.notify();
+                }),
+            ));
+        }
+        attach_extra = attach_extra.child(attach_name_chips);
+    }
+
+    let attach_control: gpui::AnyElement = if attach_uses_name {
+        div()
+            .w(px(200.0))
+            .h(px(30.0))
+            .when_some(app.settings.attach_folder_input.clone(), |d, inp| {
+                d.child(inp)
+            })
+            .into_any_element()
+    } else {
+        div()
+            .text_size(px(12.0))
+            .text_color(t.tx3)
+            .child(if attach_mode == 0 {
+                "直接存放在笔记库根目录"
+            } else {
+                "与当前笔记放在同一目录"
+            })
+            .into_any_element()
+    };
+
+    let dirs_card = setting_card(&t)
+        .child(form_row_with_extra(
+            &t,
+            &crate::t!("settings-daily-folder"),
+            &crate::t!("settings-daily-folder-desc"),
+            folder_input,
+            folder_presets,
+            false,
+        ))
+        .child(form_row_with_extra(
+            &t,
+            "随手记 / 收集箱目录",
+            "快速随手记流文件与闪念卡片存放的文件夹，新建笔记自动套用随手记模板",
+            inbox_input,
+            inbox_presets,
+            false,
+        ))
+        .child(form_row_with_extra(
+            &t,
+            "待办清单目录",
+            "专题待办清单笔记存放的文件夹，新建笔记自动套用待办清单模板",
+            todo_input,
+            todo_presets,
+            false,
+        ))
+        .child(crate::ui::template_ui::folder_row(app, cx))
+        .child(form_row_with_extra(
+            &t,
+            "附件与图片目录",
+            "粘贴截图或拖入文件/图片时的保存位置",
+            attach_control,
+            attach_extra,
+            true,
+        ));
+
+    // Date format select + templates card
     let mut format_options: Vec<&str> = DATE_FORMAT_PRESETS.to_vec();
     if !format_options.contains(&daily.date_format.as_str()) {
         format_options.push(daily.date_format.as_str());
@@ -961,6 +1383,8 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         cx.listener(|this, _, _, cx| {
             this.settings.daily_format_open = true;
             this.settings.daily_template_open = false;
+            this.settings.todo_template_open = false;
+            this.settings.inbox_template_open = false;
             cx.notify();
         }),
         cx.listener(|this, _, _, cx| {
@@ -976,29 +1400,47 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
         crate::t!("settings-daily-format-example", example = example.as_str())
     );
 
+    let init_templates_btn = button_sized(
+        &t,
+        "生成标准模板到目录",
+        ButtonKind::Secondary,
+        ButtonSize::Small,
+        Some("sparkles"),
+        cx.listener(|this, _, _, cx| {
+            crate::ui::template_ui::run(
+                this,
+                crate::ui::template_ui::Command::InitStandardTemplates,
+                cx,
+            );
+        }),
+    );
+
+    let templates_card = setting_card(&t)
+        .child(setting_row(
+            &t,
+            &crate::t!("settings-daily-format"),
+            &format_desc,
+            format_select,
+            false,
+        ))
+        .child(crate::ui::template_ui::daily_template_row(app, cx))
+        .child(crate::ui::template_ui::todo_template_row(app, cx))
+        .child(crate::ui::template_ui::inbox_template_row(app, cx))
+        .child(setting_row(
+            &t,
+            "标准模板文件",
+            "在模板目录生成 日记模板.md / 待办清单.md / 随手记卡片.md（支持 {{date}} {{time}} {{weekday}} {{cursor}}，不覆盖已有文件）",
+            init_templates_btn,
+            true,
+        ));
+
     div()
         .flex()
         .flex_col()
-        .child(
-            setting_card(&t)
-                .child(form_row_with_extra(
-                    &t,
-                    &crate::t!("settings-daily-folder"),
-                    &crate::t!("settings-daily-folder-desc"),
-                    folder_input,
-                    folder_presets,
-                    false,
-                ))
-                .child(setting_row(
-                    &t,
-                    &crate::t!("settings-daily-format"),
-                    &format_desc,
-                    format_select,
-                    false,
-                ))
-                .child(crate::ui::template_ui::daily_template_row(app, cx))
-                .child(crate::ui::template_ui::folder_row(app, cx)),
-        )
+        .child(section_title(&t, "核心目录").pt(px(4.0)))
+        .child(dirs_card)
+        .child(section_title(&t, "统一模板与日期格式"))
+        .child(templates_card)
         .child(note(&t, &crate::t!("settings-daily-note-hint")))
 }
 
@@ -1376,14 +1818,14 @@ mod tests {
         assert!(!state.open);
         assert_eq!(state.category, CAT_APPEARANCE);
         assert!(state.daily.is_none());
-        assert_eq!(CATEGORIES[CAT_DAILY].0, "日记");
+        assert_eq!(CATEGORIES[CAT_DAILY].0, "目录与模板");
     }
 
     #[test]
     fn sync_and_ai_categories_follow_daily() {
         assert_eq!(CATEGORIES[CAT_SYNC].0, "同步");
         assert_eq!(CATEGORIES[CAT_AI].0, "AI");
-        assert_eq!(CATEGORIES[CAT_MEMOS].0, "Memos");
+        assert_eq!(CATEGORIES[CAT_MEMOS].0, "随手记与待办");
         assert_eq!(CAT_SYNC, CAT_DAILY + 1);
         assert_eq!(CAT_AI, CAT_SYNC + 1);
         assert_eq!(CAT_MEMOS, CAT_AI + 1);

@@ -579,6 +579,9 @@ pub fn palette_commands() -> Vec<PaletteCommand> {
 
 /// Status bar entry: 历史版本, left of the sync chip. Click opens the dialog.
 pub fn statusbar_items(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElement> {
+    if app.active_path().is_none() {
+        return Vec::new();
+    }
     let t = app.theme;
     let dim = matches!(app.ext.history.backend, Backend::Unavailable(_));
     let color = if dim { t.tx3 } else { t.tx2 };

@@ -43,7 +43,7 @@ pub fn render_editor(
     let mut fade_top = t.sheet;
     fade_top.a = 0.0;
 
-    // Files dragged from the OS onto the note are imported (see `attach_ui::drop_files`).
+    // Files dragged from the OS or the sidebar file tree are imported / linked at drop position.
     let drop_tint = t.ac_soft;
     let mut area = div()
         .relative()
@@ -52,10 +52,29 @@ pub fn render_editor(
         .h_full()
         .overflow_hidden()
         .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(drop_tint))
-        .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
-            super::attach_ui::drop_files(this, paths.paths(), cx);
+        .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+            super::attach_ui::drop_files(
+                this,
+                paths.paths(),
+                Some(window.mouse_position()),
+                window,
+                cx,
+            );
             cx.notify();
-        }));
+        }))
+        .drag_over::<super::files_ui::dnd::TreeDrag>(move |style, _, _, _| style.bg(drop_tint))
+        .on_drop(
+            cx.listener(|this, drag: &super::files_ui::dnd::TreeDrag, window, cx| {
+                super::attach_ui::drop_tree_items_at(
+                    this,
+                    &drag.items,
+                    window.mouse_position(),
+                    window,
+                    cx,
+                );
+                cx.notify();
+            }),
+        );
     // Source and Live both edit the note in the text editor. Live hides the markers away from the
     // caret (the editor's live view); Source shows every marker. Read shows the rendered note.
     let editing = matches!(mode, ViewMode::Source | ViewMode::Live);
@@ -105,6 +124,17 @@ pub fn render_editor(
                     linear_color_stop(t.sheet, 0.12),
                     linear_color_stop(fade_top, 1.0),
                 )),
+        );
+    }
+
+    if show_pill && app.ext.attach.os_drag_over {
+        area = area.child(
+            div()
+                .absolute()
+                .inset_0()
+                .border_2()
+                .border_color(t.ac)
+                .bg(t.ac_soft),
         );
     }
 
