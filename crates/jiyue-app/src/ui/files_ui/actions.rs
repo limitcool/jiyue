@@ -18,6 +18,7 @@ use jiyue_core::links::{self, NoteRef};
 use super::autoname;
 use super::pure::{self, MoveCheck};
 use crate::RustdianApp;
+use crate::theme::{ACTIVITY_BAR_WIDTH, SIDEBAR_WIDTH};
 use crate::ui::ext::ToastKind;
 use crate::ui::history_ui;
 use crate::ui::widgets::controls::{ButtonKind, button};
@@ -553,13 +554,19 @@ pub fn undo_overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Option<
     let toast = app.ext.files.undo.as_ref()?;
     let t = app.theme;
     let me = cx.entity();
-    let left = if app.left_sidebar_open { 264.0 } else { 16.0 };
+    let left = ACTIVITY_BAR_WIDTH
+        + if app.left_sidebar_open {
+            SIDEBAR_WIDTH
+        } else {
+            0.0
+        }
+        + 20.0;
     Some(
         div()
             .absolute()
             .left(px(left))
-            // Above the view-mode pill at the foot of the editor.
-            .bottom(px(92.0))
+            // Just above the status bar, aligned with the bottom-right toast stack.
+            .bottom(px(42.0))
             .flex()
             .items_center()
             .gap(px(12.0))

@@ -204,6 +204,7 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
                     cfg.folder = trimmed.to_string();
                     let _ = cfg.save(&root);
+                    crate::ui::memos_ui::invalidate_cache(this);
                     cx.notify();
                 }
             }
@@ -214,6 +215,7 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
                     cfg.folder = trimmed.to_string();
                     let _ = cfg.save(&root);
+                    crate::ui::memos_ui::invalidate_cache(this);
                     this.toast(
                         crate::ui::ext::ToastKind::Info,
                         format!("随手记目录已设为: {trimmed}"),
@@ -242,6 +244,7 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
                     cfg.todo_folder = trimmed.to_string();
                     let _ = cfg.save(&root);
+                    crate::ui::memos_ui::invalidate_cache(this);
                     cx.notify();
                 }
             }
@@ -252,6 +255,7 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
                     cfg.todo_folder = trimmed.to_string();
                     let _ = cfg.save(&root);
+                    crate::ui::memos_ui::invalidate_cache(this);
                     this.toast(
                         crate::ui::ext::ToastKind::Info,
                         format!("待办目录已设为: {trimmed}"),
@@ -280,6 +284,7 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     let mut rules = jiyue_export::TemplateRules::load(&root);
                     rules.templates_folder = trimmed.to_string();
                     let _ = rules.save(&root);
+                    crate::ui::memos_ui::invalidate_cache(this);
                     cx.notify();
                 }
             }
@@ -290,6 +295,7 @@ pub fn install(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     let mut rules = jiyue_export::TemplateRules::load(&root);
                     rules.templates_folder = trimmed.to_string();
                     let _ = rules.save(&root);
+                    crate::ui::memos_ui::invalidate_cache(this);
                     this.toast(
                         crate::ui::ext::ToastKind::Info,
                         format!("模板目录已设为: {trimmed}"),
@@ -545,6 +551,7 @@ impl RustdianApp {
         change(&mut settings);
         if settings.save(&self.vault.root_dir).is_ok() {
             self.vault.refresh_daily_settings();
+            crate::ui::memos_ui::invalidate_cache(self);
         }
         self.settings.daily = Some(settings);
     }
@@ -1152,6 +1159,7 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
                 cfg.folder = name_click.clone();
                 let _ = cfg.save(&root);
+                crate::ui::memos_ui::invalidate_cache(this);
                 if let Some(inp) = &this.settings.inbox_folder_input {
                     inp.update(cx, |i, cx| i.set_text(&name_click, cx));
                 }
@@ -1194,6 +1202,7 @@ fn daily_section(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 let mut cfg = jiyue_core::inbox::InboxSettings::load(&root);
                 cfg.todo_folder = name_click.clone();
                 let _ = cfg.save(&root);
+                crate::ui::memos_ui::invalidate_cache(this);
                 if let Some(inp) = &this.settings.todo_folder_input {
                     inp.update(cx, |i, cx| i.set_text(&name_click, cx));
                 }

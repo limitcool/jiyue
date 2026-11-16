@@ -111,6 +111,7 @@ pub struct LiveContext {
     pub data_gen: u64,
     files_stamp: (usize, usize),
     vault_revision: u64,
+    structure_revision: u64,
 }
 
 impl LiveContext {
@@ -208,13 +209,16 @@ pub fn sync(handle: &LiveHandle, app: &RustdianApp) {
         c.files = files.clone();
         c.files_stamp = stamp;
         c.attach_folder = folder;
-        // A changed index can name other files: cached images of the old index are dropped.
-        c.images.clear();
+        // Keep already-decoded images that still exist in the vault index to avoid flicker.
+        c.images.retain(|rel, _| files.contains(rel));
         c.bump();
     }
-    // Note snapshots only rebuild when vault revision or vault root changes, sharing each note's
-    // immutable `Arc<str>` buffer in O(1) without cloning any note bodies.
-    if root_changed || c.vault_revision != app.vault.revision {
+    // Note snapshots track structure vs. content separately: structural updates rebuild the vec,
+    // while active-note typing updates the shared `Arc<str>` without invalidating unrelated widgets.
+    if root_changed
+        || c.structure_revision != app.vault.structure_revision
+        || c.notes.len() != app.vault.notes.len()
+    {
         c.notes = app
             .vault
             .notes
@@ -225,8 +229,26 @@ pub fn sync(handle: &LiveHandle, app: &RustdianApp) {
                 body: n.content_arc(),
             })
             .collect();
+        c.structure_revision = app.vault.structure_revision;
         c.vault_revision = app.vault.revision;
         c.bump();
+    } else if c.vault_revision != app.vault.revision {
+        let active = app.active_path();
+        let has_split = app.layout.split.is_some();
+        let mut bump = false;
+        for (snap, note) in c.notes.iter_mut().zip(app.vault.notes.iter()) {
+            let arc = note.content_arc();
+            if !Arc::ptr_eq(&snap.body, &arc) {
+                snap.body = arc;
+                if has_split || active != Some(note.path.as_str()) {
+                    bump = true;
+                }
+            }
+        }
+        c.vault_revision = app.vault.revision;
+        if bump {
+            c.bump();
+        }
     }
 }
 

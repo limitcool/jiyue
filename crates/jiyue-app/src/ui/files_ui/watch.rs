@@ -154,22 +154,27 @@ pub fn handle_events(
         app.ext.files.conflicts.retain(|p| paths.contains(p));
     }
 
+    let mut any_links_changed = false;
     for path in modified {
-        handle_modified(app, &path, cx);
+        if handle_modified(app, &path, cx) {
+            any_links_changed = true;
+        }
     }
     if changed.iter().any(|p| p == ".jiyue/config.toml") {
         app.vault.refresh_daily_settings();
     }
-    app.vault.rebuild_graph();
+    if any_links_changed {
+        app.vault.rebuild_graph();
+    }
     crate::ui::ext::on_event(app, &ExtEvent::VaultFilesChanged(changed), cx);
 }
 
 /// Reconciles one note with its file. Our own writes (the text we last saved) are ignored, and so
 /// is a file that already equals the editor. Otherwise a clean editor is reloaded and a dirty one
-/// gets the conflict bar.
-pub fn handle_modified(app: &mut RustdianApp, path: &str, cx: &mut Context<RustdianApp>) {
+/// gets the conflict bar. Returns `true` when the note's cached wikilinks changed.
+pub fn handle_modified(app: &mut RustdianApp, path: &str, cx: &mut Context<RustdianApp>) -> bool {
     let Ok(disk) = fs::read_to_string(app.vault.root_dir.join(path)) else {
-        return;
+        return false;
     };
     if app
         .ext
@@ -178,10 +183,10 @@ pub fn handle_modified(app: &mut RustdianApp, path: &str, cx: &mut Context<Rustd
         .get(path)
         .is_some_and(|w| *w == disk)
     {
-        return;
+        return false;
     }
     let Some(idx) = app.vault.notes.iter().position(|n| n.path == path) else {
-        return;
+        return false;
     };
     let editor = app.editor_for(path);
     if let Some(ed) = editor.as_ref() {
@@ -195,14 +200,14 @@ pub fn handle_modified(app: &mut RustdianApp, path: &str, cx: &mut Context<Rustd
             )
         };
         if text == disk {
-            return;
+            return false;
         }
         if dirty {
             if !app.ext.files.conflicts.iter().any(|p| p == path) {
                 app.ext.files.conflicts.push(path.to_string());
             }
             cx.notify();
-            return;
+            return false;
         }
         let (row, col) = (cursor.0.saturating_sub(1), cursor.1.saturating_sub(1));
         ed.update(cx, |ed, cx| {
@@ -213,13 +218,20 @@ pub fn handle_modified(app: &mut RustdianApp, path: &str, cx: &mut Context<Rustd
             entry.dirty_seen = false;
         }
     }
-    app.vault.notes[idx].set_content(&disk);
-    app.vault.bump_revision();
+    let arc: std::sync::Arc<str> = std::sync::Arc::from(disk);
+    let (tags_changed, links_changed, aliases_changed) = app.vault.notes[idx].set_content_arc(arc);
+    app.vault.notes[idx].disk_stamp = fs::metadata(app.vault.root_dir.join(path))
+        .ok()
+        .and_then(|m| jiyue_core::buffer::file_disk_stamp(&m));
+    app.vault
+        .bump_note_edit(tags_changed, links_changed, aliases_changed);
+    app.ext.files.non_active_rev = app.ext.files.non_active_rev.wrapping_add(1);
     if editor.is_some() {
         let title = app.vault.notes[idx].title.clone();
         app.toast(ToastKind::Info, format!("已从磁盘更新：{title}"));
     }
     cx.notify();
+    links_changed
 }
 
 /// Records what this process just saved to `path`, and schedules a re-read a little later. The
@@ -252,8 +264,12 @@ pub fn discard_and_reload(app: &mut RustdianApp, path: &str, cx: &mut Context<Ru
         entry.dirty_seen = false;
     }
     if let Some(idx) = app.vault.notes.iter().position(|n| n.path == path) {
-        app.vault.notes[idx].set_content(&disk);
-        app.vault.bump_revision();
+        let arc: std::sync::Arc<str> = std::sync::Arc::from(disk.as_str());
+        let (tags_changed, links_changed, aliases_changed) =
+            app.vault.notes[idx].set_content_arc(arc);
+        app.vault
+            .bump_note_edit(tags_changed, links_changed, aliases_changed);
+        app.ext.files.non_active_rev = app.ext.files.non_active_rev.wrapping_add(1);
     }
     // The unsaved text is gone: the note is clean and its recovery copy is no longer needed.
     if let Some(entry) = app.editors.get_mut(path) {

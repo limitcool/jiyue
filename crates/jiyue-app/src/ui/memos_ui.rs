@@ -3,10 +3,12 @@
 //! Works out of the box on plain Markdown files in the vault (stream file, daily note sections,
 //! or standalone cards), while optionally syncing with a self-hosted Memos server when enabled.
 
-use std::collections::{BTreeSet, HashMap};
+use std::cell::RefCell;
+use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
@@ -42,6 +44,19 @@ pub enum Tab {
     All,
 }
 
+type SettingsCache = (PathBuf, MemosConfig, InboxSettings, String);
+type PanelCacheKey = (
+    u64,
+    PathBuf,
+    Date,
+    TodoScope,
+    CaptureMode,
+    String,
+    String,
+    String,
+);
+type PanelCacheData = Rc<(Vec<LocalTodo>, Vec<LocalCaptureItem>, BTreeSet<String>)>;
+
 /// State for the local Capture & Todos dashboard and optional Memos sync.
 pub struct State {
     /// Whether the section is open.
@@ -74,6 +89,10 @@ pub struct State {
     pub stream_file_input: Option<Entity<LineInput>>,
     /// Subscription for stream filename input.
     pub _stream_file_sub: Option<gpui::Subscription>,
+    /// Cached `[memos]` / `[inbox]` settings and resolved templates folder per vault root.
+    pub(crate) cached_settings: RefCell<Option<SettingsCache>>,
+    /// Cached local todos, captures, and tags keyed by `(vault.revision, settings...)`.
+    pub(crate) panel_cache: RefCell<Option<(PanelCacheKey, PanelCacheData)>>,
 }
 
 impl Default for State {
@@ -94,8 +113,40 @@ impl Default for State {
             settings_token_input: None,
             stream_file_input: None,
             _stream_file_sub: None,
+            cached_settings: RefCell::new(None),
+            panel_cache: RefCell::new(None),
         }
     }
+}
+
+/// Drops cached local settings and capture/todo aggregations after configuration changes.
+pub fn invalidate_cache(app: &RustdianApp) {
+    *app.ext.memos.cached_settings.borrow_mut() = None;
+    *app.ext.memos.panel_cache.borrow_mut() = None;
+}
+
+fn cached_settings(app: &RustdianApp) -> (MemosConfig, InboxSettings, String) {
+    let root = &app.vault.root_dir;
+    {
+        let cache = app.ext.memos.cached_settings.borrow();
+        if let Some((cached_root, memos_cfg, inbox_cfg, tpl_folder)) = cache.as_ref()
+            && cached_root == root
+        {
+            return (memos_cfg.clone(), inbox_cfg.clone(), tpl_folder.clone());
+        }
+    }
+    let memos_cfg = load_config(root);
+    let inbox_cfg = InboxSettings::load(root);
+    let tpl_configured = TemplateRules::load(root).templates_folder;
+    let tpl_folder =
+        crate::ui::template_ui::choose_folder(&tpl_configured, |f| root.join(f).is_dir());
+    *app.ext.memos.cached_settings.borrow_mut() = Some((
+        root.clone(),
+        memos_cfg.clone(),
+        inbox_cfg.clone(),
+        tpl_folder.clone(),
+    ));
+    (memos_cfg, inbox_cfg, tpl_folder)
 }
 
 /// Initializes the Capture & Todos sidebar module.
@@ -153,6 +204,7 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     let mut cfg = InboxSettings::load(&root);
                     cfg.stream_file = trimmed.to_string();
                     let _ = cfg.save(&root);
+                    invalidate_cache(this);
                     cx.notify();
                 }
             }
@@ -163,6 +215,7 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
                     let mut cfg = InboxSettings::load(&root);
                     cfg.stream_file = trimmed.to_string();
                     let _ = cfg.save(&root);
+                    invalidate_cache(this);
                     this.toast(ToastKind::Success, format!("流文件命名已设为：{trimmed}"));
                     cx.notify();
                 }
@@ -197,22 +250,33 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     .detach();
 }
 
-/// Handles broadcast app events (keeps embedded `LineInput`s in sync with the active theme).
+/// Handles broadcast app events (keeps embedded `LineInput`s in sync with the active theme and
+/// clears config/aggregation caches on vault file or config changes).
 pub fn on_event(app: &mut RustdianApp, ev: &ExtEvent, cx: &mut Context<RustdianApp>) {
-    if matches!(ev, ExtEvent::ThemeChanged) {
-        let t = app.theme;
-        if let Some(inp) = &app.ext.memos.input {
-            inp.update(cx, |i, cx| i.set_theme(t, cx));
+    match ev {
+        ExtEvent::VaultFilesChanged(paths) => {
+            if paths.iter().any(|p| p.starts_with(".jiyue/")) {
+                invalidate_cache(app);
+            } else {
+                *app.ext.memos.panel_cache.borrow_mut() = None;
+            }
         }
-        if let Some(inp) = &app.ext.memos.settings_url_input {
-            inp.update(cx, |i, cx| i.set_theme(t, cx));
+        ExtEvent::ThemeChanged => {
+            let t = app.theme;
+            if let Some(inp) = &app.ext.memos.input {
+                inp.update(cx, |i, cx| i.set_theme(t, cx));
+            }
+            if let Some(inp) = &app.ext.memos.settings_url_input {
+                inp.update(cx, |i, cx| i.set_theme(t, cx));
+            }
+            if let Some(inp) = &app.ext.memos.settings_token_input {
+                inp.update(cx, |i, cx| i.set_theme(t, cx));
+            }
+            if let Some(inp) = &app.ext.memos.stream_file_input {
+                inp.update(cx, |i, cx| i.set_theme(t, cx));
+            }
         }
-        if let Some(inp) = &app.ext.memos.settings_token_input {
-            inp.update(cx, |i, cx| i.set_theme(t, cx));
-        }
-        if let Some(inp) = &app.ext.memos.stream_file_input {
-            inp.update(cx, |i, cx| i.set_theme(t, cx));
-        }
+        _ => {}
     }
 }
 
@@ -298,11 +362,23 @@ fn write_vault_markdown_synced(
         .iter()
         .position(|n| n.path.eq_ignore_ascii_case(&rel))
     {
-        app.vault.notes[idx].set_content(new_text);
-        app.vault.bump_revision();
-        app.vault.rebuild_graph();
+        let arc: Arc<str> = Arc::from(new_text);
+        let (tags_changed, links_changed, aliases_changed) =
+            app.vault.notes[idx].set_content_arc(arc);
+        app.vault.notes[idx].disk_stamp = fs::metadata(&abs)
+            .ok()
+            .and_then(|m| jiyue_core::buffer::file_disk_stamp(&m));
+        app.vault
+            .bump_note_edit(tags_changed, links_changed, aliases_changed);
+        if app.active_path() != Some(app.vault.notes[idx].path.as_str()) {
+            app.ext.files.non_active_rev = app.ext.files.non_active_rev.wrapping_add(1);
+        }
+        if links_changed {
+            app.vault.rebuild_graph();
+        }
     } else {
         files_ui::actions::reload(app, &[], cx);
+        app.ext.files.non_active_rev = app.ext.files.non_active_rev.wrapping_add(1);
     }
     Ok(())
 }
@@ -849,27 +925,85 @@ pub fn append_today_memos_to_daily(app: &mut RustdianApp, cx: &mut Context<Rustd
     cx.notify();
 }
 
-fn collect_note_snapshots(
-    app: &RustdianApp,
+fn collect_note_snapshots<'a>(
+    app: &'a RustdianApp,
     cx: &Context<RustdianApp>,
-) -> Vec<(String, String, String)> {
-    let mut dirty_texts: HashMap<String, String> = HashMap::new();
-    for path in app.editors.keys() {
-        if let Some(ed) = app.editor_for(path) {
-            dirty_texts.insert(path.clone(), ed.read(cx).text());
-        }
-    }
+) -> Vec<(&'a str, &'a str, Arc<str>)> {
     app.vault
         .notes
         .iter()
         .map(|n| {
-            let content = dirty_texts
-                .get(&n.path)
-                .cloned()
-                .unwrap_or_else(|| n.content().to_string());
-            (n.path.clone(), n.title.clone(), content)
+            let content = app
+                .editor_for(&n.path)
+                .map(|ed| ed.read(cx).text_arc())
+                .unwrap_or_else(|| n.content_arc());
+            (n.path.as_str(), n.title.as_str(), content)
         })
         .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cached_panel_data(
+    app: &RustdianApp,
+    today: Date,
+    inbox_cfg: &InboxSettings,
+    daily_folder: &str,
+    tpl_folder: &str,
+    today_rel: &str,
+    stream_rel: &str,
+    cx: &Context<RustdianApp>,
+) -> PanelCacheData {
+    let key: PanelCacheKey = (
+        app.vault.revision,
+        app.vault.root_dir.clone(),
+        today,
+        inbox_cfg.todo_scope,
+        inbox_cfg.capture_mode,
+        stream_rel.to_string(),
+        daily_folder.to_string(),
+        tpl_folder.to_string(),
+    );
+    {
+        let cache = app.ext.memos.panel_cache.borrow();
+        if let Some((cached_key, data)) = cache.as_ref()
+            && *cached_key == key
+        {
+            return Rc::clone(data);
+        }
+    }
+    let snapshots = collect_note_snapshots(app, cx);
+    let local_todos = inbox::collect_local_todos(
+        snapshots
+            .iter()
+            .map(|(p, title, c)| (*p, *title, c.as_ref())),
+        today_rel,
+        daily_folder,
+        tpl_folder,
+        inbox_cfg,
+    );
+    let local_captures = inbox::collect_local_captures(
+        snapshots
+            .iter()
+            .map(|(p, title, c)| (*p, *title, c.as_ref())),
+        today_rel,
+        stream_rel,
+        tpl_folder,
+        inbox_cfg,
+    );
+    let mut local_tags = BTreeSet::new();
+    for td in &local_todos {
+        for tag in &td.tags {
+            local_tags.insert(tag.clone());
+        }
+    }
+    for cap in &local_captures {
+        for tag in &cap.tags {
+            local_tags.insert(tag.clone());
+        }
+    }
+    let data = Rc::new((local_todos, local_captures, local_tags));
+    *app.ext.memos.panel_cache.borrow_mut() = Some((key, Rc::clone(&data)));
+    data
 }
 
 /// Renders the full-height Capture & Todos sidebar panel.
@@ -878,9 +1012,7 @@ pub fn render_sidebar_panel(
     cx: &mut Context<RustdianApp>,
 ) -> impl IntoElement + use<> {
     let t = app.theme;
-    let root = app.vault.root_dir.clone();
-    let memos_cfg = load_config(&root);
-    let inbox_cfg = InboxSettings::load(&root);
+    let (memos_cfg, inbox_cfg, _) = cached_settings(app);
     let memos_active = memos_cfg.enabled && !memos_cfg.base_url.trim().is_empty();
 
     let mut top_left = div().flex().items_center().gap(px(4.0)).min_w_0();
@@ -901,6 +1033,7 @@ pub fn render_sidebar_panel(
                         TodoScope::CoreFolders
                     };
                     let _ = c.save(&root);
+                    invalidate_cache(this);
                     cx.notify();
                 }),
             ))
@@ -981,35 +1114,24 @@ pub fn render_sidebar_panel(
 fn render_memos_body(app: &RustdianApp, full_panel: bool, cx: &mut Context<RustdianApp>) -> Div {
     let t = app.theme;
     let tab = app.ext.memos.tab;
-    let root = app.vault.root_dir.clone();
-    let inbox_cfg = InboxSettings::load(&root);
+    let (memos_cfg, inbox_cfg, tpl_folder) = cached_settings(app);
     let daily_cfg = app.vault.daily_settings();
-    let tpl_configured = TemplateRules::load(&root).templates_folder;
-    let tpl_folder =
-        crate::ui::template_ui::choose_folder(&tpl_configured, |f| root.join(f).is_dir());
     let today = Date::today();
     let today_rel = today_daily_rel_path(app, today);
     let stream_rel = inbox_cfg.stream_rel_path(today);
-    let memos_cfg = load_config(&root);
     let memos_active = memos_cfg.enabled && !memos_cfg.base_url.trim().is_empty();
 
-    let snapshots = collect_note_snapshots(app, cx);
-    let snap_refs = snapshots
-        .iter()
-        .map(|(p, title, c)| (p.as_str(), title.as_str(), c.as_str()));
-    let local_todos = inbox::collect_local_todos(
-        snap_refs,
-        &today_rel,
+    let panel_data = cached_panel_data(
+        app,
+        today,
+        &inbox_cfg,
         &daily_cfg.folder,
         &tpl_folder,
-        &inbox_cfg,
+        &today_rel,
+        &stream_rel,
+        cx,
     );
-
-    let snap_refs2 = snapshots
-        .iter()
-        .map(|(p, title, c)| (p.as_str(), title.as_str(), c.as_str()));
-    let local_captures =
-        inbox::collect_local_captures(snap_refs2, &today_rel, &stream_rel, &tpl_folder, &inbox_cfg);
+    let (local_todos, local_captures, local_tags) = &*panel_data;
 
     let pending_local = local_todos.iter().filter(|x| !x.done).count();
     let pending_remote: usize = if memos_active {
@@ -1048,25 +1170,18 @@ fn render_memos_body(app: &RustdianApp, full_panel: bool, cx: &mut Context<Rustd
     ));
     body = body.child(tab_bar);
 
-    // Collect tags across current view sources (local + optional remote)
-    let mut tag_set = BTreeSet::new();
-    for td in &local_todos {
-        for tag in &td.tags {
-            tag_set.insert(tag.clone());
-        }
-    }
-    for cap in &local_captures {
-        for tag in &cap.tags {
-            tag_set.insert(tag.clone());
-        }
-    }
-    if memos_active {
+    // Merge cached local tags with optional remote tags
+    let mut merged_tags: Option<BTreeSet<String>> = None;
+    if memos_active && !app.ext.memos.memos.is_empty() {
+        let mut set = local_tags.clone();
         for memo in &app.ext.memos.memos {
             for tag in &memo.tags {
-                tag_set.insert(tag.clone());
+                set.insert(tag.clone());
             }
         }
+        merged_tags = Some(set);
     }
+    let tag_set: &BTreeSet<String> = merged_tags.as_ref().unwrap_or(local_tags);
 
     if !tag_set.is_empty() {
         let is_all_sel = app.ext.memos.selected_tag.is_none();
@@ -1086,8 +1201,8 @@ fn render_memos_body(app: &RustdianApp, full_panel: bool, cx: &mut Context<Rustd
                 }),
             ));
 
-        for tag in tag_set.into_iter().take(12) {
-            let is_sel = app.ext.memos.selected_tag.as_deref() == Some(&tag);
+        for tag in tag_set.iter().take(12) {
+            let is_sel = app.ext.memos.selected_tag.as_deref() == Some(tag.as_str());
             let t_clone = tag.clone();
             tag_bar = tag_bar.child(choice_chip(
                 &t,
@@ -1207,9 +1322,9 @@ fn render_memos_body(app: &RustdianApp, full_panel: bool, cx: &mut Context<Rustd
     let mut displayed_count = 0usize;
 
     if tab == Tab::Todos {
-        let mut today_rows: Vec<LocalTodo> = Vec::new();
-        let mut core_rows: Vec<LocalTodo> = Vec::new();
-        let mut other_rows: Vec<LocalTodo> = Vec::new();
+        let mut today_rows: Vec<&LocalTodo> = Vec::new();
+        let mut core_rows: Vec<&LocalTodo> = Vec::new();
+        let mut other_rows: Vec<&LocalTodo> = Vec::new();
         for item in local_todos {
             if !show_done && item.done {
                 continue;
@@ -1460,7 +1575,7 @@ fn render_memos_body(app: &RustdianApp, full_panel: bool, cx: &mut Context<Rustd
 
 fn render_local_todo_row(
     t: &crate::theme::ActiveTheme,
-    todo: LocalTodo,
+    todo: &LocalTodo,
     cx: &mut Context<RustdianApp>,
 ) -> Div {
     let is_done = todo.done;
@@ -1542,7 +1657,7 @@ fn render_local_todo_row(
 
 fn render_local_capture_card(
     t: &crate::theme::ActiveTheme,
-    cap: LocalCaptureItem,
+    cap: &LocalCaptureItem,
     cx: &mut Context<RustdianApp>,
 ) -> Div {
     let path_open = cap.note_path.clone();
@@ -1682,6 +1797,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                 let mut c = InboxSettings::load(&root);
                 c.capture_mode = CaptureMode::StreamFile;
                 let _ = c.save(&root);
+                invalidate_cache(this);
                 cx.notify();
             }),
         ))
@@ -1694,6 +1810,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                 let mut c = InboxSettings::load(&root);
                 c.capture_mode = CaptureMode::DailyNote;
                 let _ = c.save(&root);
+                invalidate_cache(this);
                 cx.notify();
             }),
         ))
@@ -1706,6 +1823,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                 let mut c = InboxSettings::load(&root);
                 c.capture_mode = CaptureMode::CardNote;
                 let _ = c.save(&root);
+                invalidate_cache(this);
                 cx.notify();
             }),
         ));
@@ -1724,6 +1842,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                 let mut c = InboxSettings::load(&root);
                 c.todo_scope = TodoScope::CoreFolders;
                 let _ = c.save(&root);
+                invalidate_cache(this);
                 cx.notify();
             }),
         ))
@@ -1736,6 +1855,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                 let mut c = InboxSettings::load(&root);
                 c.todo_scope = TodoScope::AllNotes;
                 let _ = c.save(&root);
+                invalidate_cache(this);
                 cx.notify();
             }),
         ));
@@ -1780,6 +1900,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                     let mut c = InboxSettings::load(&root);
                     c.stream_file = pattern.to_string();
                     let _ = c.save(&root);
+                    invalidate_cache(this);
                     if let Some(inp) = &this.ext.memos.stream_file_input {
                         inp.update(cx, |i, cx| i.set_text(pattern, cx));
                     }
@@ -1821,6 +1942,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
             let mut c = load_config(&root);
             c.enabled = !c.enabled;
             let _ = save_config(&root, &c);
+            invalidate_cache(this);
             cx.notify();
         }),
     );
@@ -1904,6 +2026,7 @@ pub fn render_settings_section(app: &RustdianApp, cx: &mut Context<RustdianApp>)
                         c.base_url = inp.read(cx).text().trim().to_string();
                     }
                     let _ = save_config(&root, &c);
+                    invalidate_cache(this);
 
                     if let Some(inp) = &this.ext.memos.settings_token_input {
                         let tok = inp.read(cx).text().trim().to_string();

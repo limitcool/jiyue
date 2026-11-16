@@ -32,6 +32,7 @@ pub fn folder_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Div {
                 let mut rules = TemplateRules::load(&root);
                 rules.templates_folder = name.to_owned();
                 let _ = rules.save(&root);
+                crate::ui::memos_ui::invalidate_cache(this);
                 if let Some(inp) = &this.settings.template_folder_input {
                     inp.update(cx, |i, cx| i.set_text(name, cx));
                 }
@@ -186,6 +187,7 @@ pub fn todo_template_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Di
             let mut inbox = jiyue_core::inbox::InboxSettings::load(&root);
             inbox.todo_template_path = next;
             let _ = inbox.save(&root);
+            crate::ui::memos_ui::invalidate_cache(this);
             this.settings.todo_template_open = false;
         },
         false,
@@ -217,6 +219,7 @@ pub fn inbox_template_row(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> D
             let mut inbox = jiyue_core::inbox::InboxSettings::load(&root);
             inbox.inbox_template_path = next;
             let _ = inbox.save(&root);
+            crate::ui::memos_ui::invalidate_cache(this);
             this.settings.inbox_template_open = false;
         },
         false,

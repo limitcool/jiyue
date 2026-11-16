@@ -512,10 +512,10 @@ pub(crate) struct DirNode {
     files: Vec<(String, usize)>,
 }
 
-/// Returns the cached folder/file tree for the current vault state, rebuilding only when `revision`
-/// or `root_dir` changes.
+/// Returns the cached folder/file tree for the current vault state, rebuilding only when
+/// `structure_revision` or `root_dir` changes.
 fn cached_tree(app: &RustdianApp) -> Rc<DirNode> {
-    let rev = app.vault.revision;
+    let rev = app.vault.structure_revision;
     let mut cache = app.ext.files.tree_cache.borrow_mut();
     if let Some((cached_rev, cached_root, tree)) = cache.as_ref()
         && *cached_rev == rev
@@ -639,9 +639,9 @@ fn flatten_tree(
     }
 }
 
-/// Returns cached visible rows for the file tree, rebuilding only on revision, root, or expansion change.
+/// Returns cached visible rows for the file tree, rebuilding only on structure, root, or expansion change.
 pub(crate) fn cached_flat_rows(app: &RustdianApp) -> Rc<Vec<FlatTreeRow>> {
-    let rev = app.vault.revision;
+    let rev = app.vault.structure_revision;
     let mut cache = app.ext.files.flat_tree_cache.borrow_mut();
     if let Some((cached_rev, cached_root, cached_expanded, rows)) = cache.as_ref()
         && *cached_rev == rev
@@ -1002,9 +1002,9 @@ fn walk(
     }
 }
 
-/// Returns cached sorted `(tag, count)` pairs for the vault, rebuilding only on revision change.
+/// Returns cached sorted `(tag, count)` pairs for the vault, rebuilding only when `#tags` or structure change.
 fn cached_tag_counts(app: &RustdianApp) -> Rc<Vec<(String, usize)>> {
-    let rev = app.vault.revision;
+    let rev = app.vault.tags_revision;
     let mut cache = app.ext.files.tags_cache.borrow_mut();
     if let Some((cached_rev, cached_root, counts)) = cache.as_ref()
         && *cached_rev == rev

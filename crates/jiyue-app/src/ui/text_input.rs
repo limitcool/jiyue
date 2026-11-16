@@ -2546,6 +2546,11 @@ impl TextEditor {
         self.state.text().to_string()
     }
 
+    /// Shared handle to the document text (O(1) clone, zero allocation).
+    pub fn text_arc(&self) -> Arc<str> {
+        self.state.text_arc()
+    }
+
     /// Monotonic edit state id of the document buffer (O(1) change detection).
     pub fn state_id(&self) -> u64 {
         self.state.state_id()
@@ -3471,7 +3476,6 @@ impl Element for TextElement {
         let view_h_bits = view_h.to_bits();
         let bounds_x_bits = f32::from(bounds.origin.x).to_bits();
         let bounds_y_bits = f32::from(bounds.origin.y).to_bits();
-        let scroll_in_bits = scroll_in.to_bits();
         let column = if read_only {
             READ_COLUMN_WIDTH
         } else {
@@ -3489,7 +3493,7 @@ impl Element for TextElement {
         if line_cache.len() > LINE_CACHE_MAX {
             line_cache.clear();
         }
-        let can_reuse_layout = !reveal
+        let same_doc_and_view = !reveal
             && !has_inline_math
             && !prev_layout.lines.is_empty()
             && prev_key.as_ref().is_some_and(|k| {
@@ -3503,23 +3507,49 @@ impl Element for TextElement {
                     && k.view_h_bits == view_h_bits
                     && k.bounds_x_bits == bounds_x_bits
                     && k.bounds_y_bits == bounds_y_bits
-                    && k.scroll_bits == scroll_in_bits
                     && k.theme == theme_key
                     && k.notes == notes
                     && k.vault_gen == vault_gen
                     && k.folds_hash == folds_hash
                     && k.search_hash == search_hash
             });
+        let scroll_fast_target = if same_doc_and_view {
+            let max_scroll =
+                (PAD_TOP + prev_layout.content_height() + PAD_BOTTOM - view_h).max(0.0);
+            let clamped = scroll_in.clamp(0.0, max_scroll);
+            if prev_key
+                .as_ref()
+                .is_some_and(|k| k.scroll_bits == clamped.to_bits())
+            {
+                Some(clamped)
+            } else {
+                let doc_top = clamped - PAD_TOP;
+                let first = prev_layout
+                    .lines
+                    .partition_point(|l| l.top + l.height() < doc_top - view_h * 0.2);
+                let end = prev_layout
+                    .lines
+                    .partition_point(|l| l.top <= doc_top + view_h * 1.2)
+                    .max(first);
+                prev_layout.lines[first..end]
+                    .iter()
+                    .all(|l| l.built)
+                    .then_some(clamped)
+            }
+        } else {
+            None
+        };
 
         let (mut layout, scroll, frame_key, requests, line_count, built, fast_reused) =
-            if can_reuse_layout {
+            if let Some(scroll) = scroll_fast_target {
                 let mut layout = prev_layout;
                 layout.origin_x = f32::from(bounds.origin.x) + col_left;
-                layout.origin_y = f32::from(bounds.origin.y) + PAD_TOP - scroll_in;
+                layout.origin_y = f32::from(bounds.origin.y) + PAD_TOP - scroll;
                 let line_count = layout.lines.len();
-                let fk = prev_key.take().unwrap();
+                let mut fk = prev_key.take().unwrap();
+                fk.scroll_bits = scroll.to_bits();
                 phase!("scroll");
-                (layout, scroll_in, fk, Vec::new(), line_count, 0usize, true)
+                (layout, scroll, fk, Vec::new(), line_count, 0usize, true)
             } else {
                 let prev_lines = std::mem::take(&mut prev_layout.lines);
                 // Which lines to rebuild. The reveal state of every record is compared with the last

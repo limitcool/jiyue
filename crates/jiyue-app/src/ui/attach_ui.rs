@@ -240,7 +240,19 @@ pub fn handle_key(app: &mut RustdianApp, ev: &KeyDownEvent, cx: &mut Context<Rus
 /// Module events: the index follows the vault files; active inline fields follow note switches and theme.
 pub fn on_event(app: &mut RustdianApp, ev: &ExtEvent, cx: &mut Context<RustdianApp>) {
     match ev {
-        ExtEvent::Started | ExtEvent::VaultFilesChanged(_) => refresh_index(app, cx),
+        ExtEvent::Started => refresh_index(app, cx),
+        ExtEvent::VaultFilesChanged(paths) => {
+            let md_only_existing = !app.ext.attach.files.files.is_empty()
+                && paths.iter().all(|p| {
+                    jiyue_md::embeds::embed_kind(p) != jiyue_md::embeds::EmbedKind::Image
+                        && !p.is_empty()
+                        && app.ext.attach.files.contains(p)
+                        && app.vault.root_dir.join(p).is_file()
+                });
+            if !md_only_existing {
+                refresh_index_dirty(app, paths, cx);
+            }
+        }
         ExtEvent::NoteOpened(_) => {
             app.ext.attach.tag_input = None;
             app.ext.attach.prop_edit = None;
@@ -324,10 +336,21 @@ pub fn overlay_open(app: &RustdianApp) -> bool {
 
 /// Scans the vault in the background and stores the result.
 pub fn refresh_index(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
+    refresh_index_dirty(app, &[], cx);
+}
+
+/// Scans the vault in the background, reusing cached image dimensions for paths not in `dirty_paths`.
+pub fn refresh_index_dirty(
+    app: &mut RustdianApp,
+    dirty_paths: &[String],
+    cx: &mut Context<RustdianApp>,
+) {
     let root = app.vault.root_dir.clone();
+    let prev_dims = app.ext.attach.files.dims.clone();
+    let dirty = dirty_paths.to_vec();
     let task = cx
         .background_executor()
-        .spawn(async move { index::scan(&root) });
+        .spawn(async move { index::scan_with_cache(&root, &prev_dims, &dirty) });
     cx.spawn(async move |this, cx| {
         let files = task.await;
         let _ = this.update(cx, |app, cx| {

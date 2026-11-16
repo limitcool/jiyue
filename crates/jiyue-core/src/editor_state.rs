@@ -600,14 +600,7 @@ impl EditorState {
 
     /// Replaces the text without recording history (buffer and its own stacks only).
     fn raw_replace(&mut self, start: usize, end: usize, s: &str) {
-        if end > start {
-            self.buf.delete(start, end - start);
-        }
-        if !s.is_empty() {
-            self.buf.insert(start, s);
-        }
-        self.buf.undo_stack.clear();
-        self.buf.redo_stack.clear();
+        self.buf.replace_range_raw(start..end, s);
     }
 
     fn push_undo(&mut self, tx: Transaction) {

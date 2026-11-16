@@ -902,12 +902,14 @@ fn cards(
 }
 
 /// Returns cached backlinks and unlinked mentions for `title`, recomputing only when vault
-/// revision, vault root, or active note title changes.
+/// structure, other notes, vault root, or active note title changes.
 fn cached_backlinks(app: &RustdianApp, title: &str) -> Rc<super::files_ui::BacklinksData> {
-    let rev = app.vault.revision;
+    let struct_rev = app.vault.structure_revision;
+    let non_active_rev = app.ext.files.non_active_rev;
     let mut cache = app.ext.files.backlinks_cache.borrow_mut();
-    if let Some((cached_rev, cached_root, cached_title, data)) = cache.as_ref()
-        && *cached_rev == rev
+    if let Some((cached_struct, cached_other, cached_root, cached_title, data)) = cache.as_ref()
+        && *cached_struct == struct_rev
+        && *cached_other == non_active_rev
         && *cached_root == app.vault.root_dir
         && cached_title == title
     {
@@ -917,7 +919,8 @@ fn cached_backlinks(app: &RustdianApp, title: &str) -> Rc<super::files_ui::Backl
     let unlinked = unlinked_mentions(app, title, &backlinks);
     let data = Rc::new((backlinks, unlinked));
     *cache = Some((
-        rev,
+        struct_rev,
+        non_active_rev,
         app.vault.root_dir.clone(),
         title.to_string(),
         Rc::clone(&data),

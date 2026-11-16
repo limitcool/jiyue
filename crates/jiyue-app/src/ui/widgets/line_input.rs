@@ -237,8 +237,11 @@ impl LineInput {
     }
 
     pub fn set_placeholder(&mut self, text: impl Into<SharedString>, cx: &mut Context<Self>) {
-        self.placeholder = text.into();
-        cx.notify();
+        let next = text.into();
+        if self.placeholder != next {
+            self.placeholder = next;
+            cx.notify();
+        }
     }
 
     /// Colours follow this theme. Call it from the owner's render when the theme changes.

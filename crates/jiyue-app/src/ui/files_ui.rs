@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub(crate) type BacklinksData = (Vec<(String, String)>, Vec<(String, String)>);
-type BacklinksCache = (u64, PathBuf, String, Rc<BacklinksData>);
+type BacklinksCache = (u64, u64, PathBuf, String, Rc<BacklinksData>);
 type TreeCache = (u64, PathBuf, Rc<crate::ui::sidebar::DirNode>);
 type FlatTreeCache = (
     u64,
@@ -79,7 +79,7 @@ pub struct State {
     /// Open modal (trash, move picker, diff, confirmation).
     modal: Option<modals::Modal>,
     /// The undo toast of the last file operation.
-    undo: Option<UndoToast>,
+    pub(crate) undo: Option<UndoToast>,
     /// Notes whose file changed on disk while their editor has unsaved changes.
     conflicts: Vec<String>,
     /// The text this process last wrote to each note's file. Watcher events that just repeat it
@@ -109,6 +109,8 @@ pub struct State {
     pub(crate) inspector_cache: RefCell<Option<InspectorCache>>,
     /// Cached file creation date labels keyed by `(vault.root_dir, note.path)`.
     pub(crate) created_cache: RefCell<HashMap<(PathBuf, String), String>>,
+    /// Incremented when another note (or external reload) changes, without invalidating on active-note typing.
+    pub(crate) non_active_rev: u64,
 }
 
 /// Commands this module handles (sent as `ExtCommand::Files`).
@@ -720,9 +722,9 @@ fn purge_undo(app: &mut RustdianApp) -> bool {
 }
 
 /// Returns cached `NoteRef` entries (including YAML frontmatter aliases) keyed by
-/// `(vault.revision, vault.root_dir)` for link resolution and tooltips.
+/// `(vault.structure_revision, vault.root_dir)` for link resolution and tooltips.
 pub(crate) fn cached_note_refs(app: &RustdianApp) -> Rc<Vec<jiyue_core::links::NoteRef>> {
-    let rev = app.vault.revision;
+    let rev = app.vault.structure_revision;
     let mut cache = app.ext.files.link_refs_cache.borrow_mut();
     if let Some((cached_rev, cached_root, refs)) = cache.as_ref()
         && *cached_rev == rev
@@ -734,39 +736,9 @@ pub(crate) fn cached_note_refs(app: &RustdianApp) -> Rc<Vec<jiyue_core::links::N
         .vault
         .notes
         .iter()
-        .map(|note| {
-            let mut aliases = Vec::new();
-            let text = note.content();
-            if text.starts_with("---") {
-                for prop in jiyue_md::frontmatter::properties(text) {
-                    if !prop.key.eq_ignore_ascii_case("aliases")
-                        && !prop.key.eq_ignore_ascii_case("alias")
-                    {
-                        continue;
-                    }
-                    match prop.value {
-                        jiyue_md::frontmatter::Value::Text(s) => {
-                            let trimmed = s.trim();
-                            if !trimmed.is_empty() {
-                                aliases.push(trimmed.to_string());
-                            }
-                        }
-                        jiyue_md::frontmatter::Value::List(items) => {
-                            for item in items {
-                                let trimmed = item.trim();
-                                if !trimmed.is_empty() {
-                                    aliases.push(trimmed.to_string());
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            jiyue_core::links::NoteRef {
-                path: note.path.clone(),
-                aliases,
-            }
+        .map(|note| jiyue_core::links::NoteRef {
+            path: note.path.clone(),
+            aliases: note.aliases.clone(),
         })
         .collect();
     let refs = Rc::new(built);

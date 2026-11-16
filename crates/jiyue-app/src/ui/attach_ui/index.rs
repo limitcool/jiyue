@@ -2,7 +2,7 @@
 //! Hidden folders (`.jiyue`, `.trash`, `.git`) and symbolic links are skipped, so the index only
 //! names real files inside the vault.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use jiyue_md::embeds::{EmbedKind, embed_kind};
@@ -14,15 +14,30 @@ const MAX_DEPTH: usize = 32;
 
 /// Scans `root`. Blocking file system work: call it from a background task.
 pub fn scan(root: &Path) -> VaultFiles {
+    scan_with_cache(root, &HashMap::new(), &[])
+}
+
+/// Scans `root`, reusing previously measured image dimensions for image files not listed in
+/// `dirty_paths` so unaffected images do not re-open files on every structural change.
+pub fn scan_with_cache(
+    root: &Path,
+    prev_dims: &HashMap<String, (u32, u32)>,
+    dirty_paths: &[String],
+) -> VaultFiles {
     let mut files = Vec::new();
     walk(root, "", &mut files, 0);
     files.sort();
+    let dirty_set: HashSet<&str> = dirty_paths.iter().map(String::as_str).collect();
     let mut dims = HashMap::new();
     for rel in &files {
-        if embed_kind(rel) == EmbedKind::Image
-            && let Some(size) = image_size(&root.join(rel))
-        {
-            dims.insert(rel.clone(), size);
+        if embed_kind(rel) == EmbedKind::Image {
+            if !dirty_set.contains(rel.as_str())
+                && let Some(&cached) = prev_dims.get(rel)
+            {
+                dims.insert(rel.clone(), cached);
+            } else if let Some(size) = image_size(&root.join(rel)) {
+                dims.insert(rel.clone(), size);
+            }
         }
     }
     VaultFiles { files, dims }
@@ -129,5 +144,21 @@ mod tests {
         let v = scan(Path::new("Z:/definitely/not/here/jiyue"));
         assert!(v.files.is_empty());
         assert!(v.dims.is_empty());
+    }
+
+    #[test]
+    fn scan_with_cache_reuses_untouched_dims_and_refreshes_dirty_paths() {
+        let root = temp_dir("cache");
+        std::fs::write(root.join("clean.png"), PNG_1X1).unwrap();
+        std::fs::write(root.join("dirty.png"), PNG_1X1).unwrap();
+
+        let mut prev_dims = HashMap::new();
+        prev_dims.insert("clean.png".to_string(), (999, 888));
+        prev_dims.insert("dirty.png".to_string(), (777, 666));
+
+        let v = scan_with_cache(&root, &prev_dims, &["dirty.png".to_string()]);
+        assert_eq!(v.image_size("clean.png"), Some((999, 888)));
+        assert_eq!(v.image_size("dirty.png"), Some((1, 1)));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

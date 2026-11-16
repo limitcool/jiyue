@@ -610,10 +610,22 @@ fn render_banner(app: &RustdianApp, banner: &Banner, cx: &mut Context<RustdianAp
             cx.notify();
         }),
     );
+    let left = crate::theme::ACTIVITY_BAR_WIDTH
+        + if app.left_sidebar_open {
+            crate::theme::SIDEBAR_WIDTH
+        } else {
+            0.0
+        }
+        + 20.0;
+    let bottom = if app.ext.files.undo.is_some() {
+        94.0
+    } else {
+        42.0
+    };
     div()
         .absolute()
-        .left(px(16.0))
-        .bottom(px(40.0))
+        .left(px(left))
+        .bottom(px(bottom))
         .max_w(px(420.0))
         .flex()
         .items_center()

@@ -693,9 +693,16 @@ pub fn render_card(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> AnyEleme
         ));
     }
 
+    let left = crate::theme::ACTIVITY_BAR_WIDTH
+        + if app.left_sidebar_open {
+            crate::theme::SIDEBAR_WIDTH
+        } else {
+            0.0
+        }
+        + 24.0;
     div()
         .absolute()
-        .left(px(300.0))
+        .left(px(left))
         .top(px(120.0))
         .w(px(CARD_WIDTH))
         .flex()

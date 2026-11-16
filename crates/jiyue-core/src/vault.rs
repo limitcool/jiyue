@@ -1,7 +1,15 @@
-use crate::buffer::Note;
+use crate::buffer::{Note, file_disk_stamp};
 use crate::fsops;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+struct ScannedMd {
+    title: String,
+    rel_path: String,
+    full_path: PathBuf,
+    disk_stamp: Option<(u64, u128)>,
+}
 
 #[cfg(test)]
 mod title_tests {
@@ -511,6 +519,12 @@ pub struct Vault {
     pub folders: Vec<String>,
     /// Monotonically incremented whenever notes, note contents, or folders change.
     pub revision: u64,
+    /// Incremented when vault structure (paths, titles, folders, aliases, or full reload) changes.
+    pub structure_revision: u64,
+    /// Incremented when `#tags` across notes change or vault structure reloads.
+    pub tags_revision: u64,
+    /// Incremented when `[[wikilinks]]` across notes change or vault structure reloads.
+    pub links_revision: u64,
     pub(crate) daily_settings_cache: crate::daily::DailySettings,
 }
 
@@ -534,6 +548,9 @@ impl Vault {
             graph: KnowledgeGraph::default(),
             folders: Vec::new(),
             revision: 1,
+            structure_revision: 1,
+            tags_revision: 1,
+            links_revision: 1,
             daily_settings_cache: crate::daily::DailySettings::default(),
         };
 
@@ -549,29 +566,50 @@ impl Vault {
         self.bump_revision();
     }
 
-    /// Bumps the vault revision after any mutation to `notes` or `folders`.
+    /// Bumps all vault revisions after structural, batch, or full-reload mutations.
     pub fn bump_revision(&mut self) {
         self.revision = self.revision.wrapping_add(1);
+        self.structure_revision = self.structure_revision.wrapping_add(1);
+        self.tags_revision = self.tags_revision.wrapping_add(1);
+        self.links_revision = self.links_revision.wrapping_add(1);
+    }
+
+    /// Bumps fine-grained revisions after a single note's content changes in memory.
+    pub fn bump_note_edit(
+        &mut self,
+        tags_changed: bool,
+        links_changed: bool,
+        aliases_changed: bool,
+    ) {
+        self.revision = self.revision.wrapping_add(1);
+        if aliases_changed {
+            self.structure_revision = self.structure_revision.wrapping_add(1);
+        }
+        if tags_changed {
+            self.tags_revision = self.tags_revision.wrapping_add(1);
+        }
+        if links_changed {
+            self.links_revision = self.links_revision.wrapping_add(1);
+        }
     }
 
     /// Recursively load .md files from root_dir
     pub fn load_from_disk(&mut self) {
-        let (loaded, folders) = Self::scan_vault_parallel(&self.root_dir);
-        self.notes = loaded;
+        let (md_files, folders) = Self::scan_entries_sorted(&self.root_dir);
+        self.notes = Self::load_notes_parallel(&md_files);
         self.folders = folders;
         self.daily_settings_cache = crate::daily::DailySettings::load(&self.root_dir);
         self.bump_revision();
     }
 
-    /// Walks the vault root, sorts discovered note paths, and reads files in parallel when large.
-    fn scan_vault_parallel(root: &Path) -> (Vec<Note>, Vec<String>) {
+    /// Walks the vault root and returns sorted markdown file descriptors and folders.
+    fn scan_entries_sorted(root: &Path) -> (Vec<ScannedMd>, Vec<String>) {
         let mut md_files = Vec::new();
         let mut folders = Vec::new();
         Self::collect_entries(root, root, &mut md_files, &mut folders);
         folders.sort();
-        md_files.sort_by(|a, b| a.1.cmp(&b.1));
-        let notes = Self::load_notes_parallel(&md_files);
-        (notes, folders)
+        md_files.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+        (md_files, folders)
     }
 
     /// Walks `current` and collects `.md` file metadata and folders below `root`.
@@ -579,7 +617,7 @@ impl Vault {
     fn collect_entries(
         root: &Path,
         current: &Path,
-        files: &mut Vec<(String, String, PathBuf)>,
+        files: &mut Vec<ScannedMd>,
         folders: &mut Vec<String>,
     ) {
         if let Ok(entries) = fs::read_dir(current) {
@@ -593,7 +631,11 @@ impl Vault {
                 if fsops::is_ignored(&rel_path) {
                     continue;
                 }
-                if path.is_dir() {
+                let is_dir = entry
+                    .file_type()
+                    .map(|ft| ft.is_dir())
+                    .unwrap_or_else(|_| path.is_dir());
+                if is_dir {
                     folders.push(rel_path);
                     Self::collect_entries(root, &path, files, folders);
                 } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
@@ -602,21 +644,36 @@ impl Vault {
                         .and_then(|s| s.to_str())
                         .unwrap_or("Untitled")
                         .to_string();
-                    files.push((title, rel_path, path));
+                    let disk_stamp = entry.metadata().ok().and_then(|m| file_disk_stamp(&m));
+                    files.push(ScannedMd {
+                        title,
+                        rel_path,
+                        full_path: path,
+                        disk_stamp,
+                    });
                 }
             }
         }
     }
 
-    fn load_notes_parallel(files: &[(String, String, PathBuf)]) -> Vec<Note> {
+    fn read_scanned_note(item: &ScannedMd) -> Option<Note> {
+        let content = fs::read_to_string(&item.full_path).ok()?;
+        let disk_stamp = item.disk_stamp.or_else(|| {
+            fs::metadata(&item.full_path)
+                .ok()
+                .and_then(|m| file_disk_stamp(&m))
+        });
+        Some(Note::new_with_stamp(
+            &item.title,
+            &item.rel_path,
+            &content,
+            disk_stamp,
+        ))
+    }
+
+    fn load_notes_parallel(files: &[ScannedMd]) -> Vec<Note> {
         if files.len() < 32 {
-            return files
-                .iter()
-                .filter_map(|(title, rel_path, full_path)| {
-                    let content = fs::read_to_string(full_path).ok()?;
-                    Some(Note::new(title, rel_path, &content))
-                })
-                .collect();
+            return files.iter().filter_map(Self::read_scanned_note).collect();
         }
         let threads = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -631,10 +688,7 @@ impl Vault {
                     s.spawn(move || {
                         chunk
                             .iter()
-                            .filter_map(|(title, rel_path, full_path)| {
-                                let content = fs::read_to_string(full_path).ok()?;
-                                Some(Note::new(title, rel_path, &content))
-                            })
+                            .filter_map(Self::read_scanned_note)
                             .collect::<Vec<_>>()
                     })
                 })
@@ -648,16 +702,9 @@ impl Vault {
         out
     }
 
-    /// Re-reads the note list and the folders from disk, after files changed or were renamed,
-    /// moved or deleted outside this state (or by the file operations themselves).
-    ///
-    /// - `renames` maps the old note path to the new one for every note that moved. Open tabs and
-    ///   the active note follow their note through it; a note that vanished without an entry in
-    ///   `renames` drops out of the tabs.
-    /// - `keep_text` lists (post-change) note paths whose in-memory text must win over the disk
-    ///   copy. Their content is kept as it is; everything else is read from disk.
-    ///
-    /// Caller should `rebuild_graph` afterwards (done here).
+    /// Re-reads the note list and folders from disk incrementally: notes in `keep_text` and
+    /// untouched notes whose `(byte_len, modified_nanos)` disk fingerprint matches keep their
+    /// existing `Note` (buffer + cached tags/wikilinks/aliases) without re-reading disk.
     pub fn reload_from_disk(&mut self, keep_text: &[String], renames: &[(String, String)]) {
         let renamed = |path: &str| -> String {
             renames
@@ -675,16 +722,68 @@ impl Vault {
         let active_path = self.active_note().map(|n| renamed(&n.path));
         let active_tab = self.active_tab_index;
 
-        let (mut loaded, folders) = Self::scan_vault_parallel(&self.root_dir);
-        for note in &mut loaded {
-            if !keep_text.contains(&note.path) {
-                continue;
+        let mut old_by_path: HashMap<String, Note> = HashMap::with_capacity(self.notes.len());
+        for note in std::mem::take(&mut self.notes) {
+            old_by_path.insert(renamed(&note.path), note);
+        }
+
+        let (scanned, folders) = Self::scan_entries_sorted(&self.root_dir);
+        let mut slots: Vec<Option<Note>> = vec![None; scanned.len()];
+        let mut to_read: Vec<(usize, &ScannedMd)> = Vec::new();
+
+        for (idx, item) in scanned.iter().enumerate() {
+            if let Some(mut old) = old_by_path.remove(&item.rel_path) {
+                if keep_text.iter().any(|p| p == &item.rel_path) {
+                    old.rename_in_place(&item.title, &item.rel_path);
+                    old.disk_stamp = None;
+                    slots[idx] = Some(old);
+                    continue;
+                }
+                if item.disk_stamp.is_some() && old.disk_stamp == item.disk_stamp {
+                    old.rename_in_place(&item.title, &item.rel_path);
+                    slots[idx] = Some(old);
+                    continue;
+                }
             }
-            if let Some(old) = self.notes.iter().find(|n| renamed(&n.path) == note.path) {
-                let content = old.content_arc();
-                note.set_content(&content);
+            to_read.push((idx, item));
+        }
+
+        if to_read.len() < 32 {
+            for (idx, item) in to_read {
+                slots[idx] = Self::read_scanned_note(item);
+            }
+        } else {
+            let threads = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4)
+                .clamp(2, 8);
+            let chunk_size = to_read.len().div_ceil(threads);
+            let loaded_parts: Vec<(usize, Option<Note>)> = std::thread::scope(|s| {
+                let handles: Vec<_> = to_read
+                    .chunks(chunk_size)
+                    .map(|chunk| {
+                        s.spawn(move || {
+                            chunk
+                                .iter()
+                                .map(|&(idx, item)| (idx, Self::read_scanned_note(item)))
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .collect();
+                let mut merged = Vec::with_capacity(to_read.len());
+                for handle in handles {
+                    if let Ok(part) = handle.join() {
+                        merged.extend(part);
+                    }
+                }
+                merged
+            });
+            for (idx, note) in loaded_parts {
+                slots[idx] = note;
             }
         }
+
+        let loaded: Vec<Note> = slots.into_iter().flatten().collect();
         let paths: Vec<String> = loaded.iter().map(|n| n.path.clone()).collect();
         self.notes = loaded;
         self.folders = folders;
@@ -1047,6 +1146,87 @@ mod perf_tests {
         assert_eq!(bl.len(), 1);
         assert_eq!(bl[0].0, "Ref1");
         assert!(bl[0].1.contains("[[alpha|Alias]]"));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn incremental_reload_reuses_untouched_arc_and_keeps_edited_note() {
+        use std::sync::Arc;
+
+        let dir = std::env::temp_dir().join(format!("jiyue-increload-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("mkdir");
+        for i in 0..40 {
+            fs::write(
+                dir.join(format!("n_{i:02}.md")),
+                format!("# Note {i}\nBody {i}"),
+            )
+            .unwrap();
+        }
+
+        let mut vault = Vault::open_or_create(&dir);
+        let unchanged_idx = vault
+            .notes
+            .iter()
+            .position(|n| n.path == "n_05.md")
+            .unwrap();
+        let edited_idx = vault
+            .notes
+            .iter()
+            .position(|n| n.path == "n_10.md")
+            .unwrap();
+        let kept_arc = vault.notes[unchanged_idx].content_arc();
+        vault.notes[edited_idx].set_content("# Unsaved edit\n");
+
+        // Modify n_15 on disk and delete n_20
+        fs::write(dir.join("n_15.md"), "# Changed on disk\nNew text").unwrap();
+        fs::remove_file(dir.join("n_20.md")).unwrap();
+
+        vault.reload_from_disk(&["n_10.md".to_string()], &[]);
+        assert_eq!(vault.notes.len(), 39);
+
+        let n05 = vault.notes.iter().find(|n| n.path == "n_05.md").unwrap();
+        assert!(
+            Arc::ptr_eq(&kept_arc, &n05.content_arc()),
+            "untouched note buffer must be reused with O(1) Arc identity"
+        );
+        let n10 = vault.notes.iter().find(|n| n.path == "n_10.md").unwrap();
+        assert_eq!(n10.content(), "# Unsaved edit\n");
+        let n15 = vault.notes.iter().find(|n| n.path == "n_15.md").unwrap();
+        assert_eq!(n15.content(), "# Changed on disk\nNew text");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bump_note_edit_isolates_structure_tags_and_links_revisions() {
+        let dir = std::env::temp_dir().join(format!("jiyue-rev-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("mkdir");
+        fs::write(dir.join("a.md"), "# A\n").unwrap();
+        let mut vault = Vault::open_or_create(&dir);
+
+        let (r0, s0, t0, l0) = (
+            vault.revision,
+            vault.structure_revision,
+            vault.tags_revision,
+            vault.links_revision,
+        );
+        vault.bump_note_edit(false, false, false);
+        assert_eq!(vault.revision, r0 + 1);
+        assert_eq!(vault.structure_revision, s0);
+        assert_eq!(vault.tags_revision, t0);
+        assert_eq!(vault.links_revision, l0);
+
+        vault.bump_note_edit(true, false, false);
+        assert_eq!(vault.tags_revision, t0 + 1);
+        assert_eq!(vault.structure_revision, s0);
+        assert_eq!(vault.links_revision, l0);
+
+        vault.bump_note_edit(false, true, true);
+        assert_eq!(vault.structure_revision, s0 + 1);
+        assert_eq!(vault.links_revision, l0 + 1);
 
         let _ = fs::remove_dir_all(&dir);
     }

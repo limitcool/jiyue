@@ -289,6 +289,7 @@ impl RustdianApp {
         );
         if changed.iter().any(|p| p == &vault_config) {
             self.vault.refresh_daily_settings();
+            ui::memos_ui::invalidate_cache(self);
         }
         match self.configs.broken().first() {
             Some(issue) => self.toast(
@@ -529,18 +530,22 @@ impl RustdianApp {
             .editors
             .get(path)
             .is_some_and(|e| e.seen_state_id != state_id);
+        let mut links_changed = false;
         if text_changed {
-            let text = editor.read(cx).text();
+            let text_arc = editor.read(cx).text_arc();
             if let Some(entry) = self.editors.get_mut(path) {
                 entry.seen_state_id = state_id;
             }
             if let Some(note) = self
                 .note_index(path)
                 .and_then(|idx| self.vault.notes.get_mut(idx))
-                && note.content() != text
+                && !std::sync::Arc::ptr_eq(&note.content_arc(), &text_arc)
+                && note.content() != &*text_arc
             {
-                note.set_content(&text);
-                self.vault.bump_revision();
+                let (tags_changed, links, aliases_changed) = note.set_content_arc(text_arc);
+                links_changed = links;
+                self.vault
+                    .bump_note_edit(tags_changed, links_changed, aliases_changed);
                 edited = true;
             }
         }
@@ -563,7 +568,12 @@ impl RustdianApp {
         }
         if edited {
             changed = true;
-            self.schedule_graph_rebuild(cx);
+            if self.active_path() != Some(path) {
+                self.ext.files.non_active_rev = self.ext.files.non_active_rev.wrapping_add(1);
+            }
+            if links_changed {
+                self.schedule_graph_rebuild(cx);
+            }
             self.schedule_autosave(path, cx);
             self.schedule_journal(path, cx);
             ui::files_ui::autoname::on_edit(self, path, cx);
@@ -726,15 +736,25 @@ impl RustdianApp {
         let Some(editor) = self.editor_for(path) else {
             return true;
         };
-        let text = editor.read(cx).text();
+        let text_arc = editor.read(cx).text_arc();
         if let Some(note) = self.vault.notes.get_mut(idx)
-            && note.content() != text
+            && !std::sync::Arc::ptr_eq(&note.content_arc(), &text_arc)
+            && note.content() != &*text_arc
         {
-            note.set_content(&text);
-            self.vault.bump_revision();
+            let (tags_changed, links_changed, aliases_changed) = note.set_content_arc(text_arc);
+            self.vault
+                .bump_note_edit(tags_changed, links_changed, aliases_changed);
+            if self.active_path() != Some(path) {
+                self.ext.files.non_active_rev = self.ext.files.non_active_rev.wrapping_add(1);
+            }
         }
         match self.vault.save_note_to_disk(idx) {
             Ok(()) => {
+                if let Some(note) = self.vault.notes.get_mut(idx) {
+                    note.disk_stamp = std::fs::metadata(self.vault.root_dir.join(path))
+                        .ok()
+                        .and_then(|m| jiyue_core::buffer::file_disk_stamp(&m));
+                }
                 editor.update(cx, |ed, _| ed.mark_saved());
                 if let Some(entry) = self.editors.get_mut(path) {
                     entry.dirty_seen = false;
@@ -918,6 +938,9 @@ impl RustdianApp {
                 && self.is_dirty(&prev, cx)
             {
                 self.save_path(&prev, cx);
+            }
+            if self.last_active_path.is_some() {
+                self.ext.files.non_active_rev = self.ext.files.non_active_rev.wrapping_add(1);
             }
             self.last_active_path = active.clone();
             self.want_focus = true;
