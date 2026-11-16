@@ -48,6 +48,9 @@ installer/out/
 installer/obj/
 installer/.wix/
 
+# Mobile native Rust libraries built per-flavor/target (never committed to source)
+mobile/android/app/src/main/jniLibs/
+
 # Local test scratch
 /start_avd_gui.bat
 /test_steps.json

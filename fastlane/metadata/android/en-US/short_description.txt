@@ -1,0 +1,1 @@
+Local-first Markdown & wikilink notes with multi-vault S3 and WebDAV sync.

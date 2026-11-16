@@ -345,7 +345,7 @@ jobs:
     name: Android APK
     needs: prepare
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 50
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -370,25 +370,29 @@ jobs:
             prev_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
             if [ -n "$prev_tag" ]; then
               echo "Previous tag: $prev_tag"
-              changed=$(git diff --name-only "$prev_tag" HEAD -- mobile/ crates/jiyue-ffi/ || true)
+              changed=$(git diff --name-only "$prev_tag" HEAD -- mobile/ crates/jiyue-ffi/ crates/jiyue-sync/ scripts/build-android-ffi.py || true)
               if [ -z "$changed" ]; then
-                echo "No changes in mobile/ or crates/jiyue-ffi/ since $prev_tag."
-                echo "Attempting to download and reuse Android APK from release $prev_tag..."
-                if gh release download "$prev_tag" --pattern "*android.apk" --dir dist 2>/dev/null; then
-                  downloaded=$(ls dist/*android.apk 2>/dev/null | head -n 1 || true)
-                  if [ -n "$downloaded" ]; then
-                    target="dist/Jiyue-${CURRENT_VERSION}-android.apk"
-                    if [ "$downloaded" != "$target" ]; then
-                      mv "$downloaded" "$target"
-                    fi
-                    echo "Successfully reused APK from $prev_tag as $target"
+                echo "No changes in mobile/, crates/jiyue-ffi/, crates/jiyue-sync/, or scripts/build-android-ffi.py since $prev_tag."
+                echo "Attempting to download and reuse Android APKs from release $prev_tag..."
+                if gh release download "$prev_tag" --pattern "*-android*.apk" --dir dist 2>/dev/null; then
+                  std_apk=$(ls dist/*-android.apk 2>/dev/null | head -n 1 || true)
+                  foss_apk=$(ls dist/*-android-foss.apk 2>/dev/null | head -n 1 || true)
+                  if [ -n "$std_apk" ] && [ -n "$foss_apk" ]; then
+                    target_std="dist/Jiyue-${CURRENT_VERSION}-android.apk"
+                    target_foss="dist/Jiyue-${CURRENT_VERSION}-android-foss.apk"
+                    [ "$std_apk" = "$target_std" ] || mv "$std_apk" "$target_std"
+                    [ "$foss_apk" = "$target_foss" ] || mv "$foss_apk" "$target_foss"
+                    echo "Successfully reused Android APKs from $prev_tag"
                     reused=true
+                  else
+                    rm -f dist/*.apk
+                    echo "Incomplete Android APK set in $prev_tag, will rebuild."
                   fi
                 else
-                  echo "Could not download APK from $prev_tag, will fall back to build."
+                  echo "Could not download APKs from $prev_tag, will fall back to build."
                 fi
               else
-                echo "Detected changes in mobile/ or crates/jiyue-ffi/ since $prev_tag:"
+                echo "Detected mobile-related changes since $prev_tag:"
                 echo "$changed"
               fi
             else
@@ -404,6 +408,39 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+
+      - name: Set up Rust (Android NDK targets)
+        if: steps.check_reuse.outputs.reused != 'true'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.check_reuse.outputs.reused != 'true'
+        with:
+          key: android-ffi
+
+      - name: Install native build dependencies
+        if: steps.check_reuse.outputs.reused != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build clang pkg-config
+
+      - name: Set up Android SDK & NDK
+        if: steps.check_reuse.outputs.reused != 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK 27
+        if: steps.check_reuse.outputs.reused != 'true'
+        shell: bash
+        run: |
+          sdkmanager "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      - name: Build Rust FFI Android Native Libraries
+        if: steps.check_reuse.outputs.reused != 'true'
+        run: python3 scripts/build-android-ffi.py --locked
 
       - name: Set up Flutter
         if: steps.check_reuse.outputs.reused != 'true'
@@ -428,7 +465,7 @@ jobs:
             echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > mobile/android/app/upload-keystore.jks
           fi
 
-      - name: Build APK
+      - name: Build APK (GitHub Flavor & FOSS Flavor)
         if: steps.check_reuse.outputs.reused != 'true'
         working-directory: mobile
         env:
@@ -437,13 +474,16 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release --flavor github
+          flutter build apk --release --flavor foss --dart-define=FOSS_BUILD=true
 
-      - name: Prepare APK Asset
+      - name: Prepare APK Assets
         if: steps.check_reuse.outputs.reused != 'true'
         run: |
           mkdir -p dist
-          cp mobile/build/app/outputs/flutter-apk/app-release.apk dist/Jiyue-${{ needs.prepare.outputs.version }}-android.apk
+          cp mobile/build/app/outputs/flutter-apk/app-github-release.apk dist/Jiyue-${{ needs.prepare.outputs.version }}-android.apk
+          cp mobile/build/app/outputs/flutter-apk/app-foss-release.apk dist/Jiyue-${{ needs.prepare.outputs.version }}-android-foss.apk
 
       - uses: actions/upload-artifact@v7
         with:

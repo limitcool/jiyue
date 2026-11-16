@@ -6,4 +6,16 @@
     <external-cache-path
         name="ext_apk_updates"
         path="updates/" />
+    <cache-path
+        name="shared_exports"
+        path="exports/" />
+    <files-path
+        name="internal_files"
+        path="." />
+    <external-files-path
+        name="external_app_files"
+        path="." />
+    <external-path
+        name="external_storage_root"
+        path="." />
 </paths>

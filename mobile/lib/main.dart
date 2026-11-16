@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'bridge/vault_service.dart';
 import 'theme/jiyue_theme.dart';
 import 'theme/theme_provider.dart';
+import 'views/onboarding_page.dart';
 import 'views/vault_page.dart';
 
 void main() async {
@@ -39,16 +40,18 @@ class _JiyueMobileAppState extends State<JiyueMobileApp> {
   @override
   void initState() {
     super.initState();
-    widget.themeProvider.addListener(_onThemeChanged);
+    widget.themeProvider.addListener(_onStateChanged);
+    widget.vaultService.addListener(_onStateChanged);
   }
 
   @override
   void dispose() {
-    widget.themeProvider.removeListener(_onThemeChanged);
+    widget.themeProvider.removeListener(_onStateChanged);
+    widget.vaultService.removeListener(_onStateChanged);
     super.dispose();
   }
 
-  void _onThemeChanged() {
+  void _onStateChanged() {
     setState(() {});
   }
 
@@ -107,10 +110,15 @@ class _JiyueMobileAppState extends State<JiyueMobileApp> {
           onError: colors.onAccent,
         ),
       ),
-      home: VaultPage(
-        themeProvider: widget.themeProvider,
-        vaultService: widget.vaultService,
-      ),
+      home: widget.vaultService.hasActiveVault
+          ? VaultPage(
+              themeProvider: widget.themeProvider,
+              vaultService: widget.vaultService,
+            )
+          : OnboardingPage(
+              themeProvider: widget.themeProvider,
+              vaultService: widget.vaultService,
+            ),
     );
   }
 }

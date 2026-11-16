@@ -15,9 +15,20 @@ use serde::{Deserialize, Serialize};
 
 use jiyue_core::buffer::{Note, wikilink_targets};
 use jiyue_core::daily::Date;
+use jiyue_core::links::{
+    LinkKind, LinkOccurrence, NoteRef, extract_links, resolve_link, resolve_occurrence,
+};
 use jiyue_core::vault::Vault;
 use jiyue_sync::store::{OpendalStore, StoreConfig};
 use jiyue_sync::{SyncOptions, run_sync, state};
+
+/// Backlink item pointing to a note
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BacklinkItem {
+    pub path: String,
+    pub title: String,
+    pub snippet: String,
+}
 
 /// High-level note summary for list views
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +50,8 @@ pub struct NoteDetail {
     pub content: String,
     pub tags: Vec<String>,
     pub wikilinks: Vec<String>,
+    #[serde(default)]
+    pub backlinks: Vec<BacklinkItem>,
     pub modified_ms: i64,
 }
 
@@ -63,6 +76,67 @@ pub struct SyncResultReport {
     pub message: String,
 }
 
+impl SyncResultReport {
+    fn failure(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            uploaded: 0,
+            downloaded: 0,
+            deleted_remote: 0,
+            deleted_local: 0,
+            conflicts: 0,
+            message: message.into(),
+        }
+    }
+}
+
+fn run_sync_at_root(root_dir: &Path, config_json: &str, device: &str) -> SyncResultReport {
+    let config: StoreConfig = match serde_json::from_str(config_json) {
+        Ok(c) => c,
+        Err(e) => {
+            return SyncResultReport::failure(format!("Invalid sync configuration JSON: {e}"));
+        }
+    };
+
+    let store = match OpendalStore::from_config(&config) {
+        Ok(s) => s,
+        Err(e) => return SyncResultReport::failure(format!("Failed to build remote store: {e}")),
+    };
+
+    let mut sync_state = match state::load_state(root_dir) {
+        Ok(s) => s,
+        Err(e) => {
+            return SyncResultReport::failure(format!("Failed to load local sync state: {e}"));
+        }
+    };
+
+    let mut opts = SyncOptions::new(if device.is_empty() { "Mobile" } else { device });
+    let report = run_sync(root_dir, &store, &mut sync_state, &mut opts);
+
+    let is_ok = report.errors.is_empty() && report.fatal.is_none();
+    SyncResultReport {
+        success: is_ok,
+        uploaded: report.uploaded.len(),
+        downloaded: report.downloaded.len(),
+        deleted_remote: report.deleted_remote.len(),
+        deleted_local: report.deleted_local.len(),
+        conflicts: report.conflicts.len(),
+        message: if is_ok {
+            format!(
+                "同步成功: 上传 {} 篇，下载 {} 篇，合并冲突 {} 处",
+                report.uploaded.len(),
+                report.downloaded.len(),
+                report.conflicts.len()
+            )
+        } else {
+            format!(
+                "同步失败: fatal={:?}, errors={:?}",
+                report.fatal, report.errors
+            )
+        },
+    }
+}
+
 /// Connection test result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionTestResult {
@@ -71,6 +145,222 @@ pub struct ConnectionTestResult {
     pub can_list: bool,
     pub can_write: bool,
     pub message: String,
+}
+
+fn note_refs(vault: &Vault) -> Vec<NoteRef> {
+    vault
+        .notes
+        .iter()
+        .map(|n| {
+            let norm = n.path.replace('\\', "/");
+            let aliases = jiyue_md::frontmatter::aliases(n.content());
+            if aliases.is_empty() {
+                NoteRef::new(norm)
+            } else {
+                NoteRef {
+                    path: norm,
+                    aliases,
+                }
+            }
+        })
+        .collect()
+}
+
+fn snippet_at_offset(content: &str, byte_offset: usize) -> String {
+    let mut cursor = 0usize;
+    for line in content.split('\n') {
+        let line_end = cursor + line.len();
+        if byte_offset <= line_end {
+            let clean = line.trim();
+            let clipped: String = clean.chars().take(140).collect();
+            return if clean.chars().count() > 140 {
+                format!("{clipped}...")
+            } else {
+                clipped
+            };
+        }
+        cursor = line_end + 1;
+    }
+    String::new()
+}
+
+fn collect_backlinks(vault: &Vault, refs: &[NoteRef], target_idx: usize) -> Vec<BacklinkItem> {
+    let mut backlinks = Vec::new();
+    for (src_idx, src) in vault.notes.iter().enumerate() {
+        if src_idx == target_idx {
+            continue;
+        }
+        let content = src.content();
+        let src_path = &refs[src_idx].path;
+        let matched = extract_links(content)
+            .into_iter()
+            .find(|occ| resolve_occurrence(refs, occ, src_path) == Some(target_idx));
+        if let Some(occ) = matched {
+            backlinks.push(BacklinkItem {
+                path: src_path.clone(),
+                title: src.title.clone(),
+                snippet: snippet_at_offset(content, occ.range.start),
+            });
+        }
+    }
+    backlinks
+}
+
+fn strip_index_prefix(stem: &str) -> &str {
+    let bytes = stem.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 {
+        return stem;
+    }
+    while i < bytes.len() && matches!(bytes[i], b'-' | b'_' | b'.' | b' ') {
+        i += 1;
+    }
+    let rest = stem[i..].trim();
+    if rest.is_empty() { stem } else { rest }
+}
+
+fn resolve_folder_index_note(notes: &[Note], from_norm: &str, target: &str) -> Option<String> {
+    let before_pipe = target.split('|').next().unwrap_or(target);
+    let before_hash = before_pipe.split('#').next().unwrap_or(before_pipe);
+    let normalized = before_hash.trim().replace('\\', "/");
+    let clean = normalized
+        .strip_prefix("./")
+        .unwrap_or(&normalized)
+        .trim_matches('/');
+    if clean.is_empty() {
+        return None;
+    }
+    let base = clean.rsplit('/').next().unwrap_or(clean).trim();
+
+    let mut folders: Vec<String> = Vec::new();
+    for n in notes {
+        let p = n.path.replace('\\', "/");
+        let mut slice = p.as_str();
+        while let Some((parent, _)) = slice.rsplit_once('/') {
+            if !parent.is_empty() && !folders.iter().any(|f| f == parent) {
+                folders.push(parent.to_string());
+            }
+            slice = parent;
+        }
+    }
+
+    let from_dir = from_norm.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+    let mut matched_folder: Option<String> = None;
+    if !from_dir.is_empty() {
+        let rel = format!("{from_dir}/{clean}");
+        matched_folder = folders
+            .iter()
+            .find(|f| f.eq_ignore_ascii_case(&rel))
+            .cloned();
+    }
+    if matched_folder.is_none() {
+        matched_folder = folders
+            .iter()
+            .find(|f| f.eq_ignore_ascii_case(clean))
+            .cloned();
+    }
+    if matched_folder.is_none() && !clean.contains('/') {
+        let mut leaf_matches: Vec<&String> = folders
+            .iter()
+            .filter(|f| {
+                f.rsplit('/')
+                    .next()
+                    .is_some_and(|seg| seg.eq_ignore_ascii_case(clean))
+            })
+            .collect();
+        leaf_matches.sort_by_key(|f| (f.chars().count(), f.as_str()));
+        if let Some(first) = leaf_matches.first() {
+            matched_folder = Some((*first).clone());
+        }
+    }
+
+    let find_ci = |candidate: &str| -> Option<String> {
+        notes
+            .iter()
+            .map(|n| n.path.replace('\\', "/"))
+            .find(|p| p.eq_ignore_ascii_case(candidate))
+    };
+
+    if let Some(folder) = matched_folder.as_deref() {
+        let folder_base = folder.rsplit('/').next().unwrap_or(folder);
+        for candidate in [
+            format!("{folder}/{folder_base}.md"),
+            format!("{folder}/README.md"),
+            format!("{folder}/index.md"),
+        ] {
+            if let Some(hit) = find_ci(&candidate) {
+                return Some(hit);
+            }
+        }
+    }
+
+    if !base.is_empty() {
+        if let Some(hit) = find_ci(&format!("_indexes/{base}.md")) {
+            return Some(hit);
+        }
+        let prefix = "_indexes/";
+        let mut matches: Vec<String> = notes
+            .iter()
+            .filter_map(|n| {
+                let p = n.path.replace('\\', "/");
+                let file = p
+                    .get(..prefix.len())
+                    .filter(|s| s.eq_ignore_ascii_case(prefix))
+                    .and_then(|_| p.get(prefix.len()..))?;
+                if file.is_empty() || file.contains('/') {
+                    return None;
+                }
+                let stem = if file.len() >= 3
+                    && file.as_bytes()[file.len() - 3..].eq_ignore_ascii_case(b".md")
+                {
+                    &file[..file.len() - 3]
+                } else {
+                    file
+                };
+                strip_index_prefix(stem)
+                    .eq_ignore_ascii_case(base)
+                    .then_some(p)
+            })
+            .collect();
+        if matches.len() == 1 {
+            return Some(matches.remove(0));
+        }
+    }
+
+    None
+}
+
+fn build_note_detail(vault: &Vault, idx: usize) -> NoteDetail {
+    let note = &vault.notes[idx];
+    let norm_path = note.path.replace('\\', "/");
+    let abs_path = vault.root_dir.join(&note.path);
+    let modified_ms = std::fs::metadata(&abs_path)
+        .and_then(|m| m.modified())
+        .and_then(|t| {
+            t.duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .map_err(|e| std::io::Error::other(e.to_string()))
+        })
+        .unwrap_or(0);
+
+    let refs = note_refs(vault);
+    let backlinks = collect_backlinks(vault, &refs, idx);
+    let content = note.content().to_string();
+    let wikilinks = wikilink_targets(&content);
+
+    NoteDetail {
+        id: note.id.clone(),
+        title: note.title.clone(),
+        path: norm_path,
+        content,
+        tags: note.tags.clone(),
+        wikilinks,
+        backlinks,
+        modified_ms,
+    }
 }
 
 /// Thread-safe wrapper around a Jiyue Vault
@@ -116,7 +406,7 @@ impl VaultBridge {
             summaries.push(NoteSummary {
                 id: note.id.clone(),
                 title: note.title.clone(),
-                path: note.path.clone(),
+                path: note.path.replace('\\', "/"),
                 preview,
                 tags: note.tags.clone(),
                 modified_ms,
@@ -132,33 +422,11 @@ impl VaultBridge {
     pub fn get_note(&self, path: &str) -> Option<NoteDetail> {
         let vault = self.vault.lock().unwrap();
         let norm = path.replace('\\', "/");
-        let note = vault
+        let idx = vault
             .notes
             .iter()
-            .find(|n| n.path.replace('\\', "/") == norm)?;
-
-        let abs_path = vault.root_dir.join(&note.path);
-        let modified_ms = std::fs::metadata(&abs_path)
-            .and_then(|m| m.modified())
-            .and_then(|t| {
-                t.duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_millis() as i64)
-                    .map_err(|e| std::io::Error::other(e.to_string()))
-            })
-            .unwrap_or(0);
-
-        let content = note.content().to_string();
-        let wikilinks = wikilink_targets(&content);
-
-        Some(NoteDetail {
-            id: note.id.clone(),
-            title: note.title.clone(),
-            path: note.path.clone(),
-            content,
-            tags: note.tags.clone(),
-            wikilinks,
-            modified_ms,
-        })
+            .position(|n| n.path.replace('\\', "/") == norm)?;
+        Some(build_note_detail(&vault, idx))
     }
 
     /// Save note content and persist atomically
@@ -228,7 +496,7 @@ impl VaultBridge {
         Ok(())
     }
 
-    /// Rename note
+    /// Rename note (preserving its parent folder)
     pub fn rename_note(&self, path: &str, new_title: &str) -> Result<String, String> {
         let mut vault = self.vault.lock().unwrap();
         let norm = path.replace('\\', "/");
@@ -241,9 +509,20 @@ impl VaultBridge {
         let safe_title = jiyue_core::vault::safe_note_title(new_title)
             .ok_or_else(|| "Invalid note title".to_string())?;
 
+        let old_norm = vault.notes[idx].path.replace('\\', "/");
+        let new_rel = match old_norm.rsplit_once('/') {
+            Some((dir, _)) => format!("{dir}/{safe_title}.md"),
+            None => format!("{safe_title}.md"),
+        };
+        if new_rel == old_norm {
+            return Ok(new_rel);
+        }
+
         let old_abs = vault.root_dir.join(&vault.notes[idx].path);
-        let new_rel = format!("{}.md", safe_title);
         let new_abs = vault.root_dir.join(&new_rel);
+        if !new_rel.eq_ignore_ascii_case(&old_norm) && new_abs.exists() {
+            return Err(format!("Target note already exists: {new_rel}"));
+        }
 
         std::fs::rename(&old_abs, &new_abs)
             .map_err(|e| format!("Failed to rename file on disk: {e}"))?;
@@ -253,6 +532,38 @@ impl VaultBridge {
         vault.bump_revision();
         vault.rebuild_graph();
         Ok(new_rel)
+    }
+
+    /// Resolve a wikilink or Markdown relative link target from `from_path`
+    pub fn resolve_link_target(&self, from_path: &str, target: &str) -> Option<String> {
+        let trimmed = target.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        let vault = self.vault.lock().unwrap();
+        let refs = note_refs(&vault);
+        let from_norm = from_path.replace('\\', "/");
+
+        if let Some(idx) = resolve_link(&refs, trimmed, &from_norm) {
+            return Some(vault.notes[idx].path.replace('\\', "/"));
+        }
+
+        let clean_md = trimmed.split('#').next().unwrap_or(trimmed).trim();
+        if !clean_md.is_empty() {
+            let occ = LinkOccurrence {
+                range: 0..0,
+                target_range: 0..0,
+                kind: LinkKind::MdLink,
+                target: clean_md.to_string(),
+                anchor: None,
+                alias: None,
+            };
+            if let Some(idx) = resolve_occurrence(&refs, &occ, &from_norm) {
+                return Some(vault.notes[idx].path.replace('\\', "/"));
+            }
+        }
+
+        resolve_folder_index_note(&vault.notes, &from_norm, trimmed)
     }
 
     /// Full-text search across titles, tags, and content
@@ -267,7 +578,7 @@ impl VaultBridge {
         for note in &vault.notes {
             if note.title.to_lowercase().contains(&q) {
                 results.push(SearchResultItem {
-                    path: note.path.clone(),
+                    path: note.path.replace('\\', "/"),
                     title: note.title.clone(),
                     snippet: format!("标题匹配: {}", note.title),
                     match_type: "title".to_string(),
@@ -277,7 +588,7 @@ impl VaultBridge {
 
             if note.tags.iter().any(|t| t.to_lowercase().contains(&q)) {
                 results.push(SearchResultItem {
-                    path: note.path.clone(),
+                    path: note.path.replace('\\', "/"),
                     title: note.title.clone(),
                     snippet: format!("标签匹配: {}", note.tags.join(" ")),
                     match_type: "tag".to_string(),
@@ -287,11 +598,9 @@ impl VaultBridge {
 
             let content = note.content();
             if let Some(pos) = content.to_lowercase().find(&q) {
-                let start = pos.saturating_sub(30);
-                let end = (pos + q.len() + 30).min(content.len());
-                let snippet = format!("...{}...", content[start..end].replace('\n', " "));
+                let snippet = snippet_at_offset(content, pos.min(content.len()));
                 results.push(SearchResultItem {
-                    path: note.path.clone(),
+                    path: note.path.replace('\\', "/"),
                     title: note.title.clone(),
                     snippet,
                     match_type: "content".to_string(),
@@ -309,22 +618,7 @@ impl VaultBridge {
             .open_or_create_daily(today)
             .map_err(|e| format!("Failed to open or create daily note: {e}"))?;
 
-        let note = &vault.notes[idx];
-        let content = note.content().to_string();
-        let wikilinks = wikilink_targets(&content);
-
-        Ok(NoteDetail {
-            id: note.id.clone(),
-            title: note.title.clone(),
-            path: note.path.clone(),
-            content,
-            tags: note.tags.clone(),
-            wikilinks,
-            modified_ms: std::time::SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(0),
-        })
+        Ok(build_note_detail(&vault, idx))
     }
 
     /// Append a quick log entry to today's daily note
@@ -349,89 +643,21 @@ impl VaultBridge {
         Ok(())
     }
 
+    /// Reload vault state from disk (e.g. after background path-based sync)
+    pub fn reload(&self) {
+        let mut vault = self.vault.lock().unwrap();
+        vault.load_from_disk();
+    }
+
     /// Run S3 or WebDAV synchronization
     pub fn execute_sync(&self, config_json: &str, device: &str) -> SyncResultReport {
-        let config: StoreConfig = match serde_json::from_str(config_json) {
-            Ok(c) => c,
-            Err(e) => {
-                return SyncResultReport {
-                    success: false,
-                    uploaded: 0,
-                    downloaded: 0,
-                    deleted_remote: 0,
-                    deleted_local: 0,
-                    conflicts: 0,
-                    message: format!("Invalid sync configuration JSON: {e}"),
-                };
-            }
-        };
-
-        let store = match OpendalStore::from_config(&config) {
-            Ok(s) => s,
-            Err(e) => {
-                return SyncResultReport {
-                    success: false,
-                    uploaded: 0,
-                    downloaded: 0,
-                    deleted_remote: 0,
-                    deleted_local: 0,
-                    conflicts: 0,
-                    message: format!("Failed to build remote store: {e}"),
-                };
-            }
-        };
-
         let root_dir = {
             let vault = self.vault.lock().unwrap();
             vault.root_dir.clone()
         };
-
-        let mut sync_state = match state::load_state(&root_dir) {
-            Ok(s) => s,
-            Err(e) => {
-                return SyncResultReport {
-                    success: false,
-                    uploaded: 0,
-                    downloaded: 0,
-                    deleted_remote: 0,
-                    deleted_local: 0,
-                    conflicts: 0,
-                    message: format!("Failed to load local sync state: {e}"),
-                };
-            }
-        };
-
-        let mut opts = SyncOptions::new(if device.is_empty() { "Mobile" } else { device });
-        let report = run_sync(&root_dir, &store, &mut sync_state, &mut opts);
-
-        // Reload vault from disk to reflect downloaded or merged notes
-        {
-            let mut vault = self.vault.lock().unwrap();
-            vault.load_from_disk();
-        }
-
-        let is_ok = report.errors.is_empty() && report.fatal.is_none();
-        SyncResultReport {
-            success: is_ok,
-            uploaded: report.uploaded.len(),
-            downloaded: report.downloaded.len(),
-            deleted_remote: report.deleted_remote.len(),
-            deleted_local: report.deleted_local.len(),
-            conflicts: report.conflicts.len(),
-            message: if is_ok {
-                format!(
-                    "同步成功: 上传 {} 篇，下载 {} 篇，合并冲突 {} 处",
-                    report.uploaded.len(),
-                    report.downloaded.len(),
-                    report.conflicts.len()
-                )
-            } else {
-                format!(
-                    "同步失败: fatal={:?}, errors={:?}",
-                    report.fatal, report.errors
-                )
-            },
-        }
+        let result = run_sync_at_root(&root_dir, config_json, device);
+        self.reload();
+        result
     }
 }
 
@@ -564,6 +790,32 @@ pub extern "C" fn jiyue_vault_rename_note(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn jiyue_vault_resolve_link(
+    bridge: *mut VaultBridge,
+    from_path: *const c_char,
+    target: *const c_char,
+) -> *mut c_char {
+    if bridge.is_null() {
+        return to_c_string("null");
+    }
+    let bridge = unsafe { &*bridge };
+    let from = c_str_to_str(from_path);
+    let tgt = c_str_to_str(target);
+    match bridge.resolve_link_target(from, tgt) {
+        Some(resolved) => to_json_c_string(&resolved),
+        None => to_c_string("null"),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn jiyue_vault_reload(bridge: *mut VaultBridge) {
+    if !bridge.is_null() {
+        let bridge = unsafe { &*bridge };
+        bridge.reload();
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn jiyue_vault_search(
     bridge: *mut VaultBridge,
     query: *const c_char,
@@ -648,20 +900,28 @@ pub extern "C" fn jiyue_sync_execute(
     device_name: *const c_char,
 ) -> *mut c_char {
     if bridge.is_null() {
-        return to_json_c_string(&SyncResultReport {
-            success: false,
-            uploaded: 0,
-            downloaded: 0,
-            deleted_remote: 0,
-            deleted_local: 0,
-            conflicts: 0,
-            message: "Vault handle is null".to_string(),
-        });
+        return to_json_c_string(&SyncResultReport::failure("Vault handle is null"));
     }
     let bridge = unsafe { &*bridge };
     let cfg = c_str_to_str(config_json);
     let dev = c_str_to_str(device_name);
     let result = bridge.execute_sync(cfg, dev);
+    to_json_c_string(&result)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn jiyue_sync_run_path(
+    vault_path: *const c_char,
+    config_json: *const c_char,
+    device_name: *const c_char,
+) -> *mut c_char {
+    let root = c_str_to_str(vault_path);
+    if root.is_empty() {
+        return to_json_c_string(&SyncResultReport::failure("Vault path is empty"));
+    }
+    let cfg = c_str_to_str(config_json);
+    let dev = c_str_to_str(device_name);
+    let result = run_sync_at_root(Path::new(root), cfg, dev);
     to_json_c_string(&result)
 }
 
@@ -748,6 +1008,90 @@ mod tests {
         jiyue_string_free(list_json_ptr);
 
         // Close vault
+        jiyue_vault_close(handle);
+    }
+
+    #[test]
+    fn test_backlinks_link_resolution_and_subdir_rename() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("backend")).unwrap();
+        std::fs::create_dir_all(dir.path().join("_indexes")).unwrap();
+
+        std::fs::write(
+            dir.path().join("README.md"),
+            "# Root\n\nSee [[backend]] and [[Target Note|alias]] and [MD](backend/Rust.md).\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("backend/README.md"),
+            "# Backend Index\n\nIntro to backend.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("backend/Rust.md"),
+            "# Rust\n\nBack to [[README]] and [[Target Note]].\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("Target Note.md"),
+            "# Target Note\n\nTarget body.\n",
+        )
+        .unwrap();
+
+        let bridge = VaultBridge::open_or_create(dir.path());
+
+        // Resolve folder index & relative links
+        assert_eq!(
+            bridge.resolve_link_target("README.md", "backend"),
+            Some("backend/README.md".to_string())
+        );
+        assert_eq!(
+            bridge.resolve_link_target("README.md", "Target Note|alias"),
+            Some("Target Note.md".to_string())
+        );
+        assert_eq!(
+            bridge.resolve_link_target("README.md", "backend/Rust.md"),
+            Some("backend/Rust.md".to_string())
+        );
+        assert_eq!(
+            bridge.resolve_link_target("backend/Rust.md", "../README.md"),
+            Some("README.md".to_string())
+        );
+
+        // Verify backlinks extracted for Target Note.md and backend/Rust.md
+        let target_detail = bridge.get_note("Target Note.md").expect("target detail");
+        assert_eq!(target_detail.backlinks.len(), 2);
+        let backlink_paths: Vec<&str> = target_detail
+            .backlinks
+            .iter()
+            .map(|b| b.path.as_str())
+            .collect();
+        assert!(backlink_paths.contains(&"README.md"));
+        assert!(backlink_paths.contains(&"backend/Rust.md"));
+
+        let rust_detail = bridge.get_note("backend/Rust.md").expect("rust detail");
+        assert!(
+            rust_detail.backlinks.iter().any(|b| b.path == "README.md"),
+            "Markdown link from README.md should count as backlink"
+        );
+
+        // Rename inside subdirectory preserves parent directory
+        let renamed = bridge
+            .rename_note("backend/Rust.md", "Rust Async")
+            .expect("rename note");
+        assert_eq!(renamed, "backend/Rust Async.md");
+        assert!(dir.path().join("backend/Rust Async.md").exists());
+        assert!(!dir.path().join("backend/Rust.md").exists());
+
+        // C-ABI resolve_link check
+        let path_c = CString::new(dir.path().to_str().unwrap()).unwrap();
+        let handle = jiyue_vault_open(path_c.as_ptr());
+        let from_c = CString::new("README.md").unwrap();
+        let tgt_c = CString::new("backend").unwrap();
+        let res_ptr = jiyue_vault_resolve_link(handle, from_c.as_ptr(), tgt_c.as_ptr());
+        let res_str = c_str_to_str(res_ptr).to_string();
+        jiyue_string_free(res_ptr);
+        assert_eq!(res_str, "\"backend/README.md\"");
         jiyue_vault_close(handle);
     }
 }

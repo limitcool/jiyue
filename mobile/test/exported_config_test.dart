@@ -18,7 +18,8 @@ void main() {
           "access_key_id": "AKIA_TEST_KEY",
           "secret_access_key": "SK_TEST_SECRET",
           "root_prefix": "jiyue/notes/",
-          "force_path_style": true
+          "force_path_style": true,
+          "vault_name": "ObsidianMain"
         },
         "ai": {
           "enabled": true,
@@ -53,6 +54,8 @@ void main() {
       expect(config.s3!.secretAccessKey, 'SK_TEST_SECRET');
       expect(config.s3!.rootPrefix, 'jiyue/notes/');
       expect(config.s3!.forcePathStyle, isTrue);
+      expect(config.vaultName, 'ObsidianMain');
+      expect(config.suggestedVaultName, 'ObsidianMain');
 
       // Verify AI
       expect(config.ai, isNotNull);
@@ -96,6 +99,29 @@ void main() {
       expect(config.memos, isNotNull);
       expect(config.memos!.endpoint, 'https://memo.init.cool');
       expect(config.memos!.token, 'memos_pat_test123');
+    });
+
+    test('infers suggestedVaultName from root_prefix when vault_name is omitted', () {
+      const jsonStr = '''
+      {
+        "jiyue": "config_export",
+        "version": 1,
+        "timestamp": 1740000000,
+        "sync": {
+          "backend": "s3",
+          "endpoint": "https://s3.example.com",
+          "region": "us-east-1",
+          "bucket": "backup",
+          "access_key_id": "ak",
+          "secret_access_key": "sk",
+          "root_prefix": "jiyue/KnowledgeBase/",
+          "force_path_style": true
+        }
+      }
+      ''';
+      final config = ExportedConfig.fromJson(jsonDecode(jsonStr) as Map<String, dynamic>);
+      expect(config.vaultName, isNull);
+      expect(config.suggestedVaultName, equals('KnowledgeBase'));
     });
   });
 }

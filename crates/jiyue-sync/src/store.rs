@@ -612,11 +612,28 @@ fn is_network_failure(err: &opendal::Error) -> bool {
     false
 }
 
+#[cfg(target_os = "android")]
+fn android_tls_config() -> Result<rustls::ClientConfig, StoreError> {
+    let provider = std::sync::Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let root_store = rustls::RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+    };
+    let builder = rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| StoreError::Other(format!("cannot configure Android TLS versions: {e}")))?;
+    Ok(builder
+        .with_root_certificates(root_store)
+        .with_no_client_auth())
+}
+
 fn http_context() -> Result<OperationContext, StoreError> {
-    let client = reqwest::Client::builder()
+    let builder = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         // Per read, not total: large files keep going as long as bytes keep arriving.
-        .read_timeout(REQUEST_TIMEOUT)
+        .read_timeout(REQUEST_TIMEOUT);
+    #[cfg(target_os = "android")]
+    let builder = builder.tls_backend_preconfigured(android_tls_config()?);
+    let client = builder
         .build()
         .map_err(|e| StoreError::Other(format!("cannot build HTTP client: {e}")))?;
     Ok(OperationContext::new()

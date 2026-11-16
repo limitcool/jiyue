@@ -5,7 +5,8 @@ import 'package:flutter/services.dart';
 
 const String defaultRepoOwner = 'limitcool';
 const String defaultRepoName = 'jiyue';
-const String currentAppVersion = '0.3.6';
+const String currentAppVersion = '0.3.7';
+const bool kIsFossBuild = bool.fromEnvironment('FOSS_BUILD', defaultValue: false);
 const Duration _networkTimeout = Duration(seconds: 12);
 const MethodChannel _updaterChannel =
     MethodChannel('cool.jiyue.jiyue_mobile/app_updater');
@@ -169,10 +170,12 @@ class UpdateService {
     return false;
   }
 
-  /// Selects the best APK asset for Android devices.
+  /// Selects the best APK asset for standard (GitHub) self-updating Android devices.
   static ReleaseAsset? pickMobileAsset(List<ReleaseAsset> assets) {
-    final apks =
-        assets.where((a) => a.name.toLowerCase().endsWith('.apk')).toList();
+    final apks = assets.where((a) {
+      final lower = a.name.toLowerCase();
+      return lower.endsWith('.apk') && !lower.contains('-foss');
+    }).toList();
     if (apks.isEmpty) return null;
 
     // 优先选择 arm64-v8a 适配移动端常见架构

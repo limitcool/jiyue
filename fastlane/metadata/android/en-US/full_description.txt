@@ -1,0 +1,7 @@
+Jiyue is a fast, local-first, open-source Markdown note-taking app powered by a Rust core engine and designed for seamless multi-device knowledge workflows.
+
+Key Features:
+- Multi-Vault & Obsidian Folder Compatible: Open existing local folders on your device, create clean local vaults, or isolate multiple synced vaults by S3/WebDAV root prefix. Notes remain plain Markdown files on disk.
+- Native Rust S3 & WebDAV Sync: Supports AWS S3, Cloudflare R2, MinIO, RustFS, and standard WebDAV with line-level three-way merge and conflict copy protection. Scan a QR code from the desktop app to import sync credentials.
+- Bidirectional Links & Reader Tools: Interactive wikilinks and backlinks across subdirectories and folder indexes, heading outline navigation, word count statistics, Markdown copy/export, and persistent bookmarks.
+- Open-Source & Privacy-First (FOSS): Pure open-source camera QR scanning via ZXing, no proprietary Google Play / ML Kit blobs, and built directly from source.

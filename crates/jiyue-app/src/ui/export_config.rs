@@ -44,6 +44,8 @@ pub struct ExportedSyncConfig {
     pub username: String,
     pub password: String,
     pub root: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub vault_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,6 +101,11 @@ pub fn collect_export_config(
                 .ok()
                 .flatten()
                 .unwrap_or_default();
+            let vault_name = root
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .to_string();
             Some(ExportedSyncConfig {
                 backend: cfg.backend.key().to_string(),
                 endpoint: if cfg.backend == super::sync_ui::config::Backend::S3 {
@@ -123,6 +130,7 @@ pub fn collect_export_config(
                     String::new()
                 },
                 root: cfg.webdav_root,
+                vault_name,
             })
         })
     } else {
@@ -397,5 +405,19 @@ mod tests {
         assert!(export_disabled.sync.is_none());
         assert!(export_disabled.ai.is_none());
         assert!(export_disabled.memos.is_none());
+    }
+
+    #[test]
+    fn test_collect_export_config_includes_vault_name() {
+        let vault_root = std::env::temp_dir()
+            .join(format!("jiyue_export_test_{}", std::process::id()))
+            .join("MyObsidianVault");
+        std::fs::create_dir_all(&vault_root).expect("mkdir");
+
+        let export = collect_export_config(Some(&vault_root), true, false, false);
+        let sync = export.sync.expect("sync should be exported for vault root");
+        assert_eq!(sync.vault_name, "MyObsidianVault");
+
+        let _ = std::fs::remove_dir_all(vault_root.parent().unwrap());
     }
 }

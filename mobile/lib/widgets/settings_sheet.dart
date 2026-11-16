@@ -1,19 +1,18 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../bridge/vault_service.dart';
-import '../models/exported_config.dart';
 import '../services/update_service.dart';
 import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
-import '../views/qr_scan_page.dart';
 import 'ai_config_sheet.dart';
 import 'jiyue_controls.dart';
 import 'jiyue_icon.dart';
 import 'memos_config_sheet.dart';
 import 's3_config_sheet.dart';
 import 'update_dialog.dart';
+import 'vault_actions.dart';
+import 'vault_switcher_sheet.dart';
 
 class SettingsModalSheet extends StatefulWidget {
   final ThemeProvider themeProvider;
@@ -55,7 +54,10 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
       'https://github.com/$defaultRepoOwner/$defaultRepoName/releases/latest',
     );
     try {
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
       if (!launched && mounted) {
         Clipboard.setData(ClipboardData(text: uri.toString()));
         setState(() {
@@ -108,224 +110,12 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
     }
   }
 
-  Future<void> _handleScanQr() async {
-    final result = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => QrScanPage(colors: widget.themeProvider.colors),
-      ),
-    );
-    if (result != null && mounted) {
-      _processConfigPayload(result);
-    }
-  }
-
-  Future<void> _handlePasteJson() async {
-    final clip = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = clip?.text?.trim();
-    if (text == null || text.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('剪贴板中没有文本内容')),
-        );
-      }
-      return;
-    }
-    _processConfigPayload(text);
-  }
-
-  void _processConfigPayload(String raw) {
-    try {
-      final json = jsonDecode(raw) as Map<String, dynamic>;
-      if (json['jiyue'] != 'config_export') {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('未识别到有效的霁月配置代码')),
-        );
-        return;
-      }
-      final config = ExportedConfig.fromJson(json);
-      _showImportPreview(config);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('配置代码解析失败: $e')),
-      );
-    }
-  }
-
-  void _showImportPreview(ExportedConfig config) {
-    final colors = widget.themeProvider.colors;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) {
-        return JiyueModalSheet(
-          colors: colors,
-          icon: 'check',
-          title: '确认导入 PC 端配置',
-          subtitle: '请核对即将覆盖生效的同步与服务配置',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (config.s3 != null) ...[
-                JiyueSectionHeader(
-                  colors: colors,
-                  title: 'S3 云端存储配置',
-                  padding: const EdgeInsets.only(bottom: 6),
-                ),
-                JiyueSectionCard(
-                  colors: colors,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '存储桶: ${config.s3!.bucket}',
-                        style: TextStyle(
-                          fontSize: JiyueTokens.fontSm,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '端点: ${config.s3!.endpoint}',
-                        style: TextStyle(
-                          fontSize: JiyueTokens.fontXs,
-                          color: colors.textSecondary,
-                        ),
-                      ),
-                      if (config.s3!.rootPrefix.isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          '路径前缀: ${config.s3!.rootPrefix}',
-                          style: TextStyle(
-                            fontSize: JiyueTokens.fontXs,
-                            color: colors.textMuted,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-              if (config.ai != null) ...[
-                JiyueSectionHeader(
-                  colors: colors,
-                  title: 'AI 助手配置 (${config.ai!.providers.length} 个服务商)',
-                  padding: const EdgeInsets.only(bottom: 6),
-                ),
-                JiyueSectionCard(
-                  colors: colors,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: config.ai!.providers.map((p) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(
-                          '${p.name} (${p.chatModel})',
-                          style: TextStyle(
-                            fontSize: JiyueTokens.fontSm,
-                            color: colors.textPrimary,
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-              if (config.memos != null) ...[
-                JiyueSectionHeader(
-                  colors: colors,
-                  title: 'Memos 备忘录配置',
-                  padding: const EdgeInsets.only(bottom: 6),
-                ),
-                JiyueSectionCard(
-                  colors: colors,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '服务端点: ${config.memos!.endpoint}',
-                        style: TextStyle(
-                          fontSize: JiyueTokens.fontSm,
-                          color: colors.textPrimary,
-                        ),
-                      ),
-                      if (config.memos!.token.isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          '访问密钥: 已包含凭据',
-                          style: TextStyle(
-                            fontSize: JiyueTokens.fontXs,
-                            color: colors.textMuted,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-              ],
-              Row(
-                children: [
-                  Expanded(
-                    child: JiyueButton(
-                      colors: colors,
-                      label: '取消',
-                      kind: JiyueButtonKind.secondary,
-                      expand: true,
-                      onPressed: () => Navigator.of(ctx).pop(),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: JiyueButton(
-                      colors: colors,
-                      label: '确认导入并应用',
-                      icon: 'check',
-                      kind: JiyueButtonKind.primary,
-                      expand: true,
-                      onPressed: () async {
-                        if (config.s3 != null) {
-                          await widget.vaultService.saveS3Config(config.s3!);
-                        }
-                        if (config.ai != null) {
-                          await widget.vaultService.saveAiConfig(config.ai!);
-                        }
-                        if (config.memos != null) {
-                          await widget.vaultService
-                              .saveMemosConfig(config.memos!);
-                        }
-                        if (ctx.mounted) {
-                          Navigator.of(ctx).pop();
-                        }
-                        if (mounted) {
-                          setState(() {});
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                '已成功导入 PC 端配置 (S3/AI/Memos)，已保存生效',
-                              ),
-                            ),
-                          );
-                        }
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   String _syncSummaryText() {
     final parts = <String>[];
     if (widget.vaultService.s3Config != null) {
       parts.add('S3 (${widget.vaultService.s3Config!.bucket})');
+    } else if (widget.vaultService.webdavConfig != null) {
+      parts.add('WebDAV');
     }
     if (widget.vaultService.aiConfig != null) {
       parts.add('AI (${widget.vaultService.aiConfig!.providers.length} 服务商)');
@@ -333,7 +123,7 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
     if (widget.vaultService.memosConfig != null) {
       parts.add('Memos (已绑定)');
     }
-    return '已同步: ${parts.join(' · ')}';
+    return parts.isEmpty ? '已导入配置' : '当前已配置: ${parts.join(' · ')}';
   }
 
   @override
@@ -347,14 +137,16 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                 orElse: () => aiConfig.providers.first,
               )
             : null;
+    final activeVault = widget.vaultService.activeVault;
     final s3Config = widget.vaultService.s3Config;
+    final davConfig = widget.vaultService.webdavConfig;
     final memosConfig = widget.vaultService.memosConfig;
 
     return JiyueModalSheet(
       colors: colors,
       icon: 'settings',
       title: '外观与笔记库设置',
-      subtitle: '与桌面端共享同一套 SSOT 主题与存储配置',
+      subtitle: '与桌面端共享同一套 SSOT 主题与多库存储配置',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -376,7 +168,6 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
               },
               child: Row(
                 children: [
-                  // 三色微缩主题预览块（canvas + surface + accent）
                   Container(
                     width: 40,
                     height: 32,
@@ -458,10 +249,10 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
 
           const SizedBox(height: 12),
 
-          // 二、当前笔记库
+          // 二、当前笔记库（多库管理入口）
           JiyueSectionHeader(
             colors: colors,
-            title: '当前笔记库',
+            title: '笔记库管理 (${widget.vaultService.vaults.length} 个)',
           ),
           JiyueSectionCard(
             colors: colors,
@@ -487,41 +278,66 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                     const SizedBox(width: 8),
                     JiyueBadge(
                       colors: colors,
-                      label: '当前 · ${widget.noteCount} 篇',
-                      tone: JiyueBadgeTone.accent,
+                      label: activeVault != null
+                          ? '${activeVault.syncBadgeLabel} · ${widget.noteCount} 篇'
+                          : '未打开',
+                      tone: (activeVault?.hasRemoteSync ?? false)
+                          ? JiyueBadgeTone.ok
+                          : JiyueBadgeTone.neutral,
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                if (widget.vaultService.vaultPath.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.vaultService.vaultPath,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: JiyueTokens.fontXs,
+                      color: colors.textMuted,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        widget.vaultService.vaultPath,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: JiyueTokens.fontXs,
-                          color: colors.textMuted,
-                        ),
+                      child: JiyueButton(
+                        colors: colors,
+                        label: '切换 / 管理',
+                        icon: 'selector',
+                        kind: JiyueButtonKind.primary,
+                        size: JiyueControlSize.xs,
+                        expand: true,
+                        onPressed: () async {
+                          await VaultSwitcherSheet.show(
+                            context,
+                            vaultService: widget.vaultService,
+                            colors: colors,
+                          );
+                          if (mounted) setState(() {});
+                        },
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    JiyueButton(
-                      colors: colors,
-                      label: '复制路径',
-                      icon: 'copy',
-                      kind: JiyueButtonKind.secondary,
-                      size: JiyueControlSize.xs,
-                      onPressed: () {
-                        Clipboard.setData(
-                          ClipboardData(text: widget.vaultService.vaultPath),
-                        );
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('笔记库路径已复制到剪贴板')),
-                        );
-                      },
-                    ),
+                    if (widget.vaultService.vaultPath.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      JiyueButton(
+                        colors: colors,
+                        label: '复制路径',
+                        icon: 'copy',
+                        kind: JiyueButtonKind.secondary,
+                        size: JiyueControlSize.xs,
+                        onPressed: () {
+                          Clipboard.setData(
+                            ClipboardData(text: widget.vaultService.vaultPath),
+                          );
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('笔记库路径已复制到剪贴板')),
+                          );
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ],
@@ -546,7 +362,7 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '扫描 PC 端设置弹窗中「手机扫码同步」展示的二维码，一键导入 S3 存储桶凭据、Memos 与 AI 助手配置。',
+                  '扫描 PC 端设置弹窗中「手机扫码同步」展示的二维码，自动建立同步笔记库并导入 S3 / WebDAV、Memos 与 AI 配置。',
                   style: TextStyle(
                     fontSize: JiyueTokens.fontSm,
                     color: colors.textSecondary,
@@ -564,7 +380,16 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                         kind: JiyueButtonKind.primary,
                         size: JiyueControlSize.sm,
                         expand: true,
-                        onPressed: _handleScanQr,
+                        onPressed: () async {
+                          final ok = await VaultActions.importFromQrOrJsonFlow(
+                            context,
+                            vaultService: widget.vaultService,
+                            colors: colors,
+                            fromScanner: true,
+                            allowUpdateCurrent: true,
+                          );
+                          if (ok && mounted) setState(() {});
+                        },
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -576,12 +401,22 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                         kind: JiyueButtonKind.secondary,
                         size: JiyueControlSize.sm,
                         expand: true,
-                        onPressed: _handlePasteJson,
+                        onPressed: () async {
+                          final ok = await VaultActions.importFromQrOrJsonFlow(
+                            context,
+                            vaultService: widget.vaultService,
+                            colors: colors,
+                            fromScanner: false,
+                            allowUpdateCurrent: true,
+                          );
+                          if (ok && mounted) setState(() {});
+                        },
                       ),
                     ),
                   ],
                 ),
                 if (s3Config != null ||
+                    davConfig != null ||
                     aiConfig != null ||
                     memosConfig != null) ...[
                   JiyueDivider(
@@ -664,7 +499,7 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                       vaultService: widget.vaultService,
                       colors: colors,
                     );
-                    setState(() {});
+                    if (mounted) setState(() {});
                   },
                 ),
               ],
@@ -673,10 +508,10 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
 
           const SizedBox(height: 16),
 
-          // 五、云端同步
+          // 五、当前库云端同步
           JiyueSectionHeader(
             colors: colors,
-            title: '云端同步',
+            title: '当前库云端同步',
           ),
           JiyueSectionCard(
             colors: colors,
@@ -699,8 +534,10 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                     children: [
                       Text(
                         s3Config != null
-                            ? '存储桶: ${s3Config.bucket}'
-                            : '未配置云端同步',
+                            ? 'S3 存储桶: ${s3Config.bucket}'
+                            : (davConfig != null
+                                ? 'WebDAV: ${davConfig.endpoint}'
+                                : '当前为纯本地笔记库'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -712,8 +549,10 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                       const SizedBox(height: 2),
                       Text(
                         s3Config != null
-                            ? '端点: ${s3Config.endpoint}'
-                            : '支持 S3 (R2 / RustFS / MinIO) 存储同步',
+                            ? '前缀: ${s3Config.rootPrefix.isEmpty ? '(桶根目录)' : s3Config.rootPrefix}'
+                            : (davConfig != null
+                                ? '远端目录: ${davConfig.root.isEmpty ? '/' : davConfig.root}'
+                                : '可随时绑定 S3 或 WebDAV 实现跨端漫游'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -727,17 +566,19 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                 const SizedBox(width: 8),
                 JiyueButton(
                   colors: colors,
-                  label: s3Config != null ? '管理' : '配置',
+                  label: (s3Config != null || davConfig != null) ? '管理' : '配置',
                   kind: JiyueButtonKind.secondary,
                   size: JiyueControlSize.sm,
-                  onPressed: () async {
-                    await S3ConfigSheet.show(
-                      context,
-                      vaultService: widget.vaultService,
-                      colors: colors,
-                    );
-                    setState(() {});
-                  },
+                  onPressed: widget.vaultService.hasActiveVault
+                      ? () async {
+                          await S3ConfigSheet.show(
+                            context,
+                            vaultService: widget.vaultService,
+                            colors: colors,
+                          );
+                          if (mounted) setState(() {});
+                        }
+                      : null,
                 ),
               ],
             ),
@@ -808,7 +649,7 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                       vaultService: widget.vaultService,
                       colors: colors,
                     );
-                    setState(() {});
+                    if (mounted) setState(() {});
                   },
                 ),
               ],
@@ -820,7 +661,7 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
           // 七、版本与更新
           JiyueSectionHeader(
             colors: colors,
-            title: '版本与更新',
+            title: kIsFossBuild ? '关于应用' : '版本与更新',
           ),
           JiyueSectionCard(
             colors: colors,
@@ -835,9 +676,15 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: colors.accentSoft,
-                        borderRadius: BorderRadius.circular(JiyueTokens.radiusSm),
+                        borderRadius: BorderRadius.circular(
+                          JiyueTokens.radiusSm,
+                        ),
                       ),
-                      child: JiyueIcon('download', color: colors.accent, size: 17),
+                      child: JiyueIcon(
+                        kIsFossBuild ? 'info-circle' : 'download',
+                        color: colors.accent,
+                        size: 17,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
@@ -854,7 +701,9 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '当前版本: v$_installedVersion',
+                            kIsFossBuild
+                                ? '当前版本: v$_installedVersion (FOSS)'
+                                : '当前版本: v$_installedVersion',
                             style: TextStyle(
                               fontSize: JiyueTokens.fontXs,
                               color: colors.textMuted,
@@ -864,15 +713,25 @@ class _SettingsModalSheetState extends State<SettingsModalSheet> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    JiyueButton(
-                      colors: colors,
-                      label: _checkingUpdate ? '检查中...' : '检查更新',
-                      icon: 'refresh',
-                      loading: _checkingUpdate,
-                      kind: JiyueButtonKind.primary,
-                      size: JiyueControlSize.sm,
-                      onPressed: _checkingUpdate ? null : _checkUpdate,
-                    ),
+                    if (kIsFossBuild)
+                      JiyueButton(
+                        colors: colors,
+                        label: '开源发布页',
+                        icon: 'link',
+                        kind: JiyueButtonKind.secondary,
+                        size: JiyueControlSize.sm,
+                        onPressed: _openReleasesPage,
+                      )
+                    else
+                      JiyueButton(
+                        colors: colors,
+                        label: _checkingUpdate ? '检查中...' : '检查更新',
+                        icon: 'refresh',
+                        loading: _checkingUpdate,
+                        kind: JiyueButtonKind.primary,
+                        size: JiyueControlSize.sm,
+                        onPressed: _checkingUpdate ? null : _checkUpdate,
+                      ),
                   ],
                 ),
                 if (_updateMessage != null) ...[

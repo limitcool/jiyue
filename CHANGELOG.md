@@ -3,6 +3,58 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.3.7] - 2026-11-16
+
+### 中文
+
+**移动端多笔记库架构与原生 Rust S3 / WebDAV 同步打通**
+- **交叉编译并内嵌 `libjiyue_ffi.so`（三架构）**：
+  - 修复 Android 平台 `jiyue-sync` TLS 根证书配置（针对 `target_os = "android"` 注入 `webpki-roots`），新增 `scripts/build-android-ffi.py` 在发布流程中自动交叉编译 `arm64-v8a`、`armeabi-v7a`、`x86_64` 的 `libjiyue_ffi.so`。
+  - 移动端全面接入真实 Rust FFI 引擎（通过独立后台 `Isolate` 调用 `jiyue_sync_run_path` / `jiyue_sync_test`），替代原有假同步占位逻辑，真正实现双向增量同步与三路合并。
+- **多笔记库模型、Obsidian 兼容与首次引导重构**：
+  - 废除默认创建隐藏 `Jiyue` 目录与写入示例笔记的逻辑，推出清爽的首次引导页：支持**扫码/粘贴代码导入 PC 笔记库**（PC 导出配置新增 `vault_name`）、**打开手机现有文件夹**（兼容手机端同步好的 Obsidian 目录）与**新建纯本地空白笔记库**。
+  - 升级 `VaultService` 为多笔记库注册表，支持通过顶栏切换与管理多个笔记库，每库独立保存本地目录、S3/WebDAV 配置与前缀隔离、收藏列表，纯本地库明确区分状态并引导绑定同步。
+
+**移动端阅读页与主页功能真实化**
+- **清理阅读页全部占位提示框，落地真实功能**：
+  - 右上角 `⋮` 改为真实的「笔记详情与操作」面板：实时统计总字符数、有效字符数、行数、预计阅读时长与库内路径，支持复制全文、调用系统分享导出 `.md` 文件、保留父目录结构的笔记重命名与二次确认删除。
+  - 底栏与正文升级为真实标题大纲抽屉点击滚动定位、库级持久化收藏、正反双向链接面板与子目录/目录索引（`README.md` / `index.md` / `_indexes/`）智能跳转。
+- **主页列表与筛选优化**：
+  - 修复纯 Dart 回退层为递归子目录扫描并忽略 `.obsidian`、`.jiyue`、`.git`、`.trash` 等隐藏目录；快速标签栏从库内真实 `#标签` 与「已收藏」动态聚合，接入全文内容检索。
+
+**F-Droid 纯净开源合规与双风味发布**
+- **移除闭源二维码组件**：下线依赖 Google ML Kit 的 `mobile_scanner`，切换为纯开源 CameraX (`camera`) + `zxing2` + `image`，支持相机实时扫码、相册二维码图片识别及剪贴板粘贴配置代码。
+- **拆分 `github` / `foss` 双构建风味**：在 Gradle 中关闭签名块 `dependenciesInfo`、锁定目标 ABI 架构；将 `REQUEST_INSTALL_PACKAGES` 权限与 APK 安装器隔离至 `github` 风味，`foss` 风味彻底移除自更新代码与入口；Release 自动同步产出 `Jiyue-0.3.7-android.apk` 与 `Jiyue-0.3.7-android-foss.apk`，并配套完善 Fastlane 元数据与 F-Droid 构建配方（`docs/fdroid/`）。
+
+**工程与版本管理体系优化**
+- **Workspace 单一事实来源版本管理**：全工作区 Rust crate 收敛至根 `Cargo.toml` 的 `[workspace.package]`，新增 `scripts/bump-version.py` 一键联动同步 Rust、Android 与 Flutter 版本号。
+
+---
+
+### English
+
+**Mobile Multi-Vault Architecture & Native Rust S3 / WebDAV Sync**
+- **Native `libjiyue_ffi.so` Bundling for Android (`arm64-v8a`, `armeabi-v7a`, `x86_64`)**:
+  - Configured `webpki-roots` TLS verification for `jiyue-sync` on `target_os = "android"` and added `scripts/build-android-ffi.py` to compile and package `libjiyue_ffi.so` in release builds.
+  - Replaced the mock sync stub with real Rust FFI execution in background Dart `Isolate`s (`jiyue_sync_run_path` and `jiyue_sync_test`) for genuine three-way merge and connection probing.
+- **Multi-Vault Registry, Obsidian Folder Support & Clean Onboarding**:
+  - Removed the hidden private `Jiyue` folder and hardcoded sample notes on fresh install; added an onboarding flow to scan/paste PC export configs (now carrying `vault_name`), open existing device folders (such as Obsidian vaults), or create clean empty local vaults.
+  - Added multi-vault switching with isolated per-vault S3/WebDAV prefixes, bookmarks, and clear local vs. remote sync status badges.
+
+**Reader & Vault Page Overhaul**
+- **Replaced All Reader Placeholder SnackBars with Real Capabilities**:
+  - The top-right more menu now opens a full details & actions sheet with character/word/line/reading-time statistics, copy Markdown, native `.md` file export/share, folder-preserving note rename, and confirmed deletion.
+  - Implemented real Markdown heading outline navigation, persistent bookmarks, a bidirectional links sheet (outgoing wikilinks + extracted backlinks), real subfolder breadcrumbs, and subdirectory/folder-index link resolution.
+- **Home Feed & Indexing Fixes**:
+  - Fixed recursive subdirectory scanning in the Dart fallback layer (ignoring `.obsidian`, `.jiyue`, `.git`, `.trash`), added dynamic `#tag` and bookmark filters from vault notes, and wired full-text search.
+
+**F-Droid Compliance & Dual-Flavor Release**
+- **Removed Proprietary QR Blobs**: Replaced `mobile_scanner` (Google ML Kit) with open-source `camera` (CameraX) + `zxing2` + `image`, adding gallery QR image decoding alongside live scanning and clipboard import.
+- **Split `github` and `foss` Flavors**: Disabled `dependenciesInfo` signing blocks, restricted native ABIs, and isolated `REQUEST_INSTALL_PACKAGES` and the self-updater to the `github` flavor while shipping a clean `Jiyue-0.3.7-android-foss.apk`, Fastlane store metadata, and F-Droid build recipe (`docs/fdroid/`).
+
+**Workspace Version Centralization**
+- Centralized crate versions under root `Cargo.toml` `[workspace.package]` and added `scripts/bump-version.py` to keep Rust, `Cargo.lock`, and Flutter versions in sync.
+
 ## [0.3.6] - 2026-11-16
 
 ### 中文

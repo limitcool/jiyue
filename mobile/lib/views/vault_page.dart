@@ -8,7 +8,9 @@ import '../widgets/daily_card.dart';
 import '../widgets/jiyue_controls.dart';
 import '../widgets/jiyue_icon.dart';
 import '../widgets/note_card.dart';
+import '../widgets/s3_config_sheet.dart';
 import '../widgets/settings_sheet.dart';
+import '../widgets/vault_switcher_sheet.dart';
 import 'editor_page.dart';
 import 'reader_page.dart';
 
@@ -27,27 +29,45 @@ class VaultPage extends StatefulWidget {
 }
 
 class _VaultPageState extends State<VaultPage> {
+  static const String _kAllFilter = '全部';
+  static const String _kBookmarkedFilter = '已收藏';
+
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
   int _currentTab = 0;
   List<NoteSummary> _notes = [];
-  String _selectedTag = '全部';
+  Set<String>? _contentSearchPaths;
+  String _selectedFilter = _kAllFilter;
   String _searchQuery = '';
   bool _syncing = false;
-  String _syncStatusText = '已同步';
+  String? _lastVaultId;
 
   @override
   void initState() {
     super.initState();
+    _lastVaultId = widget.vaultService.activeVault?.id;
+    widget.vaultService.addListener(_onVaultChanged);
     _refreshNotes();
   }
 
   @override
   void dispose() {
+    widget.vaultService.removeListener(_onVaultChanged);
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  void _onVaultChanged() {
+    if (!mounted) return;
+    final currentId = widget.vaultService.activeVault?.id;
+    if (currentId != _lastVaultId) {
+      _lastVaultId = currentId;
+      _selectedFilter = _kAllFilter;
+      _contentSearchPaths = null;
+    }
+    _refreshNotes();
   }
 
   Future<void> _refreshNotes() async {
@@ -59,23 +79,86 @@ class _VaultPageState extends State<VaultPage> {
     }
   }
 
+  Future<void> _onSearchChanged(String raw) async {
+    setState(() {
+      _searchQuery = raw;
+      if (raw.trim().isEmpty) {
+        _contentSearchPaths = null;
+      }
+    });
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return;
+    final hits = await widget.vaultService.searchNotes(trimmed);
+    if (mounted && _searchQuery.trim() == trimmed) {
+      setState(() {
+        _contentSearchPaths = hits.map((e) => e.path).toSet();
+      });
+    }
+  }
+
   Future<void> _triggerSync() async {
+    final active = widget.vaultService.activeVault;
+    if (active == null || !active.hasRemoteSync) {
+      await S3ConfigSheet.show(
+        context,
+        vaultService: widget.vaultService,
+        colors: widget.themeProvider.colors,
+      );
+      return;
+    }
+
     setState(() {
       _syncing = true;
-      _syncStatusText = '同步中...';
     });
 
-    await Future.delayed(const Duration(milliseconds: 1200));
+    final report = await widget.vaultService.executeSync();
 
+    if (!mounted) return;
+    setState(() {
+      _syncing = false;
+    });
+
+    if (report.success) {
+      await _refreshNotes();
+    }
     if (mounted) {
-      setState(() {
-        _syncing = false;
-        _syncStatusText = '已同步';
-      });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('S3 / WebDAV 云端同步完成')),
+        SnackBar(content: Text(report.message)),
       );
     }
+  }
+
+  List<String> _buildDynamicFilters() {
+    final counts = <String, int>{};
+    for (final note in _notes) {
+      for (final tag in note.tags) {
+        final clean = tag.trim();
+        if (clean.isEmpty) continue;
+        counts[clean] = (counts[clean] ?? 0) + 1;
+      }
+    }
+    final sortedTags = counts.entries.toList()
+      ..sort((a, b) {
+        final cmp = b.value.compareTo(a.value);
+        return cmp != 0 ? cmp : a.key.compareTo(b.key);
+      });
+
+    final topTags = sortedTags.take(15).map((e) => e.key);
+    final hasBookmarks = widget.vaultService.bookmarks.isNotEmpty;
+
+    return [
+      _kAllFilter,
+      if (hasBookmarks) _kBookmarkedFilter,
+      ...topTags,
+    ];
+  }
+
+  Future<void> _openVaultSwitcher() async {
+    await VaultSwitcherSheet.show(
+      context,
+      vaultService: widget.vaultService,
+      colors: widget.themeProvider.colors,
+    );
   }
 
   Future<void> _openDailyQuickLog() async {
@@ -208,18 +291,28 @@ class _VaultPageState extends State<VaultPage> {
   @override
   Widget build(BuildContext context) {
     final colors = widget.themeProvider.colors;
+    final activeProfile = widget.vaultService.activeVault;
+    final hasRemoteSync = activeProfile?.hasRemoteSync ?? false;
+    final filterChips = _buildDynamicFilters();
+    final activeFilter =
+        filterChips.contains(_selectedFilter) ? _selectedFilter : _kAllFilter;
 
+    final q = _searchQuery.trim().toLowerCase();
     final filteredNotes = _notes.where((n) {
       final matchesSearch =
-          _searchQuery.isEmpty ||
-          n.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          n.preview.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          n.tags.any(
-            (t) => t.toLowerCase().contains(_searchQuery.toLowerCase()),
-          );
-      final matchesTag =
-          _selectedTag == '全部' || n.tags.contains(_selectedTag);
-      return matchesSearch && matchesTag;
+          q.isEmpty ||
+          n.title.toLowerCase().contains(q) ||
+          n.path.toLowerCase().contains(q) ||
+          n.preview.toLowerCase().contains(q) ||
+          n.tags.any((t) => t.toLowerCase().contains(q)) ||
+          (_contentSearchPaths?.contains(n.path) ?? false);
+
+      final matchesFilter = switch (activeFilter) {
+        _kAllFilter => true,
+        _kBookmarkedFilter => widget.vaultService.isBookmarked(n.path),
+        _ => n.tags.contains(activeFilter),
+      };
+      return matchesSearch && matchesFilter;
     }).toList();
 
     return Scaffold(
@@ -234,10 +327,14 @@ class _VaultPageState extends State<VaultPage> {
           preferredSize: const Size.fromHeight(1),
           child: JiyueDivider(colors: colors),
         ),
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
+        title: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _openVaultSwitcher,
+            borderRadius: BorderRadius.circular(JiyueTokens.radiusMd),
+            splashColor: colors.active,
+            highlightColor: colors.hover,
+            child: Container(
               height: JiyueTokens.controlMd,
               padding: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
@@ -254,12 +351,16 @@ class _VaultPageState extends State<VaultPage> {
                     height: 18,
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    widget.vaultService.vaultName,
-                    style: TextStyle(
-                      fontSize: JiyueTokens.fontBase,
-                      fontWeight: FontWeight.w600,
-                      color: colors.textPrimary,
+                  Flexible(
+                    child: Text(
+                      widget.vaultService.vaultName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: JiyueTokens.fontBase,
+                        fontWeight: FontWeight.w600,
+                        color: colors.textPrimary,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 6),
@@ -271,7 +372,7 @@ class _VaultPageState extends State<VaultPage> {
                 ],
               ),
             ),
-          ],
+          ),
         ),
         actions: [
           Padding(
@@ -279,8 +380,10 @@ class _VaultPageState extends State<VaultPage> {
             child: Center(
               child: JiyueButton(
                 colors: colors,
-                label: _syncStatusText,
-                icon: 'refresh',
+                label: hasRemoteSync
+                    ? (_syncing ? '同步中...' : '同步')
+                    : '配置同步',
+                icon: hasRemoteSync ? 'refresh' : 'link',
                 loading: _syncing,
                 kind: JiyueButtonKind.secondary,
                 size: JiyueControlSize.xs,
@@ -310,8 +413,8 @@ class _VaultPageState extends State<VaultPage> {
                     controller: _searchController,
                     focusNode: _searchFocusNode,
                     prefixIcon: 'search',
-                    hintText: '搜索笔记正文、标题或 #标签...',
-                    onChanged: (v) => setState(() => _searchQuery = v),
+                    hintText: '搜索笔记标题、路径、正文或 #标签...',
+                    onChanged: _onSearchChanged,
                     suffix: _searchQuery.isNotEmpty
                         ? JiyueIconButton(
                             colors: colors,
@@ -321,36 +424,39 @@ class _VaultPageState extends State<VaultPage> {
                             tooltip: '清空搜索',
                             onPressed: () {
                               _searchController.clear();
-                              setState(() => _searchQuery = '');
+                              _onSearchChanged('');
                             },
                           )
                         : null,
                   ),
                 ),
 
-                const SizedBox(height: 8),
-
-                // 快速标签横向筛选流
-                SizedBox(
-                  height: 30,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    children: ['全部', '#架构', '#Rust', '#日记', '#同步', '#设计']
-                        .map((tag) {
-                      final isSelected = _selectedTag == tag;
-                      return Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: JiyueChoiceChip(
-                          colors: colors,
-                          label: tag,
-                          selected: isSelected,
-                          onTap: () => setState(() => _selectedTag = tag),
-                        ),
-                      );
-                    }).toList(),
+                // 动态标签与收藏筛选栏
+                if (filterChips.length > 1) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 30,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      children: filterChips.map((chip) {
+                        final isSelected = activeFilter == chip;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: JiyueChoiceChip(
+                            colors: colors,
+                            label: chip,
+                            icon: chip == _kBookmarkedFilter
+                                ? 'bookmark-filled'
+                                : null,
+                            selected: isSelected,
+                            onTap: () => setState(() => _selectedFilter = chip),
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ),
-                ),
+                ],
 
                 const SizedBox(height: 6),
 
@@ -365,12 +471,14 @@ class _VaultPageState extends State<VaultPage> {
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
                   child: JiyueSectionHeader(
                     colors: colors,
-                    title: '最近编辑 (${filteredNotes.length} 篇)',
+                    title: '笔记列表 (${filteredNotes.length} 篇)',
                     padding: EdgeInsets.zero,
                     trailing: JiyueBadge(
                       colors: colors,
-                      label: colors.name,
-                      tone: JiyueBadgeTone.neutral,
+                      label: activeProfile?.syncBadgeLabel ?? '纯本地',
+                      tone: hasRemoteSync
+                          ? JiyueBadgeTone.ok
+                          : JiyueBadgeTone.neutral,
                     ),
                   ),
                 ),
@@ -380,10 +488,12 @@ class _VaultPageState extends State<VaultPage> {
                   JiyueEmptyState(
                     colors: colors,
                     icon: 'file-text',
-                    title: '未找到相关笔记',
-                    subtitle: _searchQuery.isNotEmpty || _selectedTag != '全部'
-                        ? '尝试调整搜索关键词或切换其他标签'
-                        : '点击右下角按钮创建第一篇笔记',
+                    title: _notes.isEmpty ? '当前笔记库为空' : '未找到匹配的笔记',
+                    subtitle: _notes.isEmpty
+                        ? (hasRemoteSync
+                            ? '可点击右上角「同步」拉取 PC 笔记，或点击右下角新建笔记'
+                            : '点击右下角「新建笔记」开始记录')
+                        : '尝试调整搜索关键词或切换其他筛选标签',
                   )
                 else
                   ...filteredNotes.map((note) {

@@ -131,6 +131,7 @@ class ExportedConfig {
   final String jiyue;
   final int version;
   final int timestamp;
+  final String? vaultName;
   final S3Config? s3;
   final WebDavConfig? webdav;
   final ExportedAiConfig? ai;
@@ -140,18 +141,51 @@ class ExportedConfig {
     required this.jiyue,
     required this.version,
     required this.timestamp,
+    this.vaultName,
     this.s3,
     this.webdav,
     this.ai,
     this.memos,
   });
 
+  /// Returns an explicit vault name from PC export, or infers one from `root_prefix` (`jiyue/<name>/`).
+  String get suggestedVaultName {
+    final explicit = vaultName?.trim();
+    if (explicit != null && explicit.isNotEmpty) {
+      return explicit;
+    }
+    final prefix = (s3?.rootPrefix ?? webdav?.root ?? '').trim();
+    if (prefix.isNotEmpty) {
+      final parts = prefix
+          .replaceAll('\\', '/')
+          .split('/')
+          .where((s) => s.trim().isNotEmpty)
+          .toList();
+      if (parts.isNotEmpty) {
+        if (parts.length >= 2 && parts.first.toLowerCase() == 'jiyue') {
+          return parts[1];
+        }
+        return parts.last;
+      }
+    }
+    final bucket = s3?.bucket.trim();
+    if (bucket != null && bucket.isNotEmpty) {
+      return bucket;
+    }
+    return '云端笔记库';
+  }
+
   factory ExportedConfig.fromJson(Map<String, dynamic> json) {
     final syncMap = json['sync'] as Map<String, dynamic>?;
     S3Config? s3;
     WebDavConfig? webdav;
+    String? vaultName;
 
     if (syncMap != null) {
+      final rawName = (syncMap['vault_name'] as String?)?.trim();
+      if (rawName != null && rawName.isNotEmpty) {
+        vaultName = rawName;
+      }
       final backend = syncMap['backend'] as String? ?? 's3';
       if (backend == 's3') {
         s3 = S3Config(
@@ -183,6 +217,7 @@ class ExportedConfig {
       jiyue: json['jiyue'] as String? ?? '',
       version: json['version'] as int? ?? 1,
       timestamp: json['timestamp'] as int? ?? 0,
+      vaultName: vaultName,
       s3: s3,
       webdav: webdav,
       ai: ai,

@@ -160,10 +160,11 @@ void main() {
       expect(UpdateService.isNewer('v0.3.1', '0.3.2'), isFalse);
     });
 
-    test('pickMobileAsset selects correct Android APK', () {
+    test('pickMobileAsset selects correct Android APK and excludes FOSS builds', () {
       final assets = [
         ReleaseAsset(name: 'jiyue-windows-x64.msi', downloadUrl: 'https://...', size: 100),
         ReleaseAsset(name: 'jiyue-macos-arm64.dmg', downloadUrl: 'https://...', size: 100),
+        ReleaseAsset(name: 'Jiyue-0.3.7-android-foss.apk', downloadUrl: 'https://.../foss.apk', size: 250),
         ReleaseAsset(name: 'jiyue-mobile-universal.apk', downloadUrl: 'https://.../universal.apk', size: 200),
         ReleaseAsset(name: 'jiyue-android-arm64-v8a.apk', downloadUrl: 'https://.../arm64.apk', size: 300),
       ];
@@ -172,6 +173,12 @@ void main() {
       expect(picked, isNotNull);
       expect(picked!.name, equals('jiyue-android-arm64-v8a.apk'));
       expect(picked.downloadUrl, equals('https://.../arm64.apk'));
+
+      final onlyFoss = [
+        ReleaseAsset(name: 'Jiyue-0.3.7-android-foss.apk', downloadUrl: 'https://.../foss.apk', size: 250),
+      ];
+      expect(UpdateService.pickMobileAsset(onlyFoss), isNull);
+      expect(kIsFossBuild, isFalse);
     });
 
     test('formatFileSize formats bytes to MB/KB correctly', () {

@@ -3319,7 +3319,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "fluent-bundle",
  "futures-channel",
@@ -3351,7 +3351,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-ai"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "reqwest",
  "serde",
@@ -3362,7 +3362,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-core"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "notify",
  "serde",
@@ -3375,7 +3375,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-diagram"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "blake3",
  "fontdb 0.23.0",
@@ -3390,7 +3390,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-export"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "jiyue-core",
  "jiyue-md",
@@ -3401,7 +3401,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-ffi"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "jiyue-core",
  "jiyue-md",
@@ -3413,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-history"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "blake3",
  "lz4_flex",
@@ -3424,7 +3424,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-math"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "blake3",
  "image",
@@ -3435,7 +3435,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-mcp"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "blake3",
  "jiyue-core",
@@ -3447,7 +3447,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-md"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "blake3",
  "imagesize 0.15.0",
@@ -3458,7 +3458,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-memos"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "reqwest",
  "serde",
@@ -3469,7 +3469,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-query"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "jiyue-md",
  "serde",
@@ -3478,7 +3478,7 @@ dependencies = [
 
 [[package]]
 name = "jiyue-search"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "serde",
  "tantivy",
@@ -3486,16 +3486,18 @@ dependencies = [
 
 [[package]]
 name = "jiyue-sync"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "blake3",
  "opendal",
  "opendal-http-transport-reqwest",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "similar",
  "tokio",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -7895,6 +7897,15 @@ name = "webpki-root-certs"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a"
+dependencies = [
+ "rustls-pki-types",
+]
+
+[[package]]
+name = "webpki-roots"
+version = "1.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7265c9301c16a8711c992c2d8da90ee77ef54b1ed51482d6dfeb00dc756b1297"
 dependencies = [
  "rustls-pki-types",
 ]
