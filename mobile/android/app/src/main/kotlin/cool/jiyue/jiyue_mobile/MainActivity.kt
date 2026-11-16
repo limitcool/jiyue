@@ -58,9 +58,9 @@ class MainActivity : FlutterActivity() {
                 @Suppress("DEPRECATION")
                 packageManager.getPackageInfo(packageName, 0)
             }
-            info.versionName ?: "0.3.6"
+            info.versionName ?: "0.0.0"
         } catch (_: Exception) {
-            "0.3.6"
+            "0.0.0"
         }
     }
 

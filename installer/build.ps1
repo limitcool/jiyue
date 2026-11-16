@@ -9,7 +9,7 @@
 
   1. Third-party notices: scripts\gen-notices.py (Python 3, standard library only) regenerates
      THIRD_PARTY_NOTICES.md. The build stops on an unknown or copyleft-only licence.
-  2. Version from the [package] table of crates\jiyue-app\Cargo.toml.
+  2. Version from the [workspace.package] table of Cargo.toml.
   3. cargo build --release --locked -p jiyue -p jiyue-mcp into the target folder: $env:CARGO_TARGET_DIR
      if it is set, else target-dist (git-ignored, separate from the normal target builds).
   4. Optional code signing (only when JIYUE_SIGN_PFX or JIYUE_SIGN_THUMBPRINT is set).
@@ -102,7 +102,7 @@ $staging       = Join-Path $outDir 'staging'
 $signedDir     = Join-Path $outDir 'signed'
 $objDir        = Join-Path $outDir 'obj'
 $iconFile      = Join-Path $repo 'crates\jiyue-app\assets\logo\jiyue.ico'
-$cargoToml     = Join-Path $repo 'crates\jiyue-app\Cargo.toml'
+$cargoToml     = Join-Path $repo 'Cargo.toml'
 $notesScript   = Join-Path $repo 'scripts\gen-notices.py'
 $wxsFile       = Join-Path $installer 'Package.wxs'
 $wxlFile       = Join-Path $installer 'zh-CN.wxl'
@@ -165,16 +165,16 @@ Invoke-Checked 'gen-notices.py' { & $pyExe @pyPreArgs $notesScript }
 
 # ---- 1. Version -------------------------------------------------------------------------------
 Write-Step 'Version'
-$inPackage = $false
+$inWorkspacePkg = $false
 $version = $null
 foreach ($line in Get-Content -LiteralPath $cargoToml) {
-    if ($line -match '^\s*\[') { $inPackage = ($line.Trim() -eq '[package]'); continue }
-    if ($inPackage -and $line -match '^\s*version\s*=\s*"(\d+\.\d+\.\d+)"\s*$') {
+    if ($line -match '^\s*\[') { $inWorkspacePkg = ($line.Trim() -eq '[workspace.package]'); continue }
+    if ($inWorkspacePkg -and $line -match '^\s*version\s*=\s*"(\d+\.\d+\.\d+)"\s*$') {
         $version = $Matches[1]
         break
     }
 }
-if (-not $version) { Fail "no x.y.z version found in $cargoToml" }
+if (-not $version) { Fail "no x.y.z version found in [workspace.package] of $cargoToml" }
 Write-Host "Version: $version"
 
 # ---- 2. Release build -------------------------------------------------------------------------

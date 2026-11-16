@@ -18,7 +18,7 @@ The same script runs on a developer PC and on GitHub's `windows-latest` runner (
 `<target>\aarch64-pc-windows-msvc\release`. The script adds the Rust target when `rustup` is present. The
 x64 outputs and their names are unchanged.
 
-The version is read from `crates\jiyue-app\Cargo.toml` (`[package] version`).
+The version is read from `Cargo.toml` (`[workspace.package] version`).
 
 ## Build
 

@@ -3,7 +3,7 @@
 #   packages  Windows, macOS (arm64 and x64), Linux, Android: they run in parallel with checks
 #   publish   runs only when checks succeeded; a failed or cancelled check blocks the release
 # Cut a release with: git tag v0.3.0 && git push origin v0.3.0   (the tag must equal v + the version in
-# crates/jiyue-app/Cargo.toml). Or run the workflow by hand with a tag name (creates a draft release).
+# [workspace.package] of Cargo.toml). Or run the workflow by hand with a tag name (creates a draft release).
 # Windows: installer/ (WiX 6, MSI per user, zh-CN), built by installer/build.ps1.
 # macOS and Linux: cargo-packager 0.11.8 (metadata in crates/jiyue-app/Cargo.toml).
 # Android: Flutter 3.29.2 in mobile/ -> Jiyue-<version>-android.apk.
@@ -77,11 +77,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: version
-        name: Version from jiyue-app/Cargo.toml, checked against the tag
+        name: Version from workspace Cargo.toml, checked against the tag
         run: |
-          version=$(awk -F'"' '/^version = /{print $2; exit}' crates/jiyue-app/Cargo.toml)
+          version=$(awk -F'"' '/^\[workspace\.package\]/{f=1; next} /^\[/{f=0} f && /^version = /{print $2; exit}' Cargo.toml)
           if [ -z "$version" ]; then
-            echo "no version found in crates/jiyue-app/Cargo.toml" >&2
+            echo "no version found in [workspace.package] of Cargo.toml" >&2
             exit 1
           fi
           if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
