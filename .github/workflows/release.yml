@@ -427,16 +427,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake ninja-build clang pkg-config
 
-      - name: Set up Android SDK & NDK
-        if: steps.check_reuse.outputs.reused != 'true'
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android NDK 27
+      - name: Ensure Android NDK 27
         if: steps.check_reuse.outputs.reused != 'true'
         shell: bash
         run: |
-          sdkmanager "ndk;27.0.12077973"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          NDK_VER="27.0.12077973"
+          NDK_DIR="$SDK_ROOT/ndk/$NDK_VER"
+          if [ ! -d "$NDK_DIR" ]; then
+            SDKMANAGER=$(command -v sdkmanager || true)
+            if [ -z "$SDKMANAGER" ]; then
+              SDKMANAGER=$(ls "$SDK_ROOT"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -n 1 || true)
+            fi
+            if [ -z "$SDKMANAGER" ]; then
+              echo "sdkmanager not found under $SDK_ROOT" >&2
+              exit 1
+            fi
+            yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+            "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "ndk;$NDK_VER"
+          fi
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$NDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=$NDK_DIR" >> "$GITHUB_ENV"
 
       - name: Build Rust FFI Android Native Libraries
         if: steps.check_reuse.outputs.reused != 'true'
