@@ -277,8 +277,38 @@ actions!(
         MoveLineDown,
         DuplicateLine,
         InsertFootnote,
+        ToggleBold,
+        ToggleItalic,
+        ToggleStrikethrough,
+        ToggleHighlight,
+        ToggleInlineCode,
+        ToggleWikilink,
     ]
 );
+
+/// Inline Markdown formatting markers that can wrap or unwrap a selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InlineFormat {
+    Bold,
+    Italic,
+    Strikethrough,
+    Highlight,
+    InlineCode,
+    Wikilink,
+}
+
+impl InlineFormat {
+    pub fn markers(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Bold => ("**", "**"),
+            Self::Italic => ("*", "*"),
+            Self::Strikethrough => ("~~", "~~"),
+            Self::Highlight => ("==", "=="),
+            Self::InlineCode => ("`", "`"),
+            Self::Wikilink => ("[[", "]]"),
+        }
+    }
+}
 
 /// Registers the editor key bindings (context `TextEditor`). Call once at app start.
 pub fn bind_keys(cx: &mut App) {
@@ -1574,7 +1604,7 @@ fn code_widget(window: &Window, ctx: &LineCtx, start: usize, block: &str) -> (f3
                 y += fonts::current_metrics().code_row;
                 continue;
             }
-            let runs = highlight::line_runs(line, ctx.theme);
+            let runs = highlight::line_runs_lang(line, &lang, ctx.theme);
             match shape_one(
                 window,
                 line,
@@ -2464,6 +2494,8 @@ pub struct TextEditor {
     read_only: bool,
     /// Pointer is over a link or widget: the pointing-hand cursor (see `hand_cursor`).
     hand: bool,
+    /// Currently hovered wikilink inner text and the pointer position in window coordinates.
+    hover_wikilink: Option<(String, Point<Pixels>)>,
     /// Memoized hover snapshot for O(1) mouse-move early return within the same glyph & editor state.
     hover_memo: Option<HoverMemo>,
     /// Keeps the focus-out listener alive (set on the first render).
@@ -2521,6 +2553,7 @@ impl TextEditor {
             note_path: String::new(),
             read_only: false,
             hand: false,
+            hover_wikilink: None,
             hover_memo: None,
             focus_out: None,
         }
@@ -2702,6 +2735,18 @@ impl TextEditor {
         self.composition.is_some() || self.marked_range.is_some()
     }
 
+    /// True when this editor is in read-only mode.
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// The wikilink currently hovered by the pointer and its window position.
+    pub fn hovered_wikilink(&self) -> Option<(&str, Point<Pixels>)> {
+        self.hover_wikilink
+            .as_ref()
+            .map(|(inner, pos)| (inner.as_str(), *pos))
+    }
+
     /// Window position of the caret: `(x, y, row height)` with `y` at the top of the caret's row.
     /// None before the first paint.
     pub fn caret_origin(&self) -> Option<(f32, f32, f32)> {
@@ -2717,6 +2762,73 @@ impl TextEditor {
         ))
     }
 
+    /// Toggles an inline formatting marker pair around the caret or single-line selection.
+    pub fn toggle_inline_format(&mut self, fmt: InlineFormat, cx: &mut Context<Self>) -> bool {
+        if self.read_only || !self.can_edit_directly() {
+            return false;
+        }
+        let sel = self.state.selection().range();
+        let (open, close) = fmt.markers();
+        let Some(plan) = md_edit::toggle_wrap(self.state.text(), sel.start, sel.end, open, close)
+        else {
+            return false;
+        };
+        self.apply_plan(plan, cx);
+        true
+    }
+
+    /// Active status for `[Bold, Italic, Strikethrough, Highlight, InlineCode, Wikilink]`
+    /// on the current selection.
+    pub fn active_inline_formats(&self) -> [bool; 6] {
+        let sel = self.state.selection().range();
+        let text = self.state.text();
+        let all = [
+            InlineFormat::Bold,
+            InlineFormat::Italic,
+            InlineFormat::Strikethrough,
+            InlineFormat::Highlight,
+            InlineFormat::InlineCode,
+            InlineFormat::Wikilink,
+        ];
+        all.map(|f| {
+            let (open, close) = f.markers();
+            md_edit::has_wrap(text, sel.start, sel.end, open, close)
+        })
+    }
+
+    /// True when the active selection is editable and eligible for inline formatting markers.
+    pub fn can_wrap_selection(&self) -> bool {
+        if self.read_only || self.selecting || self.is_composing() || !self.state.has_selection() {
+            return false;
+        }
+        let sel = self.state.selection().range();
+        let text = self.state.text();
+        !text[sel.clone()].contains('\n') && !md_edit::is_in_fenced_code(text, sel.start)
+    }
+
+    /// Window-space anchor `(wx, wy, rw, rh, view_top, view_bottom)` of the active selection's
+    /// first visual row for positioning the floating bubble toolbar.
+    pub fn bubble_anchor(&self) -> Option<(f32, f32, f32, f32, f32, f32)> {
+        if self.read_only
+            || self.selecting
+            || self.is_composing()
+            || !self.state.has_selection()
+            || self.layout.lines.is_empty()
+        {
+            return None;
+        }
+        let range = self.state.selection().range();
+        let &(rx, ry, rw, rh) = self.layout.selection_rects(&range).first()?;
+        let wx = self.layout.origin_x + rx;
+        let wy = self.layout.origin_y + ry;
+        let view_top = self.layout.origin_y + self.scroll_y - PAD_TOP;
+        let view_bottom = view_top + self.layout.viewport_h;
+        if wy + rh < view_top + 4.0 || wy > view_bottom - 4.0 {
+            return None;
+        }
+        Some((wx, wy, rw, rh, view_top, view_bottom))
+    }
+
     // ----- editing core -----
 
     /// Runs a command on the state: finishes a composition, applies, resets the goal column.
@@ -2730,6 +2842,7 @@ impl TextEditor {
     fn after_edit(&mut self, cx: &mut Context<Self>) {
         self.caret_on = true;
         self.reveal = true;
+        self.hover_wikilink = None;
         cx.notify();
     }
 
@@ -3091,6 +3204,7 @@ impl TextEditor {
     fn on_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus_handle);
         self.commit_composition();
+        self.hover_wikilink = None;
         // A task box of the live view toggles its task (one undo step) and leaves the caret alone.
         let bx = f32::from(ev.position.x) - self.layout.origin_x;
         let by = f32::from(ev.position.y) - self.layout.origin_y;
@@ -3203,8 +3317,13 @@ impl TextEditor {
         self.after_edit(cx);
     }
 
-    fn on_mouse_up(&mut self, _ev: &MouseUpEvent, _window: &mut Window, _cx: &mut Context<Self>) {
-        self.selecting = false;
+    fn on_mouse_up(&mut self, _ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.selecting {
+            self.selecting = false;
+            if self.state.has_selection() {
+                cx.notify();
+            }
+        }
     }
 
     fn in_code(&self, at: usize) -> bool {
@@ -3315,7 +3434,22 @@ impl TextEditor {
             over_link,
             link_revealed,
         );
-        if hand != self.hand {
+        let next_hover = if !over_widget
+            && !alt
+            && let Some(idx) = hit_idx
+            && !self.in_code(idx)
+            && (self.read_only || ctrl || (self.live && !self.is_link_revealed_at(idx)))
+        {
+            wikilink_inner_at(self.state.text(), idx).map(|inner| (inner, pos))
+        } else {
+            None
+        };
+        let hover_changed = next_hover.as_ref().map(|(s, _)| s.as_str())
+            != self.hover_wikilink.as_ref().map(|(s, _)| s.as_str());
+        if hover_changed {
+            self.hover_wikilink = next_hover;
+        }
+        if hand != self.hand || hover_changed {
             self.hand = hand;
             cx.notify();
         }
@@ -3329,6 +3463,7 @@ impl TextEditor {
     ) {
         let delta = ev.delta.pixel_delta(px(fonts::current_metrics().line));
         self.scroll_y = (self.scroll_y - f32::from(delta.y)).max(0.0);
+        self.hover_wikilink = None;
         cx.notify();
     }
 }
@@ -4661,6 +4796,24 @@ impl Render for TextEditor {
             )
             .on_action(cx.listener(|this, _: &InsertFootnote, _, cx| {
                 this.insert_footnote(cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleBold, _, cx| {
+                this.toggle_inline_format(InlineFormat::Bold, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleItalic, _, cx| {
+                this.toggle_inline_format(InlineFormat::Italic, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleStrikethrough, _, cx| {
+                this.toggle_inline_format(InlineFormat::Strikethrough, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleHighlight, _, cx| {
+                this.toggle_inline_format(InlineFormat::Highlight, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleInlineCode, _, cx| {
+                this.toggle_inline_format(InlineFormat::InlineCode, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ToggleWikilink, _, cx| {
+                this.toggle_inline_format(InlineFormat::Wikilink, cx);
             }))
             .on_action(cx.listener(|this, _: &SelectAll, _, cx| this.apply(cx, |s| s.select_all())))
             .on_action(cx.listener(|this, _: &Undo, _, cx| {

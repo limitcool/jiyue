@@ -80,7 +80,6 @@
 
 - **同步与手机扫码配置。** 可以同步到兼容 S3 的存储桶（可选远端版本历史），也可以同步到 WebDAV 文件夹，采用三方合并并在冲突时保留冲突副本。在设置页点击「手机扫码同步」可生成二维码，供 Android 客户端扫码免手输导入 S3、AI 与 Memos 配置。详见 [docs/sync.md](docs/sync.md)。
 - **AI 助手，自带密钥。** 支持 OpenAI 兼容接口和 Anthropic，提供侧栏流式 Markdown 对话与选区润色（Ctrl+J）行级差异预览。密钥以明文保存在本机的 `credentials.toml` 中（仅当前用户可读），也可以改用环境变量或命令读取。只有在你打开 AI 并主动发起请求后才会发送内容。详见 [docs/ai.md](docs/ai.md)。
-- **MCP 服务。** `jiyue-mcp` 让 Claude Desktop、Claude Code 等 MCP 客户端搜索、读取笔记；不加 `--read-only` 时也可以新建和修改笔记。详见 [docs/mcp.md](docs/mcp.md)。
 
 ### 外观与快捷键
 
@@ -148,10 +147,9 @@ jiyue.exe --vault "D:\笔记"
 
 ```powershell
 cargo run --release -p jiyue -- --vault "D:\笔记"
-cargo build --release -p jiyue-mcp
 ```
 
-在 Windows 上生成的程序为 `target\release\jiyue.exe` 和 `target\release\jiyue-mcp.exe`。在 Linux 上，CI 使用的系统软件包列在 [docs/ci.md](docs/ci.md#linux-system-packages)。Android 移动端（Flutter + `jiyue-ffi`）构建、签名配置与测试说明见 [mobile/README.md](mobile/README.md)。
+在 Windows 上生成的程序为 `target\release\jiyue.exe`。在 Linux 上，CI 使用的系统软件包列在 [docs/ci.md](docs/ci.md#linux-system-packages)。Android 移动端（Flutter + `jiyue-ffi`）构建、签名配置与测试说明见 [mobile/README.md](mobile/README.md)。
 
 ## 键盘快捷键
 
@@ -193,19 +191,9 @@ WebDAV 已经实现，但还没有在真实服务器上验证过行为。请先�
 
 AI 助手默认关闭。服务商、接口地址、模型名称和密钥都由你自己提供。侧栏面板可以围绕当前笔记、选中的文字或整个笔记库提问；选区菜单（Ctrl+J）可以改写、缩写、扩写、翻译、修正或总结选中的文字。结果以差异形式显示，接受之前不会写入笔记。详见 [docs/ai.md](docs/ai.md)。
 
-## MCP 服务
-
-`jiyue-mcp` 通过标准输入输出说 Model Context Protocol，只操作一个笔记库：
-
-```powershell
-jiyue-mcp --vault "D:\笔记" --read-only
-```
-
-它提供列出、读取和搜索笔记，查看反链、标签、属性和今日日记的工具；如果没有 `--read-only`，还可以新建和追加笔记、带哈希校验地更新笔记，以及设置属性。删除笔记需要 `--allow-delete`。客户端配置示例见 [docs/mcp.md](docs/mcp.md)。
-
 ## 项目状态
 
-霁月目前处于**公开测试版**，已覆盖 Windows、macOS、Linux 桌面端与 Android 移动端。核心编辑器、实时预览、大库增量索引、中文搜索、双链、知识图谱、本地历史版本、HTML 导出、S3/WebDAV 同步、Memos 微记、MCP 服务及跨端二维码配对均已可用；同步、AI 与移动端体验仍在持续打磨中。后续规划见 [路线图](ROADMAP.md)。
+霁月目前处于**公开测试版**，已覆盖 Windows、macOS、Linux 桌面端与 Android 移动端。核心编辑器、实时预览、大库增量索引、中文搜索、双链、知识图谱、本地历史版本、HTML 导出、S3/WebDAV 同步、Memos 微记及跨端二维码配对均已可用；同步、AI 与移动端体验仍在持续打磨中。后续规划见 [路线图](ROADMAP.md)。
 
 ## 参与贡献
 

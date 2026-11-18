@@ -72,7 +72,7 @@ const PAIRS: &[(char, char)] = &[
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Enter inside a list, quote, or fenced code block.
+/// Enter inside a list, quote, table, or fenced code block.
 pub fn on_enter(text: &str, sel_start: usize, sel_end: usize) -> Option<EditPlan> {
     let (a, b) = normalize_selection(text, sel_start, sel_end);
     let (ls, le) = line_bounds(text, a);
@@ -81,6 +81,12 @@ pub fn on_enter(text: &str, sel_start: usize, sel_end: usize) -> Option<EditPlan
 
     if is_in_fenced_code(text, a) {
         return Some(replace_with(a, b, format!("{nl}{}", leading_ws(line))));
+    }
+
+    if a == b
+        && let Some(plan) = table_enter(text, a, ls, le, nl)
+    {
+        return Some(plan);
     }
 
     let p = parse_line(line);
@@ -151,11 +157,17 @@ pub fn on_enter(text: &str, sel_start: usize, sel_end: usize) -> Option<EditPlan
     Some(replace_with(a, end, cont))
 }
 
-/// Tab / Shift+Tab: indent or outdent lines, or insert four spaces at a plain caret.
+/// Tab / Shift+Tab: navigate GFM tables, indent or outdent lines, or insert four spaces at a plain caret.
 pub fn on_tab(text: &str, sel_start: usize, sel_end: usize, shift: bool) -> Option<EditPlan> {
     let (a, b) = normalize_selection(text, sel_start, sel_end);
     let caret = a == b;
     let (caret_ls, caret_le) = line_bounds(text, a);
+
+    if (caret || line_start(text, b) == caret_ls)
+        && let Some(plan) = table_tab(text, a, shift)
+    {
+        return Some(plan);
+    }
 
     if caret && !shift && parse_line(&text[caret_ls..caret_le]).item.is_none() {
         let pos = a + INDENT.len();
@@ -386,6 +398,333 @@ pub fn list_marker(line: &str) -> Option<ListMarker> {
     } else {
         None
     }
+}
+
+/// True when the non-empty single-line selection is wrapped with `(open, close)`, either around
+/// the selection (`**sel**`) or at its own ends (`⟦**sel**⟧`).
+pub fn has_wrap(text: &str, sel_start: usize, sel_end: usize, open: &str, close: &str) -> bool {
+    if open.is_empty() || close.is_empty() {
+        return false;
+    }
+    let (a, b) = normalize_selection(text, sel_start, sel_end);
+    if a >= b || is_in_fenced_code(text, a) || text[a..b].contains('\n') {
+        return false;
+    }
+    has_outer_wrap(&text[..a], &text[b..], open, close) || has_inner_wrap(&text[a..b], open, close)
+}
+
+/// Toggles an inline marker pair `(open, close)` around the caret or single-line selection.
+pub fn toggle_wrap(
+    text: &str,
+    sel_start: usize,
+    sel_end: usize,
+    open: &str,
+    close: &str,
+) -> Option<EditPlan> {
+    if open.is_empty() || close.is_empty() {
+        return None;
+    }
+    let (a, b) = normalize_selection(text, sel_start, sel_end);
+    if is_in_fenced_code(text, a) || text[a..b].contains('\n') {
+        return None;
+    }
+    if a == b {
+        if has_outer_wrap(&text[..a], &text[a..], open, close) {
+            let new_pos = a - open.len();
+            return Some(plan(
+                new_pos,
+                a + close.len(),
+                String::new(),
+                new_pos,
+                new_pos,
+            ));
+        }
+        let caret = a + open.len();
+        return Some(plan(a, a, format!("{open}{close}"), caret, caret));
+    }
+
+    let sel = &text[a..b];
+    if has_outer_wrap(&text[..a], &text[b..], open, close) {
+        let new_start = a - open.len();
+        let new_end = new_start + sel.len();
+        return Some(plan(
+            new_start,
+            b + close.len(),
+            sel.to_string(),
+            new_start,
+            new_end,
+        ));
+    }
+    if has_inner_wrap(sel, open, close) {
+        let inner = &sel[open.len()..sel.len() - close.len()];
+        return Some(plan(a, b, inner.to_string(), a, a + inner.len()));
+    }
+    let anchor = a + open.len();
+    Some(plan(
+        a,
+        b,
+        format!("{open}{sel}{close}"),
+        anchor,
+        anchor + sel.len(),
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Inline wrap & GFM table helpers
+// ---------------------------------------------------------------------------
+
+fn has_outer_wrap(before: &str, after: &str, open: &str, close: &str) -> bool {
+    if open == "*" && close == "*" {
+        let tri = before.ends_with("***") && after.starts_with("***");
+        let single = before.ends_with('*')
+            && !before.ends_with("**")
+            && after.starts_with('*')
+            && !after.starts_with("**");
+        return tri || single;
+    }
+    before.ends_with(open) && after.starts_with(close)
+}
+
+fn has_inner_wrap(sel: &str, open: &str, close: &str) -> bool {
+    if open == "*" && close == "*" {
+        let tri = sel.len() >= 6 && sel.starts_with("***") && sel.ends_with("***");
+        let single = sel.len() >= 2
+            && sel.starts_with('*')
+            && !sel.starts_with("**")
+            && sel.ends_with('*')
+            && !sel.ends_with("**");
+        return tri || single;
+    }
+    sel.len() >= open.len() + close.len() && sel.starts_with(open) && sel.ends_with(close)
+}
+
+struct TableCtx {
+    rows: Vec<(usize, usize)>,
+    row_idx: usize,
+    col_count: usize,
+    indent: String,
+}
+
+fn top_level_pipes(line: &str) -> Vec<usize> {
+    let bytes = line.as_bytes();
+    let mut pipes = Vec::new();
+    let mut in_code = 0usize;
+    let mut i = 0;
+    while i < bytes.len() {
+        if in_code == 0 && bytes[i] == b'\\' {
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+        if bytes[i] == b'`' {
+            let start = i;
+            while i < bytes.len() && bytes[i] == b'`' {
+                i += 1;
+            }
+            let ticks = i - start;
+            if in_code == 0 {
+                in_code = ticks;
+            } else if in_code == ticks {
+                in_code = 0;
+            }
+            continue;
+        }
+        if in_code == 0 && bytes[i] == b'|' {
+            pipes.push(i);
+        }
+        i += 1;
+    }
+    pipes
+}
+
+fn split_pipe_cells(line: &str) -> Option<Vec<(usize, usize)>> {
+    let pipes = top_level_pipes(line);
+    if pipes.is_empty() {
+        return None;
+    }
+    let first = pipes[0];
+    let last = *pipes.last()?;
+    let has_leading = line[..first].trim().is_empty();
+    let has_trailing = line[last + 1..].trim().is_empty();
+    let mut cells = Vec::new();
+    if !has_leading {
+        cells.push((0, first));
+    }
+    for pair in pipes.windows(2) {
+        cells.push((pair[0] + 1, pair[1]));
+    }
+    if !has_trailing {
+        cells.push((last + 1, line.len()));
+    }
+    (!cells.is_empty()).then_some(cells)
+}
+
+fn is_table_delimiter_line(line: &str) -> Option<usize> {
+    let cells = split_pipe_cells(line)?;
+    for (s, e) in &cells {
+        let seg = line[*s..*e].trim();
+        let inner = seg.strip_prefix(':').unwrap_or(seg);
+        let inner = inner.strip_suffix(':').unwrap_or(inner);
+        if inner.is_empty() || !inner.bytes().all(|b| b == b'-') {
+            return None;
+        }
+    }
+    Some(cells.len())
+}
+
+fn is_pipe_table_row(line: &str) -> bool {
+    !line.trim().is_empty() && !is_fence(line) && split_pipe_cells(line).is_some()
+}
+
+fn table_at(text: &str, pos: usize) -> Option<TableCtx> {
+    if is_in_fenced_code(text, pos) {
+        return None;
+    }
+    let (cur_ls, cur_le) = line_bounds(text, pos);
+    if !is_pipe_table_row(&text[cur_ls..cur_le]) {
+        return None;
+    }
+    let mut above = Vec::new();
+    let mut scan = cur_ls;
+    while scan > 0 {
+        let prev = line_start(text, scan - 1);
+        let (pe, _) = line_info(text, prev);
+        if !is_pipe_table_row(&text[prev..pe]) {
+            break;
+        }
+        above.push((prev, pe));
+        scan = prev;
+    }
+    above.reverse();
+    let row_idx = above.len();
+    let mut rows = above;
+    rows.push((cur_ls, cur_le));
+    let mut next_opt = line_info(text, cur_ls).1;
+    while let Some(ns) = next_opt {
+        let (ne, next2) = line_info(text, ns);
+        if !is_pipe_table_row(&text[ns..ne]) {
+            break;
+        }
+        rows.push((ns, ne));
+        next_opt = next2;
+    }
+    if rows.len() < 2 {
+        return None;
+    }
+    let header = &text[rows[0].0..rows[0].1];
+    let delim = &text[rows[1].0..rows[1].1];
+    if is_table_delimiter_line(header).is_some() {
+        return None;
+    }
+    let col_count = is_table_delimiter_line(delim)?;
+    if split_pipe_cells(header)?.len() != col_count {
+        return None;
+    }
+    Some(TableCtx {
+        indent: leading_ws(header).to_string(),
+        rows,
+        row_idx,
+        col_count,
+    })
+}
+
+fn empty_table_row(indent: &str, col_count: usize) -> String {
+    let mut out = String::with_capacity(indent.len() + 1 + col_count * 3);
+    out.push_str(indent);
+    out.push('|');
+    for _ in 0..col_count {
+        out.push_str("  |");
+    }
+    out
+}
+
+fn cell_selection(line: &str, ls: usize, raw: (usize, usize)) -> (usize, usize) {
+    let seg = &line[raw.0..raw.1];
+    let trimmed = seg.trim();
+    if !trimmed.is_empty() {
+        let lead = seg.len() - seg.trim_start().len();
+        let a = ls + raw.0 + lead;
+        return (a, a + trimmed.len());
+    }
+    let off = if raw.1 - raw.0 >= 2 { raw.0 + 1 } else { raw.1 };
+    (ls + off, ls + off)
+}
+
+fn col_index_at(cells: &[(usize, usize)], col_byte: usize) -> usize {
+    cells
+        .iter()
+        .position(|&(_, end)| col_byte <= end)
+        .unwrap_or_else(|| cells.len().saturating_sub(1))
+}
+
+fn table_tab(text: &str, caret: usize, shift: bool) -> Option<EditPlan> {
+    let ctx = table_at(text, caret)?;
+    let (ls, le) = ctx.rows[ctx.row_idx];
+    let line = &text[ls..le];
+    let cells = split_pipe_cells(line)?;
+    let col_idx = col_index_at(&cells, caret.saturating_sub(ls));
+
+    if !shift {
+        if col_idx + 1 < cells.len() {
+            let (a, b) = cell_selection(line, ls, cells[col_idx + 1]);
+            return Some(plan(0, 0, String::new(), a, b));
+        }
+        let next_row = if ctx.row_idx == 0 { 2 } else { ctx.row_idx + 1 };
+        if let Some(&(nls, nle)) = ctx.rows.get(next_row) {
+            let nline = &text[nls..nle];
+            let ncells = split_pipe_cells(nline)?;
+            let (a, b) = cell_selection(nline, nls, ncells[0]);
+            return Some(plan(0, 0, String::new(), a, b));
+        }
+        let last_le = ctx.rows.last()?.1;
+        let nl = newline_at(text, last_le);
+        let row = empty_table_row(&ctx.indent, ctx.col_count);
+        let target = last_le + nl.len() + ctx.indent.len() + 2;
+        return Some(plan(last_le, last_le, format!("{nl}{row}"), target, target));
+    }
+
+    if col_idx > 0 {
+        let (a, b) = cell_selection(line, ls, cells[col_idx - 1]);
+        return Some(plan(0, 0, String::new(), a, b));
+    }
+    if ctx.row_idx == 0 {
+        let (a, b) = cell_selection(line, ls, cells[0]);
+        return Some(plan(0, 0, String::new(), a, b));
+    }
+    let prev_row = if ctx.row_idx <= 2 { 0 } else { ctx.row_idx - 1 };
+    let (pls, ple) = ctx.rows[prev_row];
+    let pline = &text[pls..ple];
+    let pcells = split_pipe_cells(pline)?;
+    let (a, b) = cell_selection(pline, pls, *pcells.last()?);
+    Some(plan(0, 0, String::new(), a, b))
+}
+
+fn table_enter(
+    text: &str,
+    caret: usize,
+    ls: usize,
+    le: usize,
+    nl: &'static str,
+) -> Option<EditPlan> {
+    let ctx = table_at(text, caret)?;
+    let line = &text[ls..le];
+    if ctx.row_idx >= 2
+        && let Some(cells) = split_pipe_cells(line)
+        && cells.iter().all(|&(s, e)| line[s..e].trim().is_empty())
+    {
+        return Some(replace_with(ls, le, String::new()));
+    }
+    let anchor_le = if ctx.row_idx == 0 { ctx.rows[1].1 } else { le };
+    let anchor_nl = newline_at(text, anchor_le);
+    let _ = nl;
+    let row = empty_table_row(&ctx.indent, ctx.col_count);
+    let target = anchor_le + anchor_nl.len() + ctx.indent.len() + 2;
+    Some(plan(
+        anchor_le,
+        anchor_le,
+        format!("{anchor_nl}{row}"),
+        target,
+        target,
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -1663,5 +2002,204 @@ mod tests {
     #[test]
     fn toggle_on_empty_text_is_none() {
         assert_eq!(toggle_task("", 7), None);
+    }
+
+    // ---- toggle_wrap & has_wrap -----------------------------------------
+
+    fn wrap(s: &str, open: &str, close: &str) -> Option<String> {
+        let (t, a, b) = parse(s);
+        toggle_wrap(&t, a, b, open, close).map(|p| render(&t, &p))
+    }
+
+    #[test]
+    fn toggle_wrap_bold_and_unwrap_outer_or_inner() {
+        assert_eq!(
+            wrap("say ⟦hello⟧!", "**", "**").as_deref(),
+            Some("say **⟦hello⟧**!")
+        );
+        assert_eq!(
+            wrap("say **⟦hello⟧**!", "**", "**").as_deref(),
+            Some("say ⟦hello⟧!")
+        );
+        assert_eq!(
+            wrap("say ⟦**hello**⟧!", "**", "**").as_deref(),
+            Some("say ⟦hello⟧!")
+        );
+    }
+
+    #[test]
+    fn toggle_wrap_italic_does_not_confuse_bold_stars() {
+        let (t, a, b) = parse("**⟦bold⟧**");
+        assert!(has_wrap(&t, a, b, "**", "**"));
+        assert!(!has_wrap(&t, a, b, "*", "*"));
+        assert_eq!(
+            wrap("**⟦bold⟧**", "*", "*").as_deref(),
+            Some("***⟦bold⟧***")
+        );
+        assert_eq!(
+            wrap("***⟦bold⟧***", "*", "*").as_deref(),
+            Some("**⟦bold⟧**")
+        );
+        assert_eq!(
+            wrap("***⟦bold⟧***", "**", "**").as_deref(),
+            Some("*⟦bold⟧*")
+        );
+    }
+
+    #[test]
+    fn toggle_wrap_strike_highlight_code_wikilink_and_unicode() {
+        assert_eq!(
+            wrap("⟦删除⟧内容", "~~", "~~").as_deref(),
+            Some("~~⟦删除⟧~~内容")
+        );
+        assert_eq!(
+            wrap("~~⟦删除⟧~~内容", "~~", "~~").as_deref(),
+            Some("⟦删除⟧内容")
+        );
+        assert_eq!(wrap("⟦重点⟧", "==", "==").as_deref(), Some("==⟦重点⟧=="));
+        assert_eq!(wrap("==⟦重点⟧==", "==", "==").as_deref(), Some("⟦重点⟧"));
+        assert_eq!(wrap("run ⟦cmd⟧", "`", "`").as_deref(), Some("run `⟦cmd⟧`"));
+        assert_eq!(
+            wrap("link ⟦笔记名⟧", "[[", "]]").as_deref(),
+            Some("link [[⟦笔记名⟧]]")
+        );
+        assert_eq!(
+            wrap("link [[⟦笔记名⟧]]", "[[", "]]").as_deref(),
+            Some("link ⟦笔记名⟧")
+        );
+    }
+
+    #[test]
+    fn toggle_wrap_caret_inserts_pair_then_removes_empty_pair() {
+        assert_eq!(wrap("a | b", "**", "**").as_deref(), Some("a **|** b"));
+        assert_eq!(wrap("a **|** b", "**", "**").as_deref(), Some("a | b"));
+    }
+
+    #[test]
+    fn toggle_wrap_ignores_multiline_and_fenced_code() {
+        assert_eq!(wrap("⟦line1\nline2⟧", "**", "**"), None);
+        assert_eq!(wrap("```\n⟦code⟧\n```", "**", "**"), None);
+        let (t, a, b) = parse("```\n⟦code⟧\n```");
+        assert!(!has_wrap(&t, a, b, "**", "**"));
+    }
+
+    // ---- GFM table Tab / Shift+Tab / Enter ------------------------------
+
+    /// Uses `^` as caret marker so Markdown table `|` characters stay intact.
+    fn parse_table(s: &str) -> (String, usize, usize) {
+        let mut text = String::new();
+        let mut start = None;
+        let mut end = None;
+        for ch in s.chars() {
+            match ch {
+                '^' => {
+                    start = Some(text.len());
+                    end = Some(text.len());
+                }
+                '⟦' => start = Some(text.len()),
+                '⟧' => end = Some(text.len()),
+                _ => text.push(ch),
+            }
+        }
+        let s0 = start.unwrap_or(0);
+        (text, s0, end.unwrap_or(s0))
+    }
+
+    fn render_table(text: &str, p: &EditPlan) -> String {
+        let mut out = String::new();
+        out.push_str(&text[..p.start]);
+        out.push_str(&p.insert);
+        out.push_str(&text[p.end..]);
+        let lo = p.sel_anchor.min(p.sel_head);
+        let hi = p.sel_anchor.max(p.sel_head);
+        if lo == hi {
+            out.insert(lo, '^');
+        } else {
+            out.insert(hi, '⟧');
+            out.insert(lo, '⟦');
+        }
+        out
+    }
+
+    fn t_tab(s: &str) -> Option<String> {
+        let (t, a, b) = parse_table(s);
+        on_tab(&t, a, b, false).map(|p| render_table(&t, &p))
+    }
+
+    fn t_shift_tab(s: &str) -> Option<String> {
+        let (t, a, b) = parse_table(s);
+        on_tab(&t, a, b, true).map(|p| render_table(&t, &p))
+    }
+
+    fn t_enter(s: &str) -> Option<String> {
+        let (t, a, b) = parse_table(s);
+        on_enter(&t, a, b).map(|p| render_table(&t, &p))
+    }
+
+    #[test]
+    fn table_tab_moves_through_cells_skips_delimiter_and_appends_row() {
+        // 光标在表头第 1 格内 -> 跳到表头第 2 格选中 "数量"
+        assert_eq!(
+            t_tab("| 名^称 | 数量 |\n| --- | --- |\n| 苹果 | 3 |").as_deref(),
+            Some("| 名称 | ⟦数量⟧ |\n| --- | --- |\n| 苹果 | 3 |")
+        );
+        // 表头最后 1 格按 Tab -> 跳过分隔行直接选中第 1 数据行第 1 格
+        assert_eq!(
+            t_tab("| 名称 | 数量^ |\n| --- | --- |\n| 苹果 | 3 |").as_deref(),
+            Some("| 名称 | 数量 |\n| --- | --- |\n| ⟦苹果⟧ | 3 |")
+        );
+        // 数据行第 1 格按 Tab -> 选中第 2 格 "3"
+        assert_eq!(
+            t_tab("| 名称 | 数量 |\n| --- | --- |\n| 苹^果 | 3 |").as_deref(),
+            Some("| 名称 | 数量 |\n| --- | --- |\n| 苹果 | ⟦3⟧ |")
+        );
+        // 最后一行最后一格按 Tab -> 在表尾插入新空行并将光标停在第 1 格中
+        assert_eq!(
+            t_tab("| 名称 | 数量 |\n| --- | --- |\n| 苹果 | 3^ |").as_deref(),
+            Some("| 名称 | 数量 |\n| --- | --- |\n| 苹果 | 3 |\n| ^ |  |")
+        );
+    }
+
+    #[test]
+    fn table_shift_tab_moves_backward_and_skips_delimiter() {
+        // 数据行第 1 格 Shift+Tab -> 跳回表头最后一格
+        assert_eq!(
+            t_shift_tab("| 名称 | 数量 |\n| --- | --- |\n| ⟦苹果⟧ | 3 |").as_deref(),
+            Some("| 名称 | ⟦数量⟧ |\n| --- | --- |\n| 苹果 | 3 |")
+        );
+        // 数据行第 2 格 Shift+Tab -> 选中第 1 格
+        assert_eq!(
+            t_shift_tab("| 名称 | 数量 |\n| --- | --- |\n| 苹果 | ^3 |").as_deref(),
+            Some("| 名称 | 数量 |\n| --- | --- |\n| ⟦苹果⟧ | 3 |")
+        );
+        // 表头第 1 格 Shift+Tab -> 保持在表头第 1 格不破坏表格
+        assert_eq!(
+            t_shift_tab("| ^名称 | 数量 |\n| --- | --- |\n| 苹果 | 3 |").as_deref(),
+            Some("| ⟦名称⟧ | 数量 |\n| --- | --- |\n| 苹果 | 3 |")
+        );
+    }
+
+    #[test]
+    fn table_enter_inserts_row_and_empty_row_exits_table() {
+        assert_eq!(
+            t_enter("| 名称 | 数量 |\n| --- | --- |\n| 苹果 | 3^ |").as_deref(),
+            Some("| 名称 | 数量 |\n| --- | --- |\n| 苹果 | 3 |\n| ^ |  |")
+        );
+        // 在空数据行再次按 Enter -> 删除空表行退出表格
+        assert_eq!(
+            t_enter("| 名称 | 数量 |\n| --- | --- |\n| ^ |  |").as_deref(),
+            Some("| 名称 | 数量 |\n| --- | --- |\n^")
+        );
+        // 含转义管道和行内代码管道的单元格不误分列
+        assert_eq!(
+            t_tab("| 语法 |\n| --- |\n| `a | b` \\| c^ |").as_deref(),
+            Some("| 语法 |\n| --- |\n| `a | b` \\| c |\n| ^ |")
+        );
+    }
+
+    #[test]
+    fn plain_pipe_text_not_a_table_keeps_default_behavior() {
+        assert_eq!(t_tab("a | b^").as_deref(), Some("a | b    ^"));
+        assert_eq!(t_enter("a | b^"), None);
     }
 }

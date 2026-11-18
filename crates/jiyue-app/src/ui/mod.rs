@@ -5,6 +5,7 @@
 pub mod ai_ui;
 pub mod assets;
 pub mod attach_ui;
+pub mod bubble_ui;
 pub mod calendar;
 pub mod config_ui;
 pub mod crumb;

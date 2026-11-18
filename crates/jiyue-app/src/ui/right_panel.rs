@@ -1,18 +1,25 @@
-//! Right panel (264px): segmented inspector switching between Outline/Properties and Backlinks.
+//! Right panel (264px): segmented inspector switching between Outline/Properties, Backlinks and Local Graph.
 
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::ops::Range;
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, ClickEvent, Context, ElementId, FontWeight, IntoElement, MouseButton, SharedString,
-    Window, div, prelude::*, px, relative,
+    AnyElement, Bounds, ClickEvent, Context, Corners, CursorStyle, Edges, ElementId, FontWeight,
+    Hsla, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder,
+    Pixels, Point, Rgba, SharedString, TextRun, Window, canvas, div, fill, font, point, prelude::*,
+    px, relative, size, transparent_black,
 };
 use jiyue_md::frontmatter::{self, Property, Value};
 
 use super::UI_FONT;
 use super::attach_ui;
 use super::attach_ui::props::{self, Block};
+use super::ext::ToastKind;
 use super::icons::icon;
 use super::inline::rich_text;
+use super::keymap::primary_held;
 use super::sidebar::SidebarTab;
 use super::widgets::controls::{empty_state, removable_tag_chip, segmented_full};
 use super::widgets::{LineInput, LineInputEvent};
@@ -20,6 +27,7 @@ use crate::RustdianApp;
 use crate::ViewportMode;
 use crate::buffer::HeadingItem;
 use crate::theme::{ActiveTheme, ICON_GAP_TIGHT, ICON_SIZE, RADIUS_M, RADIUS_S};
+use crate::vault::KnowledgeGraph;
 
 /// Active tab inside the right inspector panel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -27,6 +35,7 @@ pub enum RightPanelTab {
     #[default]
     Outline,
     Backlinks,
+    Graph,
 }
 
 /// Renders the right panel column.
@@ -39,6 +48,12 @@ pub fn render_right_panel(
 
     let tab_outline = crate::t!("panel-outline");
     let tab_backlinks = crate::t!("panel-backlinks");
+    let tab_graph = crate::t!("panel-local-graph");
+    let selected_idx = match tab {
+        RightPanelTab::Outline => 0,
+        RightPanelTab::Backlinks => 1,
+        RightPanelTab::Graph => 2,
+    };
     let tab_bar = div()
         .flex_none()
         .px(px(10.0))
@@ -47,32 +62,34 @@ pub fn render_right_panel(
         .border_color(t.border_subtle)
         .child(segmented_full(
             &t,
-            &[tab_outline.as_str(), tab_backlinks.as_str()],
-            if tab == RightPanelTab::Outline { 0 } else { 1 },
+            &[
+                tab_outline.as_str(),
+                tab_backlinks.as_str(),
+                tab_graph.as_str(),
+            ],
+            selected_idx,
             Rc::new(cx.listener(|this, &idx, _, cx| {
-                this.right_panel_tab = if idx == 0 {
-                    RightPanelTab::Outline
-                } else {
-                    RightPanelTab::Backlinks
+                this.right_panel_tab = match idx {
+                    0 => RightPanelTab::Outline,
+                    1 => RightPanelTab::Backlinks,
+                    _ => RightPanelTab::Graph,
                 };
                 cx.notify();
             })),
         ));
 
-    let mut content = div()
-        .id("right_panel_scroll")
-        .flex_1()
-        .min_h_0()
-        .overflow_y_scroll()
-        .px(px(12.0))
-        .py(px(10.0))
-        .flex()
-        .flex_col();
-
-    match tab {
+    let body: AnyElement = match tab {
         RightPanelTab::Outline => {
             let (headings, block) = cached_inspector_data(app);
-            content = content
+            div()
+                .id("right_panel_scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .px(px(12.0))
+                .py(px(10.0))
+                .flex()
+                .flex_col()
                 .child(properties_section(app, &block, cx))
                 .child(section_title(
                     &t,
@@ -80,7 +97,8 @@ pub fn render_right_panel(
                     headings.len(),
                     0.0,
                 ))
-                .child(outline(app, &headings, cx));
+                .child(outline(app, &headings, cx))
+                .into_any_element()
         }
         RightPanelTab::Backlinks => {
             let title = app
@@ -90,7 +108,15 @@ pub fn render_right_panel(
                 .unwrap_or_default();
             let cached = cached_backlinks(app, &title);
             let (backlinks, unlinked) = (&cached.0, &cached.1);
-            content = content
+            div()
+                .id("right_panel_scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .px(px(12.0))
+                .py(px(10.0))
+                .flex()
+                .flex_col()
                 .child(section_title(
                     &t,
                     &crate::t!("panel-backlinks"),
@@ -101,6 +127,7 @@ pub fn render_right_panel(
                     app,
                     backlinks,
                     0,
+                    false,
                     &crate::t!("panel-backlinks-empty"),
                     cx,
                 ))
@@ -114,11 +141,14 @@ pub fn render_right_panel(
                     app,
                     unlinked,
                     10_000,
+                    true,
                     &crate::t!("panel-unlinked-empty"),
                     cx,
-                ));
+                ))
+                .into_any_element()
         }
-    }
+        RightPanelTab::Graph => render_local_graph(app, cx).into_any_element(),
+    };
 
     div()
         .flex()
@@ -132,7 +162,7 @@ pub fn render_right_panel(
         .border_color(t.border_subtle)
         .font_family(crate::ui::fonts::ui_name())
         .child(tab_bar)
-        .child(content)
+        .child(body)
 }
 
 /// Section heading row: title on the left, item count on the right.
@@ -823,6 +853,7 @@ fn cards(
     app: &RustdianApp,
     items: &[(String, String)],
     key_base: u64,
+    allow_link: bool,
     empty: &str,
     cx: &mut Context<RustdianApp>,
 ) -> AnyElement {
@@ -847,6 +878,61 @@ fn cards(
         let key = key_base + idx as u64;
         let snippet = snippet_around(line, &target);
         let open_title = title.clone();
+        let jump_target = target.clone();
+        let link_source = title.clone();
+        let link_target = target.clone();
+        let mut header = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(6.0))
+            .mb(px(4.0))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(ICON_GAP_TIGHT))
+                    .flex_1()
+                    .min_w_0()
+                    .text_size(px(12.5))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(t.tx)
+                    .child(icon("file-text", ICON_SIZE, t.tx3))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .child(SharedString::from(title.clone())),
+                    ),
+            );
+        if allow_link && !link_target.is_empty() {
+            header = header.child(
+                div()
+                    .id(ElementId::NamedInteger(SharedString::from("link_btn"), key))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.0))
+                    .px(px(6.0))
+                    .py(px(2.0))
+                    .rounded(px(RADIUS_S))
+                    .bg(t.ac_soft)
+                    .text_size(px(11.0))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(t.ac)
+                    .cursor_pointer()
+                    .hover(|s| s.bg(t.active))
+                    .child(icon("link", 11.5, t.ac))
+                    .child(SharedString::from(crate::t!("panel-link-btn")))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            convert_unlinked_mention(this, &link_source, &link_target, cx);
+                        }),
+                    ),
+            );
+        }
         col = col.child(
             div()
                 .id(ElementId::NamedInteger(SharedString::from("card"), key))
@@ -860,18 +946,7 @@ fn cards(
                 .rounded(px(RADIUS_M))
                 .cursor_pointer()
                 .hover(|s| s.border_color(t.border_default).bg(t.hover))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(ICON_GAP_TIGHT))
-                        .mb(px(4.0))
-                        .text_size(px(12.5))
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(t.tx)
-                        .child(icon("file-text", ICON_SIZE, t.tx3))
-                        .child(div().child(SharedString::from(title.clone()))),
-                )
+                .child(header)
                 .child(
                     div()
                         .text_size(px(12.0))
@@ -892,13 +967,280 @@ fn cards(
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _, _, cx| {
+                        let mention_row = this
+                            .vault
+                            .notes
+                            .iter()
+                            .find(|n| n.title == open_title)
+                            .and_then(|n| {
+                                let text = this
+                                    .editor_for(&n.path)
+                                    .map(|ed| ed.read(cx).text())
+                                    .unwrap_or_else(|| n.content().to_string());
+                                if allow_link {
+                                    find_mention_line(&text, &jump_target)
+                                } else {
+                                    find_mention_line(&text, &format!("[[{jump_target}"))
+                                        .or_else(|| find_mention_line(&text, &jump_target))
+                                }
+                                .map(|row| (n.path.clone(), row))
+                            });
                         this.open_note_by_title(&open_title);
+                        if let Some((note_path, row)) = mention_row {
+                            if let Some(ed) = this.editor_for(&note_path) {
+                                ed.update(cx, |ed, cx| ed.set_caret_to_line(row, cx));
+                            } else {
+                                this.request_caret(row, 0);
+                            }
+                        }
                         cx.notify();
                     }),
                 ),
         );
     }
     col.into_any_element()
+}
+
+/// Converts the first bare unlinked mention of `target_title` in `source_title` into `[[target_title]]`.
+fn convert_unlinked_mention(
+    app: &mut RustdianApp,
+    source_title: &str,
+    target_title: &str,
+    cx: &mut Context<RustdianApp>,
+) {
+    let Some(src_idx) = app.vault.notes.iter().position(|n| n.title == source_title) else {
+        return;
+    };
+    let src_path = app.vault.notes[src_idx].path.clone();
+    let current = app
+        .editor_for(&src_path)
+        .map(|ed| ed.read(cx).text())
+        .unwrap_or_else(|| app.vault.notes[src_idx].content().to_string());
+    let Some((new_text, _line_idx)) = link_first_unlinked_mention(&current, target_title) else {
+        return;
+    };
+
+    super::history_ui::before_change(app, std::slice::from_ref(&src_path), cx);
+    if let Some(ed) = app.editor_for(&src_path) {
+        ed.update(cx, |ed, cx| ed.set_text_undoable(&new_text, cx));
+        app.save_path(&src_path, cx);
+    } else {
+        if jiyue_core::fsops::write_atomic(&app.vault.root_dir.join(&src_path), new_text.as_bytes())
+            .is_err()
+        {
+            app.toast(ToastKind::Error, "写入笔记失败");
+            cx.notify();
+            return;
+        }
+        app.ext
+            .files
+            .last_written
+            .insert(src_path.clone(), new_text.clone());
+    }
+    if let Some(note) = app.vault.notes.get_mut(src_idx) {
+        note.set_content(&new_text);
+    }
+    app.vault.bump_revision();
+    app.ext.files.non_active_rev = app.ext.files.non_active_rev.wrapping_add(1);
+    *app.ext.files.backlinks_cache.borrow_mut() = None;
+    app.toast(
+        ToastKind::Success,
+        crate::t!("panel-linked-toast", note = source_title),
+    );
+    cx.notify();
+}
+
+/// Finds the 0-based line index of the first mention of `target` outside leading YAML frontmatter,
+/// falling back to any matching line when only frontmatter contains it.
+fn find_mention_line(content: &str, target: &str) -> Option<usize> {
+    if target.is_empty() {
+        return None;
+    }
+    let fm_lines = props::leading_block_lines(content);
+    let mut fallback: Option<usize> = None;
+    for (idx, line) in content.lines().enumerate() {
+        if line.contains(target) {
+            if idx >= fm_lines {
+                return Some(idx);
+            }
+            if fallback.is_none() {
+                fallback = Some(idx);
+            }
+        }
+    }
+    fallback
+}
+
+fn collect_protected_ranges(line: &str) -> Vec<Range<usize>> {
+    let mut out = Vec::new();
+    let bytes = line.as_bytes();
+    let len = bytes.len();
+
+    // Inline code spans (`...`).
+    let mut i = 0usize;
+    while i < len {
+        if bytes[i] == b'`' {
+            let mut ticks = 0usize;
+            while i + ticks < len && bytes[i + ticks] == b'`' {
+                ticks += 1;
+            }
+            let start = i;
+            let mut j = i + ticks;
+            let mut closed = None;
+            while j + ticks <= len {
+                if bytes[j..j + ticks].iter().all(|&b| b == b'`')
+                    && bytes.get(j + ticks) != Some(&b'`')
+                {
+                    closed = Some(j + ticks);
+                    break;
+                }
+                j += 1;
+            }
+            if let Some(end) = closed {
+                out.push(start..end);
+                i = end;
+                continue;
+            }
+            i += ticks;
+        } else {
+            i += 1;
+        }
+    }
+
+    // Wikilinks `[[...]]`.
+    let mut search = 0usize;
+    while let Some(rel) = line.get(search..).and_then(|s| s.find("[[")) {
+        let start = search + rel;
+        if let Some(end_rel) = line.get(start + 2..).and_then(|s| s.find("]]")) {
+            let end = start + 2 + end_rel + 2;
+            out.push(start..end);
+            search = end;
+        } else {
+            break;
+        }
+    }
+
+    // Markdown links `[text](url)`.
+    let mut i = 0usize;
+    while i < len {
+        if bytes[i] == b'['
+            && bytes.get(i + 1) != Some(&b'[')
+            && let Some(mid_rel) = line.get(i + 1..).and_then(|s| s.find("]("))
+            && let Some(end_rel) = line.get(i + 1 + mid_rel + 2..).and_then(|s| s.find(')'))
+        {
+            let end = i + 1 + mid_rel + 2 + end_rel + 1;
+            out.push(i..end);
+            i = end;
+            continue;
+        }
+        i += 1;
+    }
+
+    // Bare HTTP/HTTPS URLs.
+    for scheme in ["https://", "http://"] {
+        let mut s = 0usize;
+        while let Some(rel) = line.get(s..).and_then(|sub| sub.find(scheme)) {
+            let start = s + rel;
+            let mut end = start + scheme.len();
+            while let Some(ch) = line.get(end..).and_then(|sub| sub.chars().next()) {
+                if ch.is_whitespace() || matches!(ch, ')' | '>' | ']' | '"' | '\'') {
+                    break;
+                }
+                end += ch.len_utf8();
+            }
+            out.push(start..end);
+            s = end;
+        }
+    }
+
+    out
+}
+
+fn find_unlinked_in_line(line: &str, target: &str) -> Option<usize> {
+    if target.is_empty() {
+        return None;
+    }
+    let protected = collect_protected_ranges(line);
+    let first_ascii = target
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric());
+    let last_ascii = target
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_ascii_alphanumeric());
+
+    for (pos, _) in line.match_indices(target) {
+        let end = pos + target.len();
+        if protected.iter().any(|r| r.start < end && pos < r.end) {
+            continue;
+        }
+        if first_ascii
+            && line
+                .get(..pos)
+                .and_then(|s| s.chars().next_back())
+                .is_some_and(|c| c.is_ascii_alphanumeric())
+        {
+            continue;
+        }
+        if last_ascii
+            && line
+                .get(end..)
+                .and_then(|s| s.chars().next())
+                .is_some_and(|c| c.is_ascii_alphanumeric())
+        {
+            continue;
+        }
+        return Some(pos);
+    }
+    None
+}
+
+/// Scans `content` for the first bare mention of `target` outside YAML frontmatter,
+/// fenced code blocks, inline code, links, and URLs, returning `(abs_start, abs_end, line_idx, trimmed_line)`.
+fn scan_first_unlinked_mention<'a>(
+    content: &'a str,
+    target: &str,
+) -> Option<(usize, usize, usize, &'a str)> {
+    if target.is_empty() {
+        return None;
+    }
+    let fm_lines = props::leading_block_lines(content);
+    let mut in_fence = false;
+    let mut offset = 0usize;
+
+    for (line_idx, raw_line) in content.split_inclusive('\n').enumerate() {
+        let line = raw_line.trim_end_matches(['\r', '\n']);
+        let trimmed = line.trim_start();
+        if line_idx >= fm_lines && (trimmed.starts_with("```") || trimmed.starts_with("~~~")) {
+            in_fence = !in_fence;
+            offset += raw_line.len();
+            continue;
+        }
+        if line_idx >= fm_lines
+            && !in_fence
+            && let Some(col) = find_unlinked_in_line(line, target)
+        {
+            let abs_start = offset + col;
+            let abs_end = abs_start + target.len();
+            return Some((abs_start, abs_end, line_idx, line.trim()));
+        }
+        offset += raw_line.len();
+    }
+    None
+}
+
+/// Replaces the first bare unlinked mention of `target` in `content` with `[[target]]`,
+/// returning `(new_content, 0_based_line_index)`.
+pub(crate) fn link_first_unlinked_mention(content: &str, target: &str) -> Option<(String, usize)> {
+    let (start, end, line_idx, _) = scan_first_unlinked_mention(content, target)?;
+    let mut out = String::with_capacity(content.len() + 4);
+    out.push_str(&content[..start]);
+    out.push_str("[[");
+    out.push_str(target);
+    out.push_str("]]");
+    out.push_str(&content[end..]);
+    Some((out, line_idx))
 }
 
 /// Returns cached backlinks and unlinked mentions for `title`, recomputing only when vault
@@ -947,8 +1289,8 @@ fn unlinked_mentions(
         if !content.contains(title) || content.contains(&link) {
             continue;
         }
-        if let Some(line) = content.lines().find(|l| l.contains(title)) {
-            out.push((note.title.clone(), line.trim().to_string()));
+        if let Some((_, _, _, line)) = scan_first_unlinked_mention(content, title) {
+            out.push((note.title.clone(), line.to_string()));
         }
     }
     out
@@ -976,4 +1318,831 @@ fn snippet_around(line: &str, target: &str) -> String {
         s.push('…');
     }
     s
+}
+
+// ---------------------------------------------------------------------------
+// Local graph inspector tab
+// ---------------------------------------------------------------------------
+
+const LOCAL_GRAPH_MAX_NODES: usize = 40;
+const LOCAL_LABEL_PX: f32 = 11.5;
+const LOCAL_LABEL_LINE_PX: f32 = 15.0;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LocalNode {
+    pub vault_idx: usize,
+    pub note_index: usize,
+    pub id: String,
+    pub title: String,
+    pub hop: u8,
+    pub link_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LocalSubgraph {
+    pub nodes: Vec<LocalNode>,
+    pub edges: Vec<(usize, usize)>,
+}
+
+#[derive(Clone)]
+struct LocalGraphCache {
+    key: u64,
+    sub: LocalSubgraph,
+    norm: Vec<(f32, f32)>,
+}
+
+/// Interactive state for the right-panel local knowledge graph.
+pub struct LocalGraphState {
+    pub depth: u8,
+    pub hovered: Option<usize>,
+    canvas_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
+    cache: RefCell<Option<LocalGraphCache>>,
+}
+
+impl Default for LocalGraphState {
+    fn default() -> Self {
+        Self {
+            depth: 1,
+            hovered: None,
+            canvas_bounds: Rc::new(Cell::new(None)),
+            cache: RefCell::new(None),
+        }
+    }
+}
+
+fn with_alpha(c: Rgba, a: f32) -> Rgba {
+    Rgba { a, ..c }
+}
+
+fn truncate_label(title: &str, max_chars: usize) -> String {
+    let mut chars = title.chars();
+    let head: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{head}…")
+    } else {
+        head
+    }
+}
+
+/// Extracts a BFS neighborhood subgraph up to `depth` hops centered on `center_idx` (placed at index 0).
+pub(crate) fn build_local_subgraph(
+    graph: &KnowledgeGraph,
+    center_idx: usize,
+    depth: u8,
+    max_nodes: usize,
+) -> LocalSubgraph {
+    if center_idx >= graph.nodes.len() || max_nodes == 0 {
+        return LocalSubgraph {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+        };
+    }
+    let n = graph.nodes.len();
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for e in &graph.edges {
+        if e.from_index < n && e.to_index < n && e.from_index != e.to_index {
+            adj[e.from_index].push(e.to_index);
+            adj[e.to_index].push(e.from_index);
+        }
+    }
+
+    let max_hop = depth.clamp(1, 2);
+    let mut dist: HashMap<usize, u8> = HashMap::new();
+    let mut queue = VecDeque::new();
+    dist.insert(center_idx, 0);
+    queue.push_back(center_idx);
+    while let Some(u) = queue.pop_front() {
+        let d = dist[&u];
+        if d >= max_hop {
+            continue;
+        }
+        for &v in &adj[u] {
+            if let std::collections::hash_map::Entry::Vacant(e) = dist.entry(v) {
+                e.insert(d + 1);
+                queue.push_back(v);
+            }
+        }
+    }
+
+    let mut candidates: Vec<(usize, u8)> = dist
+        .into_iter()
+        .filter(|&(idx, _)| idx != center_idx)
+        .collect();
+    candidates.sort_by(|&(i1, h1), &(i2, h2)| {
+        h1.cmp(&h2)
+            .then_with(|| graph.nodes[i2].link_count.cmp(&graph.nodes[i1].link_count))
+            .then_with(|| i1.cmp(&i2))
+    });
+
+    let mut selected = Vec::with_capacity(max_nodes.min(candidates.len() + 1));
+    selected.push((center_idx, 0u8));
+    for (idx, h) in candidates.into_iter().take(max_nodes - 1) {
+        selected.push((idx, h));
+    }
+
+    let mut to_local: HashMap<usize, usize> = HashMap::with_capacity(selected.len());
+    let mut nodes = Vec::with_capacity(selected.len());
+    for (local_i, (vault_i, hop)) in selected.into_iter().enumerate() {
+        to_local.insert(vault_i, local_i);
+        let node = &graph.nodes[vault_i];
+        nodes.push(LocalNode {
+            vault_idx: vault_i,
+            note_index: node.note_index,
+            id: node.id.clone(),
+            title: node.title.clone(),
+            hop,
+            link_count: node.link_count,
+        });
+    }
+
+    let mut seen: HashSet<(usize, usize)> = HashSet::new();
+    let mut edges = Vec::new();
+    for e in &graph.edges {
+        if let (Some(&a), Some(&b)) = (to_local.get(&e.from_index), to_local.get(&e.to_index))
+            && a != b
+        {
+            let key = if a < b { (a, b) } else { (b, a) };
+            if seen.insert(key) {
+                edges.push(key);
+            }
+        }
+    }
+    edges.sort();
+    LocalSubgraph { nodes, edges }
+}
+
+fn centered_layout(sub: &LocalSubgraph) -> Vec<(f32, f32)> {
+    let n = sub.nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    if n == 1 {
+        return vec![(0.5, 0.5)];
+    }
+    let raw = super::graph::force_layout(n, &sub.edges);
+    let c = raw[0];
+    let max_dx = raw
+        .iter()
+        .map(|&(x, _)| (x - c.0).abs())
+        .fold(0.0f32, f32::max)
+        .max(1e-4);
+    let max_dy = raw
+        .iter()
+        .map(|&(_, y)| (y - c.1).abs())
+        .fold(0.0f32, f32::max)
+        .max(1e-4);
+    let scale = (0.38 / max_dx).min(0.38 / max_dy);
+    raw.into_iter()
+        .map(|(x, y)| {
+            (
+                (0.5 + (x - c.0) * scale).clamp(0.10, 0.90),
+                (0.5 + (y - c.1) * scale).clamp(0.10, 0.90),
+            )
+        })
+        .collect()
+}
+
+fn local_graph_key(graph: &KnowledgeGraph, center_idx: usize, depth: u8) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    center_idx.hash(&mut h);
+    depth.hash(&mut h);
+    for node in &graph.nodes {
+        node.id.hash(&mut h);
+        node.title.hash(&mut h);
+    }
+    for edge in &graph.edges {
+        edge.from_index.hash(&mut h);
+        edge.to_index.hash(&mut h);
+    }
+    h.finish()
+}
+
+fn local_layout(
+    st: &LocalGraphState,
+    graph: &KnowledgeGraph,
+    center_idx: usize,
+) -> (LocalSubgraph, Vec<(f32, f32)>) {
+    let key = local_graph_key(graph, center_idx, st.depth);
+    let mut cache = st.cache.borrow_mut();
+    if let Some(cached) = cache.as_ref()
+        && cached.key == key
+    {
+        return (cached.sub.clone(), cached.norm.clone());
+    }
+    let sub = build_local_subgraph(graph, center_idx, st.depth, LOCAL_GRAPH_MAX_NODES);
+    let norm = centered_layout(&sub);
+    *cache = Some(LocalGraphCache {
+        key,
+        sub: sub.clone(),
+        norm: norm.clone(),
+    });
+    (sub, norm)
+}
+
+fn local_screen_positions(norm: &[(f32, f32)], w: f32, h: f32) -> Vec<(f32, f32)> {
+    norm.iter().map(|&(nx, ny)| (nx * w, ny * h)).collect()
+}
+
+fn local_node_radius(hop: u8, link_count: usize, hovered: bool) -> f32 {
+    let base = match hop {
+        0 => 6.5,
+        1 => (4.2 + (link_count as f32).sqrt() * 0.55).min(6.0),
+        _ => 3.5,
+    };
+    if hovered { base + 1.2 } else { base }
+}
+
+fn active_center_node_idx(app: &RustdianApp) -> Option<usize> {
+    let active_id = app.vault.active_note().map(|n| n.id.as_str())?;
+    app.vault.graph.nodes.iter().position(|n| n.id == active_id)
+}
+
+fn local_node_at(app: &RustdianApp, pos: Point<Pixels>) -> Option<usize> {
+    let center_idx = active_center_node_idx(app)?;
+    let bounds = app.local_graph.canvas_bounds.get()?;
+    let lx = f32::from(pos.x) - f32::from(bounds.origin.x);
+    let ly = f32::from(pos.y) - f32::from(bounds.origin.y);
+    let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+    if lx < 0.0 || ly < 0.0 || lx > w || ly > h {
+        return None;
+    }
+    let (sub, norm) = local_layout(&app.local_graph, &app.vault.graph, center_idx);
+    let sp = local_screen_positions(&norm, w, h);
+    let mut best: Option<(f32, usize)> = None;
+    for (i, node) in sub.nodes.iter().enumerate() {
+        let Some(&(nx, ny)) = sp.get(i) else {
+            continue;
+        };
+        let r = local_node_radius(node.hop, node.link_count, false) + 5.0;
+        let d = ((nx - lx).powi(2) + (ny - ly).powi(2)).sqrt();
+        if d <= r && best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, i));
+        }
+    }
+    best.map(|(_, i)| i)
+}
+
+fn open_local_node(app: &mut RustdianApp, node: &LocalNode, background: bool) {
+    let in_sync = app
+        .vault
+        .notes
+        .get(node.note_index)
+        .is_some_and(|n| n.id == node.id);
+    if in_sync {
+        if background && !app.vault.open_tabs.is_empty() {
+            if !app.vault.open_tabs.contains(&node.note_index) {
+                app.vault.open_tabs.push(node.note_index);
+            }
+        } else {
+            app.open_note_by_index(node.note_index);
+        }
+    } else if !background {
+        app.open_note_by_title(&node.title);
+    }
+}
+
+struct LocalLabelDraw {
+    idx: usize,
+    text: String,
+    emphasized: bool,
+}
+
+struct LocalScene {
+    theme: ActiveTheme,
+    bg: Rgba,
+    norm: Vec<(f32, f32)>,
+    radii: Vec<f32>,
+    hops: Vec<u8>,
+    hovered: Option<usize>,
+    edges: Vec<(usize, usize)>,
+    labels: Vec<LocalLabelDraw>,
+}
+
+fn paint_local_scene(
+    scene: &LocalScene,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+    cx: &mut gpui::App,
+) {
+    let ox = f32::from(bounds.origin.x);
+    let oy = f32::from(bounds.origin.y);
+    let w = f32::from(bounds.size.width);
+    let h = f32::from(bounds.size.height);
+    if w <= 1.0 || h <= 1.0 {
+        return;
+    }
+    let t = scene.theme;
+    let sp = local_screen_positions(&scene.norm, w, h);
+    let at = |(x, y): (f32, f32)| point(px(ox + x), px(oy + y));
+
+    let mut plain_edges = Vec::new();
+    let mut hot_edges = Vec::new();
+    for &(a, b) in &scene.edges {
+        let hot = a == 0 || b == 0 || Some(a) == scene.hovered || Some(b) == scene.hovered;
+        if hot {
+            hot_edges.push((a, b));
+        } else {
+            plain_edges.push((a, b));
+        }
+    }
+    for (edges, width, color) in [
+        (&plain_edges, 1.0, with_alpha(t.tx3, 0.25)),
+        (&hot_edges, 1.25, with_alpha(t.ac, 0.65)),
+    ] {
+        if edges.is_empty() {
+            continue;
+        }
+        let mut pb = PathBuilder::stroke(px(width));
+        for &(a, b) in edges {
+            if let (Some(&pa), Some(&pb_pt)) = (sp.get(a), sp.get(b)) {
+                pb.move_to(at(pa));
+                pb.line_to(at(pb_pt));
+            }
+        }
+        if let Ok(path) = pb.build() {
+            window.paint_path(path, Hsla::from(color));
+        }
+    }
+
+    for (i, &(x, y)) in sp.iter().enumerate() {
+        let r = scene.radii[i];
+        let (cx_pt, cy_pt) = (ox + x, oy + y);
+        let hop = scene.hops[i];
+        let is_hot = Some(i) == scene.hovered;
+        if hop == 0 {
+            let outer = r + 6.0;
+            window.paint_quad(
+                fill(
+                    Bounds::new(
+                        point(px(cx_pt - outer), px(cy_pt - outer)),
+                        size(px(outer * 2.0), px(outer * 2.0)),
+                    ),
+                    transparent_black(),
+                )
+                .corner_radii(Corners::all(px(outer)))
+                .border_widths(Edges::all(px(4.0)))
+                .border_color(Hsla::from(with_alpha(t.ac, 0.30))),
+            );
+        }
+        let color = if hop == 0 || is_hot {
+            t.ac
+        } else if hop == 1 {
+            with_alpha(t.ac, 0.78)
+        } else {
+            with_alpha(t.tx3, 0.55)
+        };
+        window.paint_quad(
+            fill(
+                Bounds::new(
+                    point(px(cx_pt - r), px(cy_pt - r)),
+                    size(px(r * 2.0), px(r * 2.0)),
+                ),
+                Hsla::from(color),
+            )
+            .corner_radii(Corners::all(px(r))),
+        );
+    }
+
+    let mut placed: Vec<(f32, f32, f32, f32)> = Vec::new();
+    for lab in &scene.labels {
+        let Some(&(x, y)) = sp.get(lab.idx) else {
+            continue;
+        };
+        let r = scene.radii[lab.idx];
+        let mut f = font(UI_FONT);
+        if lab.emphasized {
+            f.weight = FontWeight::SEMIBOLD;
+        }
+        let color: Hsla = if lab.emphasized { t.tx } else { t.tx2 }.into();
+        let run = TextRun {
+            len: lab.text.len(),
+            font: f,
+            color,
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        let shaped = window.text_system().shape_line(
+            SharedString::from(lab.text.clone()),
+            px(LOCAL_LABEL_PX),
+            &[run],
+            None,
+        );
+        let text_w = f32::from(shaped.width);
+        let pad_x = 4.0;
+        let pad_y = 1.5;
+        let box_w = text_w + pad_x * 2.0;
+        let box_h = LOCAL_LABEL_LINE_PX + pad_y * 2.0;
+
+        let cx_pt = ox + x;
+        let cy_pt = oy + y;
+        let candidates = [
+            (
+                (cx_pt - text_w / 2.0).clamp(ox + pad_x + 2.0, ox + w - text_w - pad_x - 2.0),
+                cy_pt + r + 5.0,
+            ),
+            (
+                (cx_pt - text_w / 2.0).clamp(ox + pad_x + 2.0, ox + w - text_w - pad_x - 2.0),
+                cy_pt - r - LOCAL_LABEL_LINE_PX - 5.0,
+            ),
+        ];
+        let chosen = candidates.into_iter().find(|&(tx, ty)| {
+            let rect = (tx - pad_x, ty - pad_y, box_w, box_h);
+            let inside = rect.0 >= ox
+                && rect.0 + rect.2 <= ox + w
+                && rect.1 >= oy
+                && rect.1 + rect.3 <= oy + h;
+            let overlaps = placed.iter().any(|p| {
+                rect.0 < p.0 + p.2
+                    && p.0 < rect.0 + rect.2
+                    && rect.1 < p.1 + p.3
+                    && p.1 < rect.1 + rect.3
+            });
+            inside && !overlaps
+        });
+        let Some((tx, ty)) = chosen else {
+            continue;
+        };
+        let rect = (tx - pad_x, ty - pad_y, box_w, box_h);
+        placed.push(rect);
+        window.paint_quad(
+            fill(
+                Bounds::new(point(px(rect.0), px(rect.1)), size(px(rect.2), px(rect.3))),
+                Hsla::from(with_alpha(scene.bg, 0.88)),
+            )
+            .corner_radii(Corners::all(px(4.0))),
+        );
+        let _ = shaped.paint(point(px(tx), px(ty)), px(LOCAL_LABEL_LINE_PX), window, cx);
+    }
+}
+
+fn render_local_graph(
+    app: &RustdianApp,
+    cx: &mut Context<RustdianApp>,
+) -> impl IntoElement + use<> {
+    let t = app.theme;
+    let st = &app.local_graph;
+    let depth = st.depth;
+    let center_idx = active_center_node_idx(app);
+    let link_peers = center_idx
+        .map(|idx| {
+            local_layout(st, &app.vault.graph, idx)
+                .0
+                .nodes
+                .len()
+                .saturating_sub(1)
+        })
+        .unwrap_or(0);
+
+    let depth_chip = |hop: u8, label: String| {
+        let active = depth == hop;
+        div()
+            .id(("local_graph_depth", hop as usize))
+            .px(px(8.0))
+            .py(px(3.0))
+            .rounded(px(RADIUS_S))
+            .text_size(px(11.5))
+            .font_weight(if active {
+                FontWeight::SEMIBOLD
+            } else {
+                FontWeight::NORMAL
+            })
+            .cursor_pointer()
+            .text_color(if active { t.ac } else { t.tx2 })
+            .when(active, |d| d.bg(t.ac_soft))
+            .when(!active, |d| d.hover(|s| s.bg(t.hover).text_color(t.tx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    this.local_graph.depth = hop;
+                    this.local_graph.hovered = None;
+                    cx.notify();
+                }),
+            )
+            .child(SharedString::from(label))
+    };
+
+    let open_full = div()
+        .id("local_graph_open_full")
+        .flex()
+        .items_center()
+        .gap(px(4.0))
+        .px(px(7.0))
+        .py(px(3.0))
+        .rounded(px(RADIUS_S))
+        .text_size(px(11.5))
+        .text_color(t.tx2)
+        .cursor_pointer()
+        .hover(|s| s.bg(t.hover).text_color(t.tx))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, _, cx| {
+                this.run_command(crate::AppCommand::OpenGraph);
+                cx.notify();
+            }),
+        )
+        .child(icon("affiliate", 12.0, t.tx2))
+        .child(SharedString::from(crate::t!("panel-local-graph-open-full")));
+
+    let toolbar = div()
+        .flex_none()
+        .px(px(12.0))
+        .pt(px(8.0))
+        .pb(px(6.0))
+        .border_b_1()
+        .border_color(t.line_soft)
+        .flex()
+        .items_center()
+        .justify_between()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.0))
+                .child(depth_chip(1, crate::t!("panel-local-graph-depth-1")))
+                .child(depth_chip(2, crate::t!("panel-local-graph-depth-2")))
+                .when(link_peers > 0, |d| {
+                    d.child(
+                        div()
+                            .pl(px(4.0))
+                            .text_size(px(11.0))
+                            .text_color(t.tx3)
+                            .child(SharedString::from(format!("{link_peers}"))),
+                    )
+                }),
+        )
+        .child(open_full);
+
+    let Some(center_idx) = center_idx else {
+        return div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(toolbar)
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .px(px(16.0))
+                    .child(empty_state(
+                        &t,
+                        "affiliate",
+                        &crate::t!("panel-local-graph-no-note"),
+                        "",
+                    )),
+            )
+            .into_any_element();
+    };
+
+    let (sub, norm) = local_layout(st, &app.vault.graph, center_idx);
+    if sub.nodes.len() <= 1 {
+        let subtitle = sub
+            .nodes
+            .first()
+            .map(|n| n.title.clone())
+            .unwrap_or_default();
+        return div()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(toolbar)
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .px(px(16.0))
+                    .child(empty_state(
+                        &t,
+                        "affiliate",
+                        &crate::t!("panel-local-graph-empty"),
+                        &subtitle,
+                    )),
+            )
+            .into_any_element();
+    }
+
+    let hovered = st.hovered.filter(|&i| i < sub.nodes.len());
+    let radii: Vec<f32> = sub
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| local_node_radius(n.hop, n.link_count, Some(i) == hovered))
+        .collect();
+    let hops: Vec<u8> = sub.nodes.iter().map(|n| n.hop).collect();
+
+    let mut label_order: Vec<(u8, usize, usize)> = sub
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let prio = if i == 0 {
+                0
+            } else if Some(i) == hovered {
+                1
+            } else if n.hop == 1 {
+                2
+            } else {
+                3
+            };
+            (prio, usize::MAX - n.link_count, i)
+        })
+        .collect();
+    label_order.sort();
+    let labels = label_order
+        .into_iter()
+        .map(|(prio, _, i)| LocalLabelDraw {
+            idx: i,
+            text: truncate_label(&sub.nodes[i].title, 14),
+            emphasized: prio <= 1,
+        })
+        .collect();
+
+    let scene = LocalScene {
+        theme: t,
+        bg: t.panel,
+        norm,
+        radii,
+        hops,
+        hovered,
+        edges: sub.edges,
+        labels,
+    };
+    let bounds_cell = st.canvas_bounds.clone();
+    let cursor_pointer = hovered.is_some();
+
+    let plot = div()
+        .id("local_graph_canvas")
+        .flex_1()
+        .min_h_0()
+        .w_full()
+        .when(cursor_pointer, |d| d.cursor(CursorStyle::PointingHand))
+        .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
+            let hit = local_node_at(this, ev.position);
+            if hit != this.local_graph.hovered {
+                this.local_graph.hovered = hit;
+                cx.notify();
+            }
+        }))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, ev: &MouseDownEvent, _, cx| {
+                if let Some(hit) = local_node_at(this, ev.position)
+                    && let Some(center) = active_center_node_idx(this)
+                {
+                    let (sub, _) = local_layout(&this.local_graph, &this.vault.graph, center);
+                    if let Some(node) = sub.nodes.get(hit) {
+                        open_local_node(this, node, primary_held(&ev.modifiers));
+                        cx.notify();
+                    }
+                }
+            }),
+        )
+        .on_mouse_up(
+            MouseButton::Middle,
+            cx.listener(|this, ev: &MouseUpEvent, _, cx| {
+                if let Some(hit) = local_node_at(this, ev.position)
+                    && let Some(center) = active_center_node_idx(this)
+                {
+                    let (sub, _) = local_layout(&this.local_graph, &this.vault.graph, center);
+                    if let Some(node) = sub.nodes.get(hit) {
+                        open_local_node(this, node, true);
+                        cx.notify();
+                    }
+                }
+            }),
+        )
+        .child(
+            canvas(
+                move |bounds, _, _| {
+                    bounds_cell.set(Some(bounds));
+                },
+                move |bounds, (), window, cx| {
+                    paint_local_scene(&scene, bounds, window, cx);
+                },
+            )
+            .size_full(),
+        );
+
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .child(toolbar)
+        .child(plot)
+        .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vault::{GraphEdge, GraphNode};
+
+    fn sample_graph() -> KnowledgeGraph {
+        let mk_node = |idx: usize, title: &str, lc: usize| GraphNode {
+            id: format!("id-{idx}"),
+            title: title.to_string(),
+            note_index: idx,
+            x: 0.0,
+            y: 0.0,
+            radius: 4.0,
+            link_count: lc,
+        };
+        KnowledgeGraph {
+            nodes: vec![
+                mk_node(0, "Center", 2),
+                mk_node(1, "Hop1A", 3),
+                mk_node(2, "Hop1B", 1),
+                mk_node(3, "Hop2", 2),
+                mk_node(4, "Hop3", 1),
+                mk_node(5, "Isolated", 0),
+            ],
+            edges: vec![
+                GraphEdge {
+                    from_index: 0,
+                    to_index: 1,
+                },
+                GraphEdge {
+                    from_index: 0,
+                    to_index: 2,
+                },
+                GraphEdge {
+                    from_index: 1,
+                    to_index: 3,
+                },
+                GraphEdge {
+                    from_index: 3,
+                    to_index: 4,
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn local_subgraph_respects_depth_1_and_2_and_centers_root() {
+        let g = sample_graph();
+
+        let sub1 = build_local_subgraph(&g, 0, 1, 40);
+        assert_eq!(sub1.nodes[0].title, "Center");
+        assert_eq!(sub1.nodes[0].hop, 0);
+        let titles1: Vec<&str> = sub1.nodes.iter().map(|n| n.title.as_str()).collect();
+        assert_eq!(titles1, vec!["Center", "Hop1A", "Hop1B"]);
+        assert_eq!(sub1.edges.len(), 2);
+
+        let sub2 = build_local_subgraph(&g, 0, 2, 40);
+        let titles2: Vec<&str> = sub2.nodes.iter().map(|n| n.title.as_str()).collect();
+        assert_eq!(titles2, vec!["Center", "Hop1A", "Hop1B", "Hop2"]);
+        assert_eq!(sub2.edges.len(), 3);
+    }
+
+    #[test]
+    fn local_subgraph_handles_isolated_and_max_nodes_cap() {
+        let g = sample_graph();
+        let iso = build_local_subgraph(&g, 5, 2, 40);
+        assert_eq!(iso.nodes.len(), 1);
+        assert_eq!(iso.nodes[0].title, "Isolated");
+        assert!(iso.edges.is_empty());
+
+        let capped = build_local_subgraph(&g, 0, 2, 2);
+        assert_eq!(capped.nodes.len(), 2);
+        assert_eq!(capped.nodes[0].title, "Center");
+        assert_eq!(capped.nodes[1].title, "Hop1A");
+    }
+
+    #[test]
+    fn link_mention_skips_frontmatter_code_and_existing_links() {
+        let md = "---\ntitle: Rust\n---\n\n`Rust` 代码\n```\nRust\n```\n参见 https://example.com/Rust 与 [Rust](r.md)\n已有 [[Rust]]，这里还有真正的 Rust 笔记。\n";
+        let (updated, line_idx) =
+            link_first_unlinked_mention(md, "Rust").expect("should find bare mention");
+        assert_eq!(line_idx, 9);
+        assert!(updated.contains("这里还有真正的 [[Rust]] 笔记。"));
+        assert!(updated.contains("title: Rust"));
+        assert!(updated.contains("`Rust` 代码"));
+        assert!(updated.contains("https://example.com/Rust"));
+    }
+
+    #[test]
+    fn link_mention_respects_ascii_boundaries_and_cjk() {
+        let ascii = "Rustdian 不是 Rust 语言";
+        let (updated, line_idx) = link_first_unlinked_mention(ascii, "Rust").unwrap();
+        assert_eq!(line_idx, 0);
+        assert_eq!(updated, "Rustdian 不是 [[Rust]] 语言");
+
+        let cjk = "今天整理了知识图谱相关内容";
+        let (updated_cjk, _) = link_first_unlinked_mention(cjk, "知识图谱").unwrap();
+        assert_eq!(updated_cjk, "今天整理了[[知识图谱]]相关内容");
+    }
+
+    #[test]
+    fn find_mention_line_prefers_body_over_frontmatter() {
+        let md = "---\nref: 架构设计\n---\n正文提到架构设计。\n";
+        assert_eq!(find_mention_line(md, "架构设计"), Some(3));
+    }
 }

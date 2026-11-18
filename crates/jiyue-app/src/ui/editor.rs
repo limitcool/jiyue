@@ -1034,7 +1034,7 @@ fn code_block(
         .line_height(px(22.0))
         .text_color(t.tx);
     for line in code {
-        body = body.child(highlight::code_line(line, t));
+        body = body.child(highlight::code_line_lang(line, lang, t));
     }
 
     let block = div()

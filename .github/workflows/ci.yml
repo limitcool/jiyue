@@ -132,7 +132,7 @@ jobs:
 
       - name: Release build smoke test (Linux x64, manual runs only; release.yml builds the release at tag time)
         if: matrix.name == 'linux-x64' && github.event_name == 'workflow_dispatch'
-        run: cargo build --release -p jiyue -p jiyue-mcp --locked
+        run: cargo build --release -p jiyue --locked
 
   clippy:
     # A gate: any warning fails the job (see docs/ci.md).

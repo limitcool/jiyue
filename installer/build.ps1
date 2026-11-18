@@ -1,7 +1,7 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  Builds the Windows release binaries, the per-user MSI and the portable zip of Jiyue.
+  Builds the Windows release binary, the per-user MSI and the portable zip of Jiyue.
 
 .DESCRIPTION
   Runs unchanged on a developer PC and on GitHub's windows-latest runner (see installer\README.md).
@@ -10,7 +10,7 @@
   1. Third-party notices: scripts\gen-notices.py (Python 3, standard library only) regenerates
      THIRD_PARTY_NOTICES.md. The build stops on an unknown or copyleft-only licence.
   2. Version from the [workspace.package] table of Cargo.toml.
-  3. cargo build --release --locked -p jiyue -p jiyue-mcp into the target folder: $env:CARGO_TARGET_DIR
+  3. cargo build --release --locked -p jiyue into the target folder: $env:CARGO_TARGET_DIR
      if it is set, else target-dist (git-ignored, separate from the normal target builds).
   4. Optional code signing (only when JIYUE_SIGN_PFX or JIYUE_SIGN_THUMBPRINT is set).
   5. WiX: the local tool from installer\.config\dotnet-tools.json, its extensions cached in
@@ -193,7 +193,7 @@ if ($SkipBuild) {
     }
     Push-Location $repo
     try {
-        Invoke-Checked 'cargo build' { cargo build --release --locked -p jiyue -p jiyue-mcp @targetArgs }
+        Invoke-Checked 'cargo build' { cargo build --release --locked -p jiyue @targetArgs }
     } finally {
         Pop-Location
         $env:CARGO_TARGET_DIR = $previousTargetDir
@@ -201,8 +201,7 @@ if ($SkipBuild) {
 }
 
 $jiyueExe = Join-Path $releaseDir 'jiyue.exe'
-$mcpExe   = Join-Path $releaseDir 'jiyue-mcp.exe'
-foreach ($f in @($jiyueExe, $mcpExe, $noticesFile)) {
+foreach ($f in @($jiyueExe, $noticesFile)) {
     if (-not (Test-Path -LiteralPath $f -PathType Leaf)) {
         $hint = if ($SkipBuild) { ' (run without -SkipBuild first)' } else { '' }
         Fail "missing file: $f$hint"
@@ -269,11 +268,9 @@ if ($signing) {
     Write-Host "Signing with: $signTool (timestamp $timestamp)"
     Remove-Item -LiteralPath $signedDir -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $signedDir | Out-Null
-    Copy-Item -LiteralPath $jiyueExe, $mcpExe -Destination $signedDir
+    Copy-Item -LiteralPath $jiyueExe -Destination $signedDir
     $jiyueExe = Join-Path $signedDir 'jiyue.exe'
-    $mcpExe   = Join-Path $signedDir 'jiyue-mcp.exe'
     Invoke-SignFile $jiyueExe
-    Invoke-SignFile $mcpExe
 } else {
     Write-Step 'Code signing'
     Write-Host 'unsigned build (set JIYUE_SIGN_PFX to sign)'
@@ -314,7 +311,6 @@ try {
             -sw1076 `
             -d "ProductVersion=$version" `
             -d "JiyueExeSource=$jiyueExe" `
-            -d "JiyueMcpExeSource=$mcpExe" `
             -d "IconFile=$iconFile" `
             -d "LicenseMitSource=$licenseMit" `
             -d "LicenseApacheSource=$licenseApache" `
@@ -351,7 +347,7 @@ if ($NoZip) {
     Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $staging | Out-Null
     try {
-        Copy-Item -LiteralPath $jiyueExe, $mcpExe -Destination $staging
+        Copy-Item -LiteralPath $jiyueExe -Destination $staging
         Copy-Item -LiteralPath $portableReadme -Destination (Join-Path $staging 'README.txt')
         Copy-Item -LiteralPath $licenseMit, $licenseApache, $noticesFile -Destination $staging
         Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zip -CompressionLevel Optimal
@@ -364,7 +360,7 @@ if ($NoZip) {
 # ---- 6. Summary -------------------------------------------------------------------------------
 Write-Step 'Summary'
 Write-Host "Version      : $version"
-Write-Host "Signing      : $(if ($signing) { 'yes (jiyue.exe, jiyue-mcp.exe and the MSI verified)' } else { 'no (set JIYUE_SIGN_PFX or JIYUE_SIGN_THUMBPRINT)' })"
+Write-Host "Signing      : $(if ($signing) { 'yes (jiyue.exe and the MSI verified)' } else { 'no (set JIYUE_SIGN_PFX or JIYUE_SIGN_THUMBPRINT)' })"
 Write-Host "Binaries     : $releaseDir (-SkipBuild: $SkipBuild)"
 Write-Host "Target dir   : $targetDir"
 $outputs = if ($NoZip) { @($msi) } else { @($msi, $zip) }

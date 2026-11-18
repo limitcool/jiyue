@@ -83,6 +83,8 @@ pub enum ExtCommand {
     Vaults(vaults_ui::Command),
     /// 插入脚注 on the active note, from the palette. The key chord is a GPUI binding on the editor.
     InsertFootnote,
+    /// Toggles an inline Markdown wrapper around the active editor's selection or caret.
+    Format(super::text_input::InlineFormat),
 }
 
 /// Things that happened in the app, broadcast to every module. Paths are vault-relative with
@@ -393,6 +395,7 @@ pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElem
     let mut out = Vec::new();
     out.extend(search_ui::overlays(app, cx));
     out.extend(files_ui::overlays(app, cx));
+    out.extend(super::bubble_ui::overlays(app, cx));
     out.extend(attach_ui::overlays(app, cx));
     out.extend(sync_ui::overlays(app, cx));
     out.extend(ai_ui::overlays(app, cx));
@@ -457,6 +460,7 @@ pub fn run(app: &mut RustdianApp, cmd: ExtCommand, cx: &mut Context<RustdianApp>
         ExtCommand::Bookmarks(c) => bookmarks::run(app, c, cx),
         ExtCommand::Vaults(c) => vaults_ui::run(app, c, cx),
         ExtCommand::InsertFootnote => insert_footnote(app, cx),
+        ExtCommand::Format(fmt) => toggle_inline_format(app, fmt, cx),
     }
 }
 
@@ -476,9 +480,30 @@ fn insert_footnote(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     cx.notify();
 }
 
+/// Toggles an inline formatting wrapper on the active note's editor selection.
+fn toggle_inline_format(
+    app: &mut RustdianApp,
+    fmt: super::text_input::InlineFormat,
+    cx: &mut Context<RustdianApp>,
+) {
+    let Some((_, editor)) = ai_ui::active_editor(app) else {
+        app.toast(ToastKind::Warn, "没有打开的笔记".to_string());
+        return;
+    };
+    let done = editor.update(cx, |editor, cx| editor.toggle_inline_format(fmt, cx));
+    if !done {
+        app.toast(
+            ToastKind::Warn,
+            "当前位置不支持行内格式切换（阅读模式、代码块内或跨行选区）".to_string(),
+        );
+    }
+    cx.notify();
+}
+
 /// Command rows of every module, in module order. The palette appends them after its own rows.
 pub fn palette_commands() -> Vec<PaletteCommand> {
     let mut out = Vec::new();
+    out.extend(super::bubble_ui::palette_commands());
     out.extend(search_ui::palette_commands());
     out.extend(files_ui::palette_commands());
     out.extend(attach_ui::palette_commands());

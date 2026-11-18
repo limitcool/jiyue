@@ -21,7 +21,10 @@ pub use drop_win::install_window_drop;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use gpui::{AnyElement, App, ClipboardEntry, ClipboardItem, Context, Entity, KeyDownEvent};
+use gpui::{
+    AnyElement, App, ClipboardEntry, ClipboardItem, Context, Entity, FontWeight, IntoElement,
+    KeyDownEvent, Pixels, Point, SharedString, div, prelude::*, px, relative,
+};
 use jiyue_md::embeds::Anchor;
 use jiyue_md::frontmatter;
 
@@ -29,7 +32,8 @@ use crate::AppCommand;
 use crate::RustdianApp;
 use crate::session::ViewMode;
 use crate::ui::ext::{ExtCommand, ExtEvent, PaletteCommand, ToastKind};
-use crate::ui::widgets::LineInput;
+use crate::ui::icons::icon;
+use crate::ui::widgets::{LineInput, place_popover};
 use import::{Outcome, Source};
 use jiyue_md::attach::{AttachSettings, LinkStyle};
 use resolve::VaultFiles;
@@ -209,13 +213,24 @@ fn paste_takes_image(app: &RustdianApp, window: &gpui::Window, cx: &App) -> bool
         && clipboard_has_pasteable(cx)
 }
 
-/// Lightbox and the settings modal.
+/// Lightbox, the settings modal, and the wikilink hover preview card.
 pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElement> {
     let mut out = Vec::new();
     if let Some(rel) = app.ext.attach.lightbox.as_deref() {
         out.push(view::lightbox(app, rel, cx));
     }
     out.extend(settings::render_modal(app, cx));
+    if app.ext.attach.lightbox.is_none()
+        && !app.ext.attach.settings_open
+        && !app.show_palette
+        && !app.settings.open
+        && !app.ext.slash.any_open()
+        && !crate::ui::ext::overlay_open(app)
+        && let Some(editor) = app.active_path().and_then(|p| app.editor_for(p))
+        && let Some((raw, pos)) = editor.read(cx).hovered_wikilink()
+    {
+        out.push(hover_preview_overlay(app, raw, pos));
+    }
     out
 }
 
@@ -1044,19 +1059,265 @@ pub(crate) fn resolve_folder_or_index(
     }
 }
 
+const HOVER_PREVIEW_W: f32 = 340.0;
+const HOVER_PREVIEW_MAX_LINES: usize = 6;
+const HOVER_PREVIEW_MAX_CHARS: usize = 90;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct HoverPreview {
+    pub title: String,
+    pub subtitle: String,
+    pub lines: Vec<String>,
+    pub icon: &'static str,
+}
+
+fn clip_preview_line(s: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    for (idx, ch) in s.chars().enumerate() {
+        if idx >= max_chars {
+            out.push('…');
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn is_preview_noise(trimmed: &str) -> bool {
+    trimmed.is_empty()
+        || trimmed.starts_with("```")
+        || trimmed.starts_with("~~~")
+        || trimmed == "---"
+        || trimmed == "***"
+        || trimmed == "___"
+}
+
+/// Extracts up to `max_lines` clean body lines from `content`, skipping leading YAML frontmatter
+/// or slicing to the targeted heading / block anchor when present.
+pub(crate) fn extract_preview_lines(
+    content: &str,
+    anchor: Option<&Anchor>,
+    max_lines: usize,
+) -> Vec<String> {
+    if max_lines == 0 {
+        return Vec::new();
+    }
+    match anchor {
+        Some(Anchor::Heading(heading)) => {
+            let Some(section) = jiyue_md::embeds::extract_section(content, heading) else {
+                return Vec::new();
+            };
+            section
+                .lines()
+                .skip(1)
+                .map(str::trim)
+                .filter(|l| !is_preview_noise(l))
+                .take(max_lines)
+                .map(|l| clip_preview_line(l, HOVER_PREVIEW_MAX_CHARS))
+                .collect()
+        }
+        Some(Anchor::Block(id)) => {
+            let Some(block) = jiyue_md::embeds::extract_block_text(content, id) else {
+                return Vec::new();
+            };
+            let suffix = format!("^{id}");
+            block
+                .lines()
+                .map(|l| l.trim().strip_suffix(&suffix).unwrap_or(l).trim())
+                .filter(|l| !is_preview_noise(l))
+                .take(max_lines)
+                .map(|l| clip_preview_line(l, HOVER_PREVIEW_MAX_CHARS))
+                .collect()
+        }
+        None => {
+            let fm_lines = props::leading_block_lines(content);
+            content
+                .lines()
+                .skip(fm_lines)
+                .map(str::trim)
+                .filter(|l| !is_preview_noise(l))
+                .take(max_lines)
+                .map(|l| clip_preview_line(l, HOVER_PREVIEW_MAX_CHARS))
+                .collect()
+        }
+    }
+}
+
 fn note_snippet(note: &jiyue_core::buffer::Note, label: &str) -> String {
-    let snippet: Vec<&str> = note
-        .content()
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .take(3)
-        .collect();
+    let snippet = extract_preview_lines(note.content(), None, 3);
     if snippet.is_empty() {
         format!("[[{label}]]\n(空笔记)")
     } else {
         format!("[[{label}]]\n{}", snippet.join("\n"))
     }
+}
+
+fn preview_for_note(
+    note: &jiyue_core::buffer::Note,
+    anchor: Option<&Anchor>,
+    anchor_tag: Option<String>,
+) -> HoverPreview {
+    let mut lines = extract_preview_lines(note.content(), anchor, HOVER_PREVIEW_MAX_LINES);
+    if lines.is_empty() {
+        let empty_hint = if anchor.is_some() {
+            "（该章节暂无更多正文）"
+        } else {
+            "（空白笔记）"
+        };
+        lines.push(empty_hint.to_string());
+    }
+    let subtitle = match anchor_tag {
+        Some(tag) => format!("{} · {tag}", note.path),
+        None => note.path.clone(),
+    };
+    HoverPreview {
+        title: note.title.clone(),
+        subtitle,
+        lines,
+        icon: "file-text",
+    }
+}
+
+pub(crate) fn build_hover_preview(app: &RustdianApp, raw: &str) -> HoverPreview {
+    let inner = raw.split('|').next().unwrap_or("").trim();
+    let (target_raw, anchor) = split_target(inner);
+    let anchor_tag = match &anchor {
+        Some(Anchor::Heading(h)) => Some(format!("#{h}")),
+        Some(Anchor::Block(id)) => Some(format!("#^{id}")),
+        None => None,
+    };
+
+    if target_raw.is_empty() {
+        if let Some(note) = app.vault.active_note() {
+            return preview_for_note(note, anchor.as_ref(), anchor_tag);
+        }
+        return HoverPreview {
+            title: inner.to_string(),
+            subtitle: "当前笔记".into(),
+            lines: vec!["（未找到章节）".into()],
+            icon: "file-text",
+        };
+    }
+
+    let from_path = app.active_path().unwrap_or("");
+    let refs = crate::ui::files_ui::cached_note_refs(app);
+    if let Some(idx) = jiyue_core::links::resolve_link(&refs, target_raw, from_path) {
+        return preview_for_note(&app.vault.notes[idx], anchor.as_ref(), anchor_tag);
+    }
+
+    match resolve_folder_or_index(&app.vault.notes, &app.vault.folders, target_raw, from_path) {
+        FolderResolution::EntryNote(idx) => {
+            preview_for_note(&app.vault.notes[idx], anchor.as_ref(), anchor_tag)
+        }
+        FolderResolution::FolderOnly(folder) => HoverPreview {
+            title: folder,
+            subtitle: "文件夹".into(),
+            lines: vec!["点击在侧栏文件树中展开".into()],
+            icon: "folder",
+        },
+        FolderResolution::None => {
+            let norm = target_raw.replace('\\', "/");
+            if let Some(file_path) = app.ext.attach.files.files.iter().find(|f| {
+                f.eq_ignore_ascii_case(&norm) || resolve::basename(f).eq_ignore_ascii_case(&norm)
+            }) {
+                return HoverPreview {
+                    title: resolve::basename(file_path).to_string(),
+                    subtitle: "附件文件".into(),
+                    lines: vec![file_path.clone()],
+                    icon: if crate::ui::ext::slash::picker::is_image(file_path) {
+                        "photo"
+                    } else {
+                        "file-text"
+                    },
+                };
+            }
+            HoverPreview {
+                title: target_raw.to_string(),
+                subtitle: "未创建笔记".into(),
+                lines: vec!["点击立即创建此笔记".into()],
+                icon: "file-plus",
+            }
+        }
+    }
+}
+
+fn hover_preview_overlay(app: &RustdianApp, raw: &str, pos: Point<Pixels>) -> AnyElement {
+    let preview = build_hover_preview(app, raw);
+    let t = app.theme;
+    let win = app.ext.slash.viewport_size();
+    let est_h = (74.0 + preview.lines.len().max(1) as f32 * 22.0).min(260.0);
+    let (left, top) = place_popover(
+        (f32::from(pos.x), f32::from(pos.y) + 8.0, 1.0, 18.0),
+        (HOVER_PREVIEW_W, est_h),
+        win,
+        8.0,
+    );
+
+    let mut body = div()
+        .flex()
+        .flex_col()
+        .gap(px(4.0))
+        .px(px(12.0))
+        .py(px(10.0));
+    for line in preview.lines {
+        body = body.child(
+            div()
+                .text_size(px(12.5))
+                .line_height(relative(1.5))
+                .text_color(t.tx2)
+                .child(SharedString::from(line)),
+        );
+    }
+
+    div()
+        .absolute()
+        .left(px(left))
+        .top(px(top))
+        .w(px(HOVER_PREVIEW_W))
+        .rounded(px(10.0))
+        .border_1()
+        .border_color(t.line)
+        .bg(t.raised)
+        .shadow_lg()
+        .overflow_hidden()
+        .font_family(crate::ui::fonts::ui_name())
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(2.0))
+                .px(px(12.0))
+                .py(px(9.0))
+                .border_b_1()
+                .border_color(t.line_soft)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(icon(preview.icon, 14.0, t.ac))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_size(px(13.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(t.tx)
+                                .child(SharedString::from(preview.title)),
+                        ),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(11.0))
+                        .text_color(t.tx3)
+                        .child(SharedString::from(preview.subtitle)),
+                ),
+        )
+        .child(body)
+        .into_any_element()
 }
 
 /// Returns hover tooltip text for a wikilink target (`Title`, path, alias, or folder).
@@ -1356,5 +1617,19 @@ mod link_resolution_tests {
             ),
             "![pic 1](../../%E9%99%84%E4%BB%B6/pic%201.png)"
         );
+    }
+
+    #[test]
+    fn preview_lines_skip_frontmatter_slice_heading_and_handle_empty_notes() {
+        let md = "---\ntitle: 测试\ntags: [rust]\n---\n\n第一段内容\n\n## 安装\n运行 cargo build\n\n## 使用\n开始写作\n";
+        assert_eq!(
+            extract_preview_lines(md, None, 3),
+            vec!["第一段内容", "## 安装", "运行 cargo build"]
+        );
+        assert_eq!(
+            extract_preview_lines(md, Some(&Anchor::Heading("安装".into())), 4),
+            vec!["运行 cargo build"]
+        );
+        assert!(extract_preview_lines("---\ntitle: 空\n---\n\n", None, 4).is_empty());
     }
 }

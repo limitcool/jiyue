@@ -1003,7 +1003,7 @@ fn walk(
 }
 
 /// Returns cached sorted `(tag, count)` pairs for the vault, rebuilding only when `#tags` or structure change.
-fn cached_tag_counts(app: &RustdianApp) -> Rc<Vec<(String, usize)>> {
+pub(crate) fn cached_tag_counts(app: &RustdianApp) -> Rc<Vec<(String, usize)>> {
     let rev = app.vault.tags_revision;
     let mut cache = app.ext.files.tags_cache.borrow_mut();
     if let Some((cached_rev, cached_root, counts)) = cache.as_ref()

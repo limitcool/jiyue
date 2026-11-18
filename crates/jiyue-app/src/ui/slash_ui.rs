@@ -29,6 +29,7 @@ use crate::RustdianApp;
 use crate::ui::attach_ui::import::{self, Outcome, Source};
 use crate::ui::attach_ui::{self, resolve};
 use crate::ui::ext::ExtEvent;
+use crate::ui::ext::slash::complete::{self, CompletionCtx, Item, TriggerKind};
 use crate::ui::ext::slash::picker::{self, Candidate, Target};
 use crate::ui::ext::slash::{self, Kind, rank, snippet, trigger};
 use crate::ui::icons::icon;
@@ -40,6 +41,9 @@ const MAX_ROWS: usize = 8;
 const ROW_H: f32 = 44.0;
 const CARD_W: f32 = 300.0;
 const CARD_PAD: f32 = 6.0;
+const INLINE_W: f32 = 320.0;
+const INLINE_ROW_H: f32 = 34.0;
+const INLINE_LIMIT: usize = 24;
 /// Gap kept between the menu and the window edge.
 const MARGIN: f32 = 8.0;
 /// Window size assumed before the first keystroke has reported the real one.
@@ -47,12 +51,13 @@ const FALLBACK_WIN: (f32, f32) = (1280.0, 800.0);
 /// The row that opens the file prompt in the image picker.
 const BROWSE_LABEL: &str = "从电脑选择图片…";
 
-/// What the keystroke interceptor and the render share without touching the app: whether the menu
-/// or the picker is open, and the window size (reported on each keystroke).
+/// What the keystroke interceptor and the render share without touching the app: whether the menu,
+/// the picker, or an inline completion popover is open, and the window size (reported on each keystroke).
 #[derive(Default)]
 pub struct Shared {
     open: Cell<bool>,
     picker: Cell<bool>,
+    inline: Cell<bool>,
     win: Cell<(f32, f32)>,
 }
 
@@ -100,6 +105,14 @@ impl Picker {
     }
 }
 
+/// One open inline completion popover (`[[`, `![[`, `[[Note#`, `#tag`).
+pub struct InlineSession {
+    path: String,
+    ctx: CompletionCtx,
+    items: Vec<Item>,
+    highlight: usize,
+}
+
 /// Module state.
 #[derive(Default)]
 pub struct State {
@@ -113,6 +126,29 @@ pub struct State {
     last: Option<(String, usize)>,
     /// The open picker, if any.
     picker: Option<Picker>,
+    /// The open inline completion popover, if any.
+    inline: Option<InlineSession>,
+    /// Observer and blur subscriptions of the open inline popover. Dropped on close.
+    inline_subs: Vec<Subscription>,
+    /// Anchor explicitly dismissed (Esc or post-pick) so it does not re-open immediately.
+    dismissed_anchor: Option<(String, usize)>,
+}
+
+impl State {
+    /// True when any slash menu, link picker, or inline completion popover is open.
+    pub fn any_open(&self) -> bool {
+        self.session.is_some() || self.picker.is_some() || self.inline.is_some()
+    }
+
+    /// Last known window viewport size in px (falls back to `FALLBACK_WIN`).
+    pub fn viewport_size(&self) -> (f32, f32) {
+        let win = self.shared.win.get();
+        if win.0 > 0.0 && win.1 > 0.0 {
+            win
+        } else {
+            FALLBACK_WIN
+        }
+    }
 }
 
 /// Registers the keystroke interceptor. Called once at start-up.
@@ -122,7 +158,9 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
     let keys = cx.intercept_keystrokes(move |ev, window, cx| {
         shared.win.set(window_size(window));
         let picker_open = shared.picker.get();
-        if !shared.open.get() && !picker_open {
+        let slash_open = shared.open.get();
+        let inline_open = shared.inline.get();
+        if !slash_open && !picker_open && !inline_open {
             return;
         }
         let m = ev.keystroke.modifiers;
@@ -137,8 +175,10 @@ pub fn init(app: &mut RustdianApp, cx: &mut Context<RustdianApp>) {
         let _ = weak.update(cx, |app, cx| {
             let used = if picker_open {
                 handle_picker_key(app, &key, window, cx)
-            } else {
+            } else if slash_open {
                 handle_key(app, &key, focused.as_ref(), window, cx)
+            } else {
+                handle_inline_key(app, &key, focused.as_ref(), cx)
             };
             if used {
                 cx.stop_propagation();
@@ -153,7 +193,7 @@ fn window_size(window: &Window) -> (f32, f32) {
     (f32::from(s.width), f32::from(s.height))
 }
 
-/// Module events: a typed `/` opens the menu, edits and caret moves update it.
+/// Module events: a typed `/`, `[[`, `![[`, or `#` opens completion; edits and caret moves update it.
 pub fn on_event(app: &mut RustdianApp, ev: &ExtEvent, cx: &mut Context<RustdianApp>) {
     match ev {
         ExtEvent::NoteOpened(path) => {
@@ -177,42 +217,71 @@ pub fn on_event(app: &mut RustdianApp, ev: &ExtEvent, cx: &mut Context<RustdianA
                 drop_picker(app);
                 cx.notify();
             }
+            if app
+                .ext
+                .slash
+                .inline
+                .as_ref()
+                .is_some_and(|i| &i.path != path)
+            {
+                close_inline(app);
+                cx.notify();
+            }
+            if app
+                .ext
+                .slash
+                .dismissed_anchor
+                .as_ref()
+                .is_some_and(|(p, _)| p != path)
+            {
+                app.ext.slash.dismissed_anchor = None;
+            }
         }
         ExtEvent::NoteChanged(path) => note_changed(app, path, cx),
         _ => {}
     }
 }
 
-/// The note changed by typing, paste or an edit of this app. Opens the menu after one typed `/`,
+/// The note changed by typing, paste or an edit of this app. Opens the slash or inline menu,
 /// or refreshes the open one.
 fn note_changed(app: &mut RustdianApp, path: &str, cx: &mut Context<RustdianApp>) {
     let Some(editor) = app.editor_for(path) else {
         return;
     };
-    let (text, anchor, caret, composing) = {
+    let (text, anchor, caret, composing, read_only) = {
         let ed = editor.read(cx);
         let (a, h) = ed.selection_offsets();
-        (ed.text(), a, h, ed.is_composing())
+        (ed.text(), a, h, ed.is_composing(), ed.is_read_only())
     };
     let prev = app.ext.slash.last.replace((path.to_string(), text.len()));
     if app.ext.slash.session.is_some() {
         refresh(app, cx);
         return;
     }
-    if composing || anchor != caret || caret == 0 {
+    if app.ext.slash.picker.is_some() {
         return;
     }
-    let Some((prev_path, prev_len)) = prev else {
-        return;
-    };
-    if prev_path != path || text.len() != prev_len + 1 {
-        return;
+    if !read_only
+        && !composing
+        && anchor == caret
+        && caret > 0
+        && let Some((ref prev_path, prev_len)) = prev
+        && prev_path == path
+        && text.len() == prev_len + 1
+    {
+        let slash_at = caret - 1;
+        if text.get(slash_at..caret) == Some("/") && trigger::trigger_ok(&text, slash_at) {
+            close_inline(app);
+            open(app, path, slash_at, &editor, &text, cx);
+            return;
+        }
     }
-    let slash_at = caret - 1;
-    if text.get(slash_at..caret) != Some("/") || !trigger::trigger_ok(&text, slash_at) {
-        return;
+    let len_changed = prev
+        .as_ref()
+        .is_some_and(|(prev_path, prev_len)| prev_path == path && *prev_len != text.len());
+    if app.ext.slash.inline.is_some() || (!read_only && len_changed) {
+        refresh_inline(app, path, cx);
     }
-    open(app, path, slash_at, &editor, &text, cx);
 }
 
 /// Opens the menu for the `/` at `slash_at` and watches the editor.
@@ -765,6 +834,283 @@ fn finish_import(
     cx.notify();
 }
 
+/// Closes the inline completion popover and drops its subscriptions.
+fn close_inline(app: &mut RustdianApp) -> bool {
+    app.ext.slash.shared.inline.set(false);
+    app.ext.slash.inline_subs.clear();
+    app.ext.slash.inline.take().is_some()
+}
+
+/// Removes and returns the open inline completion session, dropping its subscriptions.
+fn take_inline(app: &mut RustdianApp) -> Option<InlineSession> {
+    app.ext.slash.shared.inline.set(false);
+    app.ext.slash.inline_subs.clear();
+    app.ext.slash.inline.take()
+}
+
+/// Extracts `(level, heading_text)` outside frontmatter and fenced code blocks.
+fn extract_headings_for_complete(text: &str) -> Vec<(usize, String)> {
+    let fm_lines = crate::ui::attach_ui::props::leading_block_lines(text);
+    let mut out = Vec::new();
+    let mut in_fence = false;
+    for (idx, line) in text.lines().enumerate() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence || idx < fm_lines {
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            let level = trimmed.chars().take_while(|&c| c == '#').count();
+            if (1..=6).contains(&level)
+                && trimmed.chars().nth(level) == Some(' ')
+                && let Some(title) = trimmed.get(level + 1..).map(str::trim)
+                && !title.is_empty()
+            {
+                out.push((level, title.to_string()));
+            }
+        }
+    }
+    out
+}
+
+fn build_inline_items(
+    app: &RustdianApp,
+    path: &str,
+    active_text: &str,
+    ctx: &CompletionCtx,
+    cx: &gpui::App,
+) -> Vec<Item> {
+    match &ctx.kind {
+        TriggerKind::WikiLink => {
+            let notes: Vec<(String, String, Vec<String>)> = app
+                .vault
+                .notes
+                .iter()
+                .map(|n| {
+                    (
+                        n.title.clone(),
+                        n.path.clone(),
+                        jiyue_md::frontmatter::aliases(n.content()),
+                    )
+                })
+                .collect();
+            complete::note_items(&notes, false, &ctx.query, INLINE_LIMIT)
+        }
+        TriggerKind::Embed => {
+            let notes: Vec<(String, String, Vec<String>)> = app
+                .vault
+                .notes
+                .iter()
+                .map(|n| {
+                    (
+                        n.title.clone(),
+                        n.path.clone(),
+                        jiyue_md::frontmatter::aliases(n.content()),
+                    )
+                })
+                .collect();
+            complete::embed_items(
+                &notes,
+                &app.ext.attach.files.files,
+                &ctx.query,
+                INLINE_LIMIT,
+            )
+        }
+        TriggerKind::Heading { embed, note_target } => {
+            let headings = if note_target.is_empty() {
+                extract_headings_for_complete(active_text)
+            } else {
+                let refs = crate::ui::files_ui::cached_note_refs(app);
+                let Some(idx) = jiyue_core::links::resolve_link(&refs, note_target, path) else {
+                    return Vec::new();
+                };
+                let target_note = &app.vault.notes[idx];
+                if let Some(open_ed) = app.editor_for(&target_note.path) {
+                    extract_headings_for_complete(&open_ed.read(cx).text())
+                } else {
+                    extract_headings_for_complete(target_note.content())
+                }
+            };
+            complete::heading_items(note_target, &headings, *embed, &ctx.query, INLINE_LIMIT)
+        }
+        TriggerKind::Tag => {
+            let tags = crate::ui::sidebar::cached_tag_counts(app);
+            complete::tag_items(&tags, &ctx.query, INLINE_LIMIT)
+        }
+    }
+}
+
+/// Refreshes or closes the inline completion popover based on the current caret context.
+fn refresh_inline(app: &mut RustdianApp, path: &str, cx: &mut Context<RustdianApp>) {
+    let Some(editor) = app.editor_for(path) else {
+        if close_inline(app) {
+            cx.notify();
+        }
+        return;
+    };
+    let (text, anchor, caret, composing, read_only) = {
+        let ed = editor.read(cx);
+        let (a, h) = ed.selection_offsets();
+        (ed.text(), a, h, ed.is_composing(), ed.is_read_only())
+    };
+    if read_only || anchor != caret {
+        app.ext.slash.dismissed_anchor = None;
+        if close_inline(app) {
+            cx.notify();
+        }
+        return;
+    }
+    if composing {
+        return;
+    }
+    let Some(ctx) = complete::detect(&text, caret) else {
+        app.ext.slash.dismissed_anchor = None;
+        if close_inline(app) {
+            cx.notify();
+        }
+        return;
+    };
+    if app.ext.slash.dismissed_anchor.as_ref() == Some(&(path.to_string(), ctx.anchor_start)) {
+        if close_inline(app) {
+            cx.notify();
+        }
+        return;
+    }
+    app.ext.slash.dismissed_anchor = None;
+    let items = build_inline_items(app, path, &text, &ctx, cx);
+    if items.is_empty() {
+        if close_inline(app) {
+            cx.notify();
+        }
+        return;
+    }
+    let highlight = match app.ext.slash.inline.as_ref() {
+        Some(prev) if prev.path == path && prev.ctx.anchor_start == ctx.anchor_start => prev
+            .items
+            .get(prev.highlight)
+            .and_then(|old| items.iter().position(|it| it.insert == old.insert))
+            .unwrap_or_else(|| prev.highlight.min(items.len().saturating_sub(1))),
+        _ => 0,
+    };
+    if app.ext.slash.inline.is_none() {
+        let observe = cx.observe(&editor, |this: &mut RustdianApp, _, cx| {
+            if let Some(p) = this.ext.slash.inline.as_ref().map(|s| s.path.clone()) {
+                refresh_inline(this, &p, cx);
+            }
+        });
+        let blur = cx.subscribe(&editor, |this: &mut RustdianApp, _, _: &EditorBlur, cx| {
+            if close_inline(this) {
+                cx.notify();
+            }
+        });
+        app.ext.slash.inline_subs = vec![observe, blur];
+    }
+    app.ext.slash.inline = Some(InlineSession {
+        path: path.to_string(),
+        ctx,
+        items,
+        highlight,
+    });
+    app.ext.slash.shared.inline.set(true);
+    cx.notify();
+}
+
+/// Keys while the inline completion popover is open. Returns true when consumed.
+fn handle_inline_key(
+    app: &mut RustdianApp,
+    key: &str,
+    focused: Option<&FocusHandle>,
+    cx: &mut Context<RustdianApp>,
+) -> bool {
+    let Some(s) = app.ext.slash.inline.as_ref() else {
+        return false;
+    };
+    let path = s.path.clone();
+    let anchor_start = s.ctx.anchor_start;
+    let len = s.items.len();
+    let highlight = s.highlight;
+    let Some(editor) = app.editor_for(&path) else {
+        close_inline(app);
+        return false;
+    };
+    let (own_focus, composing) = {
+        let ed = editor.read(cx);
+        (ed.focus_handle(cx), ed.is_composing())
+    };
+    if focused != Some(&own_focus) || composing {
+        return false;
+    }
+    match key {
+        "escape" => {
+            app.ext.slash.dismissed_anchor = Some((path, anchor_start));
+            close_inline(app);
+            cx.notify();
+            true
+        }
+        "up" | "down" if len > 0 => {
+            let next = if key == "down" {
+                (highlight + 1) % len
+            } else {
+                (highlight + len - 1) % len
+            };
+            if let Some(s) = app.ext.slash.inline.as_mut() {
+                s.highlight = next;
+            }
+            cx.notify();
+            true
+        }
+        "enter" | "tab" => {
+            if len == 0 {
+                close_inline(app);
+                cx.notify();
+                return false;
+            }
+            pick_inline_row(app, highlight, cx);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Replaces the detected trigger span with the selected inline completion item.
+fn pick_inline_row(app: &mut RustdianApp, index: usize, cx: &mut Context<RustdianApp>) {
+    let Some(session) = take_inline(app) else {
+        return;
+    };
+    let Some(item) = session.items.get(index) else {
+        return;
+    };
+    let Some(editor) = app.editor_for(&session.path) else {
+        return;
+    };
+    let range = session.ctx.anchor_start..session.ctx.replace_end;
+    let insert = item.insert.clone();
+    let replaced = editor.update(cx, |ed, cx| {
+        let text = ed.text();
+        text.get(range.clone())?;
+        Some(ed.replace_text_range(range, &insert, cx))
+    });
+    match replaced {
+        Some(true) => {
+            let new_len = editor.read(cx).text().len();
+            app.ext.slash.last = Some((session.path.clone(), new_len));
+            app.ext.slash.dismissed_anchor = Some((session.path, session.ctx.anchor_start));
+            cx.notify();
+        }
+        Some(false) => {
+            app.toast(
+                crate::ui::ext::ToastKind::Info,
+                "请先结束输入法的输入，再插入",
+            );
+            cx.notify();
+        }
+        None => {}
+    }
+}
+
 /// The menu: a card under the caret, flipped above it near the bottom of the window.
 pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElement> {
     let mut out = Vec::new();
@@ -774,7 +1120,102 @@ pub fn overlays(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Vec<AnyElem
     if let Some(card) = picker_overlay(app, cx) {
         out.push(card);
     }
+    if let Some(card) = inline_overlay(app, cx) {
+        out.push(card);
+    }
     out
+}
+
+fn inline_overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Option<AnyElement> {
+    let s = app.ext.slash.inline.as_ref()?;
+    let editor = app.editor_for(&s.path)?;
+    let (caret, own_focus) = {
+        let ed = editor.read(cx);
+        (ed.caret_origin(), ed.focus_handle(cx))
+    };
+    let (x, y, row_h) = caret?;
+    let t = app.theme;
+    let win = app.ext.slash.shared.win.get();
+    let win = if win.0 > 0.0 && win.1 > 0.0 {
+        win
+    } else {
+        FALLBACK_WIN
+    };
+
+    let shown = s.items.len().clamp(1, MAX_ROWS.max(1));
+    let card_h = shown as f32 * INLINE_ROW_H + 2.0 * CARD_PAD;
+    let (left, top) = place_popover((x, y, 1.0, row_h), (INLINE_W, card_h), win, MARGIN);
+
+    let start = if s.highlight >= MAX_ROWS {
+        s.highlight + 1 - MAX_ROWS
+    } else {
+        0
+    };
+    let mut list = div().flex().flex_col();
+    for (row, item) in s.items.iter().enumerate().skip(start).take(MAX_ROWS) {
+        let on = row == s.highlight;
+        let focus = own_focus.clone();
+        list = list.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .h(px(INLINE_ROW_H))
+                .mx(px(4.0))
+                .px(px(10.0))
+                .rounded(px(8.0))
+                .cursor_pointer()
+                .bg(if on { t.active } else { t.raised })
+                .hover(|st| st.bg(t.hover))
+                .child(icon(item.icon, 15.0, if on { t.ac } else { t.tx2 }))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_size(px(13.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.tx)
+                        .child(SharedString::from(item.label.clone())),
+                )
+                .child(
+                    div()
+                        .max_w(px(120.0))
+                        .truncate()
+                        .flex_none()
+                        .text_size(px(11.5))
+                        .text_color(t.tx3)
+                        .child(SharedString::from(item.detail.clone())),
+                )
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _: &MouseDownEvent, window, cx| {
+                        cx.stop_propagation();
+                        window.focus(&focus);
+                        pick_inline_row(this, row, cx);
+                    }),
+                ),
+        );
+    }
+
+    let card = div()
+        .absolute()
+        .left(px(left))
+        .top(px(top))
+        .w(px(INLINE_W))
+        .py(px(CARD_PAD))
+        .rounded(px(10.0))
+        .border_1()
+        .border_color(t.line)
+        .bg(t.raised)
+        .shadow_lg()
+        .overflow_hidden()
+        .font_family(crate::ui::fonts::ui_name())
+        .text_size(px(13.0))
+        .text_color(t.tx)
+        .child(list)
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+    Some(card.into_any_element())
 }
 
 fn menu_overlay(app: &RustdianApp, cx: &mut Context<RustdianApp>) -> Option<AnyElement> {

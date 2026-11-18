@@ -49,7 +49,7 @@ fn open_wikilink(prefix: &str) -> bool {
 
 /// True when the lines before byte `upto` leave a block open: the frontmatter, a fenced code
 /// block or a `$$` block. `upto` is the start of a line.
-fn in_block(text: &str, upto: usize) -> bool {
+pub(crate) fn in_block(text: &str, upto: usize) -> bool {
     let body = text.get(..upto).unwrap_or("");
     let mut frontmatter = false;
     let mut fence: Option<char> = None;

@@ -17,7 +17,7 @@ pub type Store = Arc<Mutex<History>>;
 /// Why the store could not be opened.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpenError {
-    /// Another process (a second window, the MCP server) holds the history directory.
+    /// Another process (such as a second window) holds the history directory.
     Locked,
     Other(String),
 }

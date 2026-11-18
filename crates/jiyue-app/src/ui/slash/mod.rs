@@ -11,6 +11,7 @@
 //!
 //! The UI part is `ui/slash_ui.rs`.
 
+pub mod complete;
 pub mod picker;
 pub mod rank;
 pub mod snippet;

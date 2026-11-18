@@ -139,8 +139,7 @@ The `prepare` job fails when the tag does not equal `v` + that version. Without 
 - Windows ARM64 (only when the ARM64 entries are on, see "ARM64 runners"): `Jiyue-<version>-arm64.msi`
   (per user, zh-CN, `Arm64` platform). The job runs
   `installer/build.ps1 -Arch arm64 -NoZip` on `windows-11-arm`, which builds `aarch64-pc-windows-msvc` with `--target`.
-- macOS arm64 (`macos-latest`): `Jiyue_<version>_aarch64.dmg`, a `.dmg` with `Jiyue.app` (`jiyue` and
-  `jiyue-mcp` inside). macOS x64 (`macos-15-intel`): `Jiyue_<version>_x64.dmg`, the same content for Intel Macs.
+- macOS arm64 (`macos-latest`): `Jiyue_<version>_aarch64.dmg`, a `.dmg` with `Jiyue.app`. macOS x64 (`macos-15-intel`): `Jiyue_<version>_x64.dmg`, the same content for Intel Macs.
   cargo-packager builds the dmg name from the product name (`Jiyue`), the version and the host architecture
   (`x86_64` is written as `x64`, `aarch64` stays `aarch64`); this was read in the cargo-packager 0.11.8
   source (`src/package/dmg/mod.rs`). The real names are checked on the first run.
@@ -246,7 +245,7 @@ Windows (PowerShell), from the repository root:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-cargo build --release -p jiyue -p jiyue-mcp --locked
+cargo build --release -p jiyue --locked
 installer\build.ps1 -SkipBuild                       # MSI and zip from the release binaries
 installer\build.ps1 -Arch arm64                      # ARM64 MSI and zip (needs the MSVC ARM64 tools, see below)
 ```

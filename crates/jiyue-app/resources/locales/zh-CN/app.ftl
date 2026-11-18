@@ -172,6 +172,14 @@ panel-backlinks = 反向链接
 panel-backlinks-empty = 暂无反向链接
 panel-unlinked = 未链接的提及
 panel-unlinked-empty = 暂无未链接的提及
+panel-link-btn = 链接
+panel-linked-toast = 已在《{ $note }》中转为双链
+panel-local-graph = 图谱
+panel-local-graph-empty = 暂无关联笔记
+panel-local-graph-no-note = 未打开笔记
+panel-local-graph-depth-1 = 1 跳
+panel-local-graph-depth-2 = 2 跳
+panel-local-graph-open-full = 全局图谱
 
 # 页面内查找与替换 (Find & Replace)
 find-placeholder = 查找

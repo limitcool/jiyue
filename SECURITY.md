@@ -26,7 +26,7 @@ maintainer a reasonable period to prepare a fix before you publish details.
 
 ## Scope
 
-In scope: the app and the MCP server (`jiyue`, `jiyue-mcp`), the sync and AI code paths, credential
+In scope: the desktop and mobile apps (`jiyue`), the sync and AI code paths, credential
 storage, the installer and the release workflows.
 
 Things the project already does by design, which are not vulnerabilities on their own: notes are plain

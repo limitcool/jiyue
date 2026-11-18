@@ -152,6 +152,48 @@ pub const SPECS: &[Spec] = &[
     },
     // 编辑
     Spec {
+        id: "edit.bold",
+        label: "加粗",
+        category: Category::Edit,
+        when: When::Editor,
+        defaults: &["ctrl-shift-b"],
+    },
+    Spec {
+        id: "edit.italic",
+        label: "斜体",
+        category: Category::Edit,
+        when: When::Editor,
+        defaults: &["ctrl-i"],
+    },
+    Spec {
+        id: "edit.strikethrough",
+        label: "删除线",
+        category: Category::Edit,
+        when: When::Editor,
+        defaults: &["ctrl-shift-x"],
+    },
+    Spec {
+        id: "edit.highlight",
+        label: "高亮",
+        category: Category::Edit,
+        when: When::Editor,
+        defaults: &["ctrl-shift-h"],
+    },
+    Spec {
+        id: "edit.inline_code",
+        label: "行内代码",
+        category: Category::Edit,
+        when: When::Editor,
+        defaults: &["ctrl-e"],
+    },
+    Spec {
+        id: "edit.wikilink",
+        label: "转为双链",
+        category: Category::Edit,
+        when: When::Editor,
+        defaults: &["ctrl-shift-k"],
+    },
+    Spec {
         id: "edit.footnote",
         label: "插入脚注",
         category: Category::Edit,
@@ -1013,14 +1055,59 @@ pub fn rebind(cx: &mut App) {
     crate::ui::widgets::bind_keys(cx);
     let km = current();
     let mut bindings = Vec::new();
-    for chord in km.chords("edit.footnote") {
+    push_editor_bindings(
+        &km,
+        "edit.footnote",
+        || text_input::InsertFootnote,
+        &mut bindings,
+    );
+    push_editor_bindings(&km, "edit.bold", || text_input::ToggleBold, &mut bindings);
+    push_editor_bindings(
+        &km,
+        "edit.italic",
+        || text_input::ToggleItalic,
+        &mut bindings,
+    );
+    push_editor_bindings(
+        &km,
+        "edit.strikethrough",
+        || text_input::ToggleStrikethrough,
+        &mut bindings,
+    );
+    push_editor_bindings(
+        &km,
+        "edit.highlight",
+        || text_input::ToggleHighlight,
+        &mut bindings,
+    );
+    push_editor_bindings(
+        &km,
+        "edit.inline_code",
+        || text_input::ToggleInlineCode,
+        &mut bindings,
+    );
+    push_editor_bindings(
+        &km,
+        "edit.wikilink",
+        || text_input::ToggleWikilink,
+        &mut bindings,
+    );
+    cx.bind_keys(bindings);
+}
+
+fn push_editor_bindings<A: gpui::Action>(
+    km: &Keymap,
+    id: &str,
+    make: impl Fn() -> A,
+    bindings: &mut Vec<KeyBinding>,
+) {
+    for chord in km.chords(id) {
         bindings.push(KeyBinding::new(
             &chord.to_gpui(),
-            text_input::InsertFootnote,
+            make(),
             Some(text_input::CONTEXT),
         ));
     }
-    cx.bind_keys(bindings);
 }
 
 // ---------------------------------------------------------------------------
@@ -1043,6 +1130,12 @@ pub fn action_for(id: &str) -> Option<AppCommand> {
         "edit.template_note" => ext(ExtCommand::Template(template_ui::Command::NewNote)),
         "edit.insert_embed" => ext(ExtCommand::Attach(attach_ui::Command::InsertEmbed)),
         "edit.paste_image" => ext(ExtCommand::Attach(attach_ui::Command::PasteImage)),
+        "edit.bold" => ext(ExtCommand::Format(text_input::InlineFormat::Bold)),
+        "edit.italic" => ext(ExtCommand::Format(text_input::InlineFormat::Italic)),
+        "edit.strikethrough" => ext(ExtCommand::Format(text_input::InlineFormat::Strikethrough)),
+        "edit.highlight" => ext(ExtCommand::Format(text_input::InlineFormat::Highlight)),
+        "edit.inline_code" => ext(ExtCommand::Format(text_input::InlineFormat::InlineCode)),
+        "edit.wikilink" => ext(ExtCommand::Format(text_input::InlineFormat::Wikilink)),
         "edit.footnote" => ext(ExtCommand::InsertFootnote),
         "view.quick_switch" => Some(AppCommand::OpenQuickSwitcher),
         "view.command_palette" => Some(AppCommand::OpenCommandPalette),
@@ -1078,6 +1171,12 @@ pub fn command_key(command: &AppCommand) -> Option<&'static str> {
         ExtCommand::Template(template_ui::Command::NewNote) => Some("edit.template_note"),
         ExtCommand::Attach(attach_ui::Command::InsertEmbed) => Some("edit.insert_embed"),
         ExtCommand::Attach(attach_ui::Command::PasteImage) => Some("edit.paste_image"),
+        ExtCommand::Format(text_input::InlineFormat::Bold) => Some("edit.bold"),
+        ExtCommand::Format(text_input::InlineFormat::Italic) => Some("edit.italic"),
+        ExtCommand::Format(text_input::InlineFormat::Strikethrough) => Some("edit.strikethrough"),
+        ExtCommand::Format(text_input::InlineFormat::Highlight) => Some("edit.highlight"),
+        ExtCommand::Format(text_input::InlineFormat::InlineCode) => Some("edit.inline_code"),
+        ExtCommand::Format(text_input::InlineFormat::Wikilink) => Some("edit.wikilink"),
         ExtCommand::InsertFootnote => Some("edit.footnote"),
         ExtCommand::History(history_ui::Command::Open) => Some("view.history"),
         ExtCommand::Search(search_ui::Command::OpenGlobalSearch) => Some("search.global"),

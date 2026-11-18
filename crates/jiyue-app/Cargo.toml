@@ -79,12 +79,11 @@ publisher = "limitcool"
 copyright = "Copyright (c) limitcool. Licensed under MIT OR Apache-2.0."
 category = "Productivity"
 license-file = "../../LICENSE-MIT"
-# Built into target/release by `cargo build --release -p jiyue -p jiyue-mcp`. Override with --binaries-dir.
+# Built into target/release by `cargo build --release -p jiyue`. Override with --binaries-dir.
 binaries-dir = "../../target/release"
 out-dir = "../../dist"
 binaries = [
   { path = "jiyue", main = true },
-  { path = "jiyue-mcp" },
 ]
 icons = [
   "../../design/logo/final/jiyue-icon-16.png",

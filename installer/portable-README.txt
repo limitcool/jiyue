@@ -5,7 +5,6 @@
 
 文件
   jiyue.exe        应用程序
-  jiyue-mcp.exe    MCP 服务（让 AI 助手读写笔记库，见项目文档 docs/mcp.md）
 
 运行
   双击 jiyue.exe，或在终端中运行：

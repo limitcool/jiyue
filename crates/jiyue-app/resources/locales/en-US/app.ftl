@@ -178,6 +178,14 @@ panel-backlinks = Backlinks
 panel-backlinks-empty = No backlinks found
 panel-unlinked = Unlinked Mentions
 panel-unlinked-empty = No unlinked mentions found
+panel-link-btn = Link
+panel-linked-toast = Linked mention in "{ $note }"
+panel-local-graph = Graph
+panel-local-graph-empty = No linked notes
+panel-local-graph-no-note = No active note
+panel-local-graph-depth-1 = 1 hop
+panel-local-graph-depth-2 = 2 hops
+panel-local-graph-open-full = Full Graph
 
 # Find & Replace
 find-placeholder = Find

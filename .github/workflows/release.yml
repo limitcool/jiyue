@@ -243,7 +243,7 @@ jobs:
           fi
 
       - name: Release build
-        run: cargo build --release -p jiyue -p jiyue-mcp --locked
+        run: cargo build --release -p jiyue --locked
 
       - name: Third-party notices
         run: python3 scripts/gen-notices.py
@@ -319,7 +319,7 @@ jobs:
           fi
 
       - name: Release build
-        run: cargo build --release -p jiyue -p jiyue-mcp --locked
+        run: cargo build --release -p jiyue --locked
 
       - name: Third-party notices
         run: python3 scripts/gen-notices.py

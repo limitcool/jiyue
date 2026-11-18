@@ -8,7 +8,6 @@
   Built by installer\build.ps1, which passes the variables below with -d:
     ProductVersion  version from crates\jiyue-app\Cargo.toml
     JiyueExeSource  path of the release jiyue.exe
-    JiyueMcpExeSource  path of the release jiyue-mcp.exe
     IconFile        path of crates\jiyue-app\assets\logo\jiyue.ico
     LicenseMitSource / LicenseApacheSource / NoticesSource  LICENSE-MIT, LICENSE-APACHE and
                     THIRD_PARTY_NOTICES.md at the repository root
@@ -62,18 +61,10 @@
              Level="1"
              AllowAbsent="no">
       <ComponentRef Id="CmpJiyueExe" />
-      <ComponentRef Id="CmpMcpExe" />
       <ComponentRef Id="CmpStartMenu" />
       <ComponentRef Id="CmpLicenseMit" />
       <ComponentRef Id="CmpLicenseApache" />
       <ComponentRef Id="CmpNotices" />
-    </Feature>
-
-    <Feature Id="McpPath"
-             Title="!(loc.FeatureMcpPathTitle)"
-             Description="!(loc.FeatureMcpPathDesc)"
-             Level="2">
-      <ComponentRef Id="CmpPath" />
     </Feature>
 
     <Feature Id="DesktopShortcut"
@@ -121,13 +112,6 @@
                      Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
-    <Component Id="CmpMcpExe" Guid="{585EB96A-8366-4428-AEB6-20FEA646EE76}" Directory="INSTALLFOLDER" Bitness="always64">
-      <File Id="JiyueMcpExe" Name="jiyue-mcp.exe" Source="$(var.JiyueMcpExeSource)" KeyPath="no" />
-      <RemoveFile Id="RemoveJiyueMcpExe" Directory="INSTALLFOLDER" Name="jiyue-mcp.exe" On="uninstall" />
-      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="McpProgram"
-                     Type="integer" Value="1" KeyPath="yes" />
-    </Component>
-
     <!-- Licence and third-party notices, installed next to the program (feature Core). Files are
          key paths of their own components, so Windows Installer removes them on uninstall. -->
     <Component Id="CmpLicenseMit" Guid="{26A6FEE9-C728-43A4-B22C-82FF631BE625}" Directory="INSTALLFOLDER" Bitness="always64">
@@ -170,19 +154,6 @@
                 WorkingDirectory="INSTALLFOLDER"
                 Icon="JiyueIcon.ico" />
       <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="DesktopShortcut"
-                     Type="integer" Value="1" KeyPath="yes" />
-    </Component>
-
-    <!-- Optional: the install folder (with jiyue-mcp.exe) is added to the user PATH (feature McpPath). -->
-    <Component Id="CmpPath" Directory="INSTALLFOLDER" Bitness="always64">
-      <Environment Id="EnvPathJiyue"
-                   Name="PATH"
-                   Value="[INSTALLFOLDER]"
-                   Action="set"
-                   Part="last"
-                   Permanent="no"
-                   System="no" />
-      <RegistryValue Root="HKCU" Key="Software\Jiyue\Install" Name="PathEntry"
                      Type="integer" Value="1" KeyPath="yes" />
     </Component>
 

@@ -98,9 +98,3 @@ No. The installer removes only program files, shortcuts, registry entries and th
 
 **"Open with Jiyue" does not open my note.**
 Jiyue accepts a file path on the command line: `jiyue.exe "C:\path\to\note.md"`. The vault is the nearest parent folder that has a `.jiyue` or `.obsidian` folder, otherwise the file's own folder. A second launch opens a second window. Only `.md` files are indexed by a vault, so `.txt` and `.markdown` files are not opened.
-
-**The `jiyue-mcp` command is not found in a terminal.**
-Either install the optional "把 jiyue-mcp 加入 PATH" feature (see [installer/README.md](../installer/README.md)), or use the full path to `jiyue-mcp.exe`. Open a new terminal after installing, so it reads the updated PATH.
-
-**Where is the MCP server documented?**
-[mcp.md](mcp.md).

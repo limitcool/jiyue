@@ -1,6 +1,6 @@
 # Rules for every agent working on Jiyue (read this first, together with PLAN.md)
 
-Project: Jiyue, a local-first Markdown notes app in Rust. Workspace D:\dev\rustdian, crates in crates\ (jiyue-core, jiyue-md, jiyue-search, jiyue-sync, jiyue-ai, jiyue-export, jiyue-mcp, jiyue-math, jiyue-query, jiyue-history, jiyue-diagram, GUI crate jiyue-app = package `jiyue`, gpui 0.2.2, Windows 11). Several agents work IN PARALLEL in the same crate during wave 2: only edit the files you own (listed in your brief).
+Project: Jiyue, a local-first Markdown notes app in Rust. Workspace D:\dev\rustdian, crates in crates\ (jiyue-core, jiyue-md, jiyue-search, jiyue-sync, jiyue-ai, jiyue-export, jiyue-math, jiyue-history, jiyue-diagram, GUI crate jiyue-app = package `jiyue`, gpui 0.2.2, Windows 11). Several agents work IN PARALLEL in the same crate during wave 2: only edit the files you own (listed in your brief).
 
 ## Build and test hygiene
 - Network works: never use `--offline`. Build/check with `cargo check -p jiyue` (fast) and `cargo build -p jiyue`; test with `cargo test -p jiyue`.

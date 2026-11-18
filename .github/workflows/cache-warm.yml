@@ -158,7 +158,7 @@ jobs:
             cargo install --locked --version "$CARGO_PACKAGER_VERSION" cargo-packager
           fi
       - name: Warm release build cache
-        run: cargo build --release -p jiyue -p jiyue-mcp --locked
+        run: cargo build --release -p jiyue --locked
 
   linux:
     name: Warm Linux cache (${{ matrix.arch }})
@@ -194,4 +194,4 @@ jobs:
             cargo install --locked --version "$CARGO_PACKAGER_VERSION" cargo-packager
           fi
       - name: Warm release build cache
-        run: cargo build --release -p jiyue -p jiyue-mcp --locked
+        run: cargo build --release -p jiyue --locked

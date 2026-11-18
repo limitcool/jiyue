@@ -1,13 +1,12 @@
 # Architecture
 
-Jiyue is a Cargo workspace at the repository root (`Cargo.toml`, crates in `crates/`). The workspace has one GUI binary, one MCP server binary, and library crates. The notes themselves are plain Markdown files; everything else is derived data that can be rebuilt.
+Jiyue is a Cargo workspace at the repository root (`Cargo.toml`, crates in `crates/`). The workspace has one GUI binary and library crates. The notes themselves are plain Markdown files; everything else is derived data that can be rebuilt.
 
 ## Crate map
 
 | Crate | Kind | Role | Depends on |
 | --- | --- | --- | --- |
 | `jiyue-app` (package `jiyue`, binary `jiyue.exe`) | GPUI application | Window, editor, file tree, panels, dialogs, background jobs. Build script embeds the icon and version info. | core, search, sync, ai, md, history, export, math, diagram |
-| `jiyue-mcp` (binary `jiyue-mcp.exe`) | stdio MCP server | Tools and `jiyue://note/` resources over one vault. | core, md, search |
 | `jiyue-core` | library, no GUI | Vault and note library, link graph, file operations (`fsops`), file watching (`watch`), recovery journal (`recovery`), daily notes, text buffer and editing helpers. | none |
 | `jiyue-md` | library | Markdown pieces used by the vault: embeds, block references, frontmatter, attachment paths. | none |
 | `jiyue-search` | library | Full-text index (tantivy) with Chinese bigram tokenisation and the query syntax. | none |
@@ -17,7 +16,6 @@ Jiyue is a Cargo workspace at the repository root (`Cargo.toml`, crates in `crat
 | `jiyue-export` | library | Note templates and HTML export of a note or a whole vault. | core, md |
 | `jiyue-math` | library | LaTeX formulas to SVG (no browser). | none |
 | `jiyue-diagram` | library | Mermaid to SVG, then rasterised for the preview. | none |
-| `jiyue-query` | library | A "database over notes" experiment. It is part of the workspace but not used by `jiyue-app` or `jiyue-mcp`. | md |
 
 ## Data flow
 
@@ -32,14 +30,11 @@ Jiyue is a Cargo workspace at the repository root (`Cargo.toml`, crates in `crat
     |           +-- jiyue-sync    -> .jiyue/sync/, S3 / WebDAV (only when configured) |
     |           +-- jiyue-ai      -> .jiyue/index, HTTPS to the provider (only when enabled)
     |           +-- jiyue-export  -> HTML files you choose                            |
-    |                                                                                 |
-  AI agent -> jiyue-mcp (stdio) -- core, md, search --> notes/*.md                  |
-              +---------------------------------------------------------------------+
+              +-----------------------------------------------------------------------+
 ```
 
 Key points:
 
-- The app and the MCP server work on the same files. They do not share a process or a database. The MCP server keeps its own in-memory catalog (notes, search index, link graph) and refreshes it before each tool call by comparing file sizes and modification times, so edits made by the app or by other programs are picked up.
 - The GUI never blocks on network or disk-wide scans. Sync, AI calls and index builds run on background threads (`jobs::spawn_blocking` in the app) and report back through a channel polled by the UI.
 - Files written by the app are registered with the watch module, so the app does not report its own writes as external changes.
 
@@ -55,5 +50,5 @@ Everything the app writes is inside the vault's `.jiyue` folder, except the Merm
 
 ## Build outputs
 
-- `cargo build --release -p jiyue` produces `jiyue.exe`; `cargo build --release -p jiyue-mcp` produces `jiyue-mcp.exe`.
+- `cargo build --release -p jiyue` produces `jiyue.exe`.
 - The installer is built by `installer/build.ps1` (see `installer/README.md`).

@@ -174,6 +174,7 @@ pub struct RustdianApp {
     pub right_sidebar_open: bool,
     pub sidebar_tab: ui::sidebar::SidebarTab,
     pub right_panel_tab: ui::right_panel::RightPanelTab,
+    pub local_graph: ui::right_panel::LocalGraphState,
     pub show_palette: bool,
     pub is_command_mode: bool, // true: command palette (actions), false: quick switcher (notes)
     pub palette_query: String,
@@ -331,6 +332,7 @@ impl RustdianApp {
             right_sidebar_open: true,
             sidebar_tab: Default::default(),
             right_panel_tab: Default::default(),
+            local_graph: Default::default(),
             show_palette: false,
             is_command_mode: false,
             palette_query: String::new(),

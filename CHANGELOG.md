@@ -3,6 +3,44 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.4.0] - 2026-11-18
+
+### 中文
+
+**单二进制架构收敛与桌面端核心写作、双链、局部图谱全面打磨**
+- **架构精简与单二进制收敛**：
+  - 彻底移除 `jiyue-mcp` 与 `jiyue-query` 自定义查询方言，回归纯本地 `.md` 目录作为唯一事实来源，AI Agent 可直接原生读写笔记目录，零方言心智负担；安装包、第三方许可声明与全平台 CI 流水线同步收敛为单二进制架构。
+- **浮动格式条、内联自动补全与流式表格编辑**：
+  - 新增**选中文本浮动格式条（Bubble Toolbar）**与双向智能格式切换：支持加粗 `**`、斜体 `*`、删除线 `~~`、高亮 `==`、行内代码 `` ` ``、转为双链 `[[...]]` 及 AI 选区操作入口，配齐 `Ctrl+Shift+B`、`Ctrl+I`、`Ctrl+Shift+X`、`Ctrl+Shift+H`、`Ctrl+E`、`Ctrl+Shift+K` 编辑器快捷键与命令面板项。
+  - 新增**原生内联自动补全**：输入 `[[`、`![[`、`[[笔记#` / `[[#`、`#标签` 时在光标处弹出不抢焦点的实时候选浮窗，支持标题、相对路径、`aliases` 别名消歧与 H1–H6 标题锚点，并完整兼容自动配对括号与中文输入法。
+  - 升级 **GFM 表格源码流式编辑辅助**：在表格内按 `Tab` / `Shift+Tab` 智能跨格跳转并自动跳过分隔行，表尾末格按 `Tab` 或数据行按 `Enter` 自动在下方插入同列数空行，在空数据行再次按 `Enter` 自动清理并退出表格。
+  - 扩展**代码块多语言语法高亮**：覆盖 Rust、Python、JS/TS、Go、C/C++/C#/Java/Kotlin/Swift/Dart、Shell/PowerShell、TOML/YAML/JSON/INI 与 SQL。
+- **双链悬停预览、右侧栏局部图谱与反链转双链**：
+  - 新增主编辑区**双链悬停预览卡片（Hover Page Preview）**：悬停 `[[双链]]` 即时展示跳过 YAML Frontmatter 的目标摘要，支持 `#标题` 与 `#^块` 精准切片预览。
+  - 右侧检查器新增**局部图谱（Local Graph）**页签：支持查看当前活动笔记 `1 跳` / `2 跳` 连通子图，基于力导向居中布局、悬停高亮、点击打开笔记（按住 `Ctrl`/`Cmd` 或中键后台新标签打开）与一键进入全局图谱。
+  - 升级右侧栏**反向链接精准跳行**，并为「未链接的提及」新增**一键转为 `[[双链]]`**（自动跳过 Frontmatter、代码块、行内代码与已有链接，支持版本快照与撤销）。
+- **桌面端热路径与增量重载性能优化**：
+  - 新增 `ZedBuffer::replace_range_raw`、笔记 `aliases` 缓存、`disk_stamp` 与 `Vault::reload_from_disk` 增量索引刷新，拆分 Vault 修订号消除打字与滚动时的冗余重算，并修正撤销/同步/AI 底部提示条的对齐坐标。
+
+---
+
+### English
+
+**Single-Binary Convergence & Desktop Writing, Linking, and Local Graph Overhaul**
+- **Single-binary architecture convergence**:
+  - Removed `jiyue-mcp` and `jiyue-query` custom query DSL, doubling down on plain local Markdown directories as the single source of truth without external protocol layers or query syntax overhead. Converged installers, third-party notices, and cross-platform CI workflows into a clean single-binary setup.
+- **Floating format toolbar, inline completions, and fluid table editing**:
+  - Added a **floating selection format bubble toolbar** and smart bidirectional inline toggle (`**bold**`, `*italic*`, `~~strike~~`, `==highlight==`, `` `code` ``, `[[wikilink]]`, plus quick AI selection actions) with `Ctrl+Shift+B`, `Ctrl+I`, `Ctrl+Shift+X`, `Ctrl+Shift+H`, `Ctrl+E`, and `Ctrl+Shift+K` bindings and command palette commands.
+  - Added **native inline autocompletion** at the caret for `[[`, `![[`, `[[Note#` / `[[#`, and `#tag` with note titles, path disambiguation, frontmatter `aliases`, and H1–H6 heading anchors while remaining compatible with auto-paired brackets and IME composition.
+  - Added **fluid GFM table source editing**: `Tab` / `Shift+Tab` navigates across cells while skipping delimiter rows and appending new rows at the tail; `Enter` continues with a matching empty row and pressing `Enter` on an empty row exits the table cleanly.
+  - Expanded **multi-language fenced code highlighting** across Rust, Python, JS/TS, Go, C/C++/C#/Java/Kotlin/Swift/Dart, Shell/PowerShell, TOML/YAML/JSON/INI, and SQL.
+- **Hover page preview, right-panel Local Graph & one-click unlinked mentions**:
+  - Added **hover page preview cards** on `[[wikilinks]]` in the main editor, skipping YAML frontmatter and supporting `#heading` and `#^block` targeted excerpts.
+  - Added a **Local Graph** tab to the right inspector panel displaying `1-hop` / `2-hop` neighborhoods centered on the active note with force-directed layout, hover emphasis, click-to-open (or background tab via `Ctrl`/`Cmd`/middle click), and full graph navigation.
+  - Added **precise jump-to-line** for backlinks and **one-click linking** for unlinked mentions (safely skipping frontmatter, code blocks, inline code, URLs, and existing links with undo/history snapshots).
+- **Desktop hot-path & incremental reload optimizations**:
+  - Added incremental `ZedBuffer::replace_range_raw`, `Note` alias/stamp caching, `Vault::reload_from_disk` incremental refresh, split vault revision tracking to eliminate typing/scroll recomputation stalls, and aligned bottom overlay banner offsets with sidebar width.
+
 ## [0.3.8] - 2026-11-16
 
 ### 中文

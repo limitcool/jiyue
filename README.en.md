@@ -80,7 +80,6 @@ We chose it because we want a notes app that feels like that sky: calm, clear an
 
 - **Sync and mobile QR pairing.** Sync to an S3-compatible bucket (with optional remote version history) or to a WebDAV folder, with three-way merge and conflict copies. In Settings, open "手机扫码同步" (QR Sync) to generate a pairing QR code so the Android client imports S3, AI and Memos settings in one scan. See [docs/sync.md](docs/sync.md).
 - **AI assistant, bring your own key.** OpenAI-compatible and Anthropic providers, with streaming Markdown replies in the side panel and line-diff previews for selection actions (Ctrl+J). Keys are stored in plain text in a local `credentials.toml` (owner-only), or read from an environment variable or a command. Nothing is sent until you turn AI on and ask for something. See [docs/ai.md](docs/ai.md).
-- **MCP server.** `jiyue-mcp` lets an MCP client such as Claude Desktop or Claude Code search, read and (unless started read-only) edit the notes of a vault. See [docs/mcp.md](docs/mcp.md).
 
 ### Look and feel
 
@@ -148,10 +147,9 @@ Desktop builds target Windows, macOS and Linux using the Rust toolchain pinned i
 
 ```powershell
 cargo run --release -p jiyue -- --vault "D:\Notes"
-cargo build --release -p jiyue-mcp
 ```
 
-On Windows, the binaries are `target\release\jiyue.exe` and `target\release\jiyue-mcp.exe`. On Linux, the system packages used by CI are listed in [docs/ci.md](docs/ci.md#linux-system-packages). For building, testing and signing the Android client (Flutter + `jiyue-ffi`), see [mobile/README.md](mobile/README.md).
+On Windows, the binary is `target\release\jiyue.exe`. On Linux, the system packages used by CI are listed in [docs/ci.md](docs/ci.md#linux-system-packages). For building, testing and signing the Android client (Flutter + `jiyue-ffi`), see [mobile/README.md](mobile/README.md).
 
 ## Keyboard shortcuts
 
@@ -193,19 +191,9 @@ WebDAV is implemented, but its behaviour has not yet been verified against real 
 
 The AI assistant is off by default. You bring the provider, the base URL, the model names and the key. The side panel chats about the current note, the selection or the whole vault; the selection menu (Ctrl+J) rewrites, shortens, expands, translates, fixes or summarises the selected text. Results are shown as a diff, and nothing is written into a note until you accept it. Details: [docs/ai.md](docs/ai.md).
 
-## MCP server
-
-`jiyue-mcp` speaks the Model Context Protocol over stdio and works on one vault:
-
-```powershell
-jiyue-mcp --vault "D:\Notes" --read-only
-```
-
-It offers tools to list, read and search notes, to follow backlinks and tags, to read properties and the daily note, and (unless `--read-only` is given) to create and append notes, update a note with a hash check, and set properties. Deleting needs `--allow-delete`. Client configuration examples: [docs/mcp.md](docs/mcp.md).
-
 ## Project status
 
-Jiyue is currently in **beta** across Windows, macOS, Linux and Android. The editor, live preview, incremental vault indexing, search, wikilinks, knowledge graph, local version history, HTML export, S3/WebDAV sync, Memos, the MCP server and desktop-to-mobile QR pairing are implemented, while sync, AI and mobile workflows continue to be refined. See the [roadmap](ROADMAP.md) for what is planned.
+Jiyue is currently in **beta** across Windows, macOS, Linux and Android. The editor, live preview, incremental vault indexing, search, wikilinks, knowledge graph, local version history, HTML export, S3/WebDAV sync, Memos and desktop-to-mobile QR pairing are implemented, while sync, AI and mobile workflows continue to be refined. See the [roadmap](ROADMAP.md) for what is planned.
 
 ## Contributing
 

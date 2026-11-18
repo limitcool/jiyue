@@ -220,7 +220,7 @@ Use `env:` or `cmd:` (for example with a password manager's CLI) to keep the sec
 - **Never in a vault.** The app refuses to use a user folder that sits inside an open vault.
   笔记库内的文件夹不能作为用户文件夹。
 - **Never synced or exported.** Secrets are not written to the vault, the sync data, the recovery
-  journal, the crash log, exports, MCP output or screenshots.
+  journal, the crash log, exports or screenshots.
 - **Keep vaults out of git, or ignore `.jiyue/`.** If you keep a vault in a repository, add this to
   its `.gitignore` so the vault-level settings (including sync endpoints) are not committed:
   如果笔记库放在 git 中，请在 `.gitignore` 中加入：

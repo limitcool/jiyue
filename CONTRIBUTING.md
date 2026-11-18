@@ -26,7 +26,7 @@ Run these from the repository root. They are the same checks CI runs:
 ```sh
 cargo fmt --all -- --check
 cargo test --workspace --locked
-cargo build --release -p jiyue -p jiyue-mcp --locked
+cargo build --release -p jiyue --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings   # a blocking gate in CI, see docs/ci.md
 ```
 
@@ -38,7 +38,7 @@ dependency, commit the updated `Cargo.lock` in the same change and say why the d
 | Path | Contents |
 | --- | --- |
 | `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml` | The Cargo workspace (members are in `crates/`). |
-| `crates/` | `jiyue-app` (the desktop app, package `jiyue`), `jiyue-mcp` (MCP server), and library crates: core, md, search, sync, ai, export, history, math, diagram, query. |
+| `crates/` | `jiyue-app` (the desktop app, package `jiyue`) and library crates: core, md, search, sync, ai, export, history, math, diagram. |
 | `design/` | The final logo and icon set (`design/logo/final/`). |
 | `docs/` | User documentation. `docs/dev/` holds contributor notes (the roadmap and the rules for parallel work). |
 | `installer/` | The Windows installer (WiX). See [installer/README.md](installer/README.md). |
