@@ -1,0 +1,4 @@
+What's new in v0.4.0:
+- Synchronized v0.4.0 release focused on the lean local-first Markdown engine.
+- Full compatibility with desktop wikilinks, frontmatter aliases, tags, and S3/WebDAV three-way merge sync.
+- Built completely from source (`foss` flavor with native Rust `libjiyue_ffi.so`, no proprietary blobs or self-updater).

@@ -1,7 +1,7 @@
 Categories:
   - Writing
   - Productivity
-License: Apache-2.0 or MIT
+License: Apache-2.0 OR MIT
 AuthorName: limitcool
 SourceCode: https://github.com/limitcool/jiyue
 IssueTracker: https://github.com/limitcool/jiyue/issues
@@ -51,7 +51,7 @@ Builds:
       - (cd .. && python3 scripts/build-android-ffi.py --locked)
       - flutter build apk --release --flavor foss --dart-define=FOSS_BUILD=true
 
-AutoUpdateMode: Tags v*
+AutoUpdateMode: Version v%v
 UpdateCheckMode: Tags ^v([0-9]+\.[0-9]+\.[0-9]+)$
 CurrentVersion: 0.4.0
 CurrentVersionCode: 10

@@ -1,0 +1,29 @@
+{
+    "configs": [
+        {
+            "id": "cool.jiyue.jiyue_mobile",
+            "url": "https://github.com/limitcool/jiyue",
+            "author": "limitcool",
+            "name": "Jiyue Notes",
+            "preferredApkIndex": 0,
+            "additionalSettings": "{\"includePrereleases\":false,\"fallbackToOlderReleases\":true,\"filterReleaseTitlesByRegEx\":\"\",\"filterReleaseNotesByRegEx\":\"\",\"verifyLatestTag\":false,\"sortMethodChoice\":\"date\",\"useLatestAssetDateAsReleaseDate\":false,\"releaseTitleAsVersion\":false,\"trackOnly\":false,\"versionExtractionRegEx\":\"^v(.+)$\",\"matchGroupToUse\":\"$1\",\"versionDetection\":true,\"releaseDateAsVersion\":false,\"useVersionCodeAsOSVersion\":false,\"apkFilterRegEx\":\"Jiyue-.*-android\\\\.apk$\",\"invertAPKFilter\":false,\"autoApkFilterByArch\":false,\"minimumUpdateAgeDays\":\"\",\"appName\":\"Jiyue Notes\",\"appAuthor\":\"limitcool\",\"shizukuPretendToBeGooglePlay\":false,\"allowInsecure\":false,\"allowedSigningCertHashes\":\"\",\"exemptFromBackgroundUpdates\":false,\"skipUpdateNotifications\":false,\"about\":\"\",\"refreshBeforeDownload\":false,\"includeZips\":false,\"zippedApkFilterRegEx\":\"\",\"includeTarballs\":false,\"tarballedApkFilterRegEx\":\"\",\"dontSortReleasesList\":false}"
+        },
+        {
+            "id": "cool.jiyue.jiyue_mobile",
+            "url": "https://github.com/limitcool/jiyue",
+            "author": "limitcool",
+            "name": "Jiyue Notes (FOSS)",
+            "preferredApkIndex": 0,
+            "additionalSettings": "{\"includePrereleases\":false,\"fallbackToOlderReleases\":true,\"filterReleaseTitlesByRegEx\":\"\",\"filterReleaseNotesByRegEx\":\"\",\"verifyLatestTag\":false,\"sortMethodChoice\":\"date\",\"useLatestAssetDateAsReleaseDate\":false,\"releaseTitleAsVersion\":false,\"trackOnly\":false,\"versionExtractionRegEx\":\"^v(.+)$\",\"matchGroupToUse\":\"$1\",\"versionDetection\":true,\"releaseDateAsVersion\":false,\"useVersionCodeAsOSVersion\":false,\"apkFilterRegEx\":\"Jiyue-.*-android-foss\\\\.apk$\",\"invertAPKFilter\":false,\"autoApkFilterByArch\":false,\"minimumUpdateAgeDays\":\"\",\"appName\":\"Jiyue Notes\",\"appAuthor\":\"limitcool\",\"shizukuPretendToBeGooglePlay\":false,\"allowInsecure\":false,\"allowedSigningCertHashes\":\"\",\"exemptFromBackgroundUpdates\":false,\"skipUpdateNotifications\":false,\"about\":\"\",\"refreshBeforeDownload\":false,\"includeZips\":false,\"zippedApkFilterRegEx\":\"\",\"includeTarballs\":false,\"tarballedApkFilterRegEx\":\"\",\"dontSortReleasesList\":false}"
+        }
+    ],
+    "icon": "https://raw.githubusercontent.com/limitcool/jiyue/main/fastlane/metadata/android/en-US/images/icon.png",
+    "categories": [
+        "notes",
+        "synchronisation"
+    ],
+    "description": {
+        "en": "Local-first Markdown and wikilink note-taking app powered by a Rust core, with S3/WebDAV three-way merge sync and desktop QR config pairing.",
+        "zh": "基于 Rust 核心引擎的本地优先 Markdown 双链笔记应用，支持多笔记库管理、原生 S3/WebDAV 三向合并同步与桌面扫码快速导入配置。"
+    }
+}

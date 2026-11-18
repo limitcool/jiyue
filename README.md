@@ -123,10 +123,12 @@
 
 ## 安装
 
-- **Windows 10 和 11，x64 和 ARM64。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 MSI 安装包（`Jiyue-<version>-x64.msi` 或 `Jiyue-<version>-arm64.msi`），按用户安装，不需要管理员权限。也可以从源码构建（见下文）。安装包默认未购买代码签名证书，SmartScreen 可能会提示警告。
+- **Windows 10 和 11（x64 / ARM64）。** 支持通过 WinGet 安装（`winget install limitcool.Jiyue`，清单审核中），或从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 MSI 安装包（`Jiyue-<version>-x64.msi` 或 `Jiyue-<version>-arm64.msi`），按用户安装，不需要管理员权限。也可以从源码构建（见下文）。安装包默认未购买代码签名证书，SmartScreen 可能会提示警告。
 - **macOS（Apple 芯片和 Intel）。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 `.dmg`（`Jiyue_<version>_aarch64.dmg` 或 `Jiyue_<version>_x64.dmg`），把 `Jiyue.app` 拖进“应用程序”。若未启用公证签名，首次打开请在访达里右键选择“打开”。
-- **Linux，x86_64 和 ARM64。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 `.deb`，或 AppImage（`chmod +x` 后直接运行）。每种架构各有一份。构建和测试流程见 [docs/ci.md](docs/ci.md)。
-- **Android（ARM64 / ARMv7 / x86_64）。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载经过正式签名的通用安装包（`Jiyue-<version>-android.apk`），同签名发布版本可直接覆盖升级；设置中心内支持一键检查更新、展示下载进度并调起系统安装器。更多说明与源码构建见 [mobile/README.md](mobile/README.md)。
+- **Linux（x86_64 / ARM64）。** Arch Linux 用户可通过 AUR 包 `jiyue-bin` 安装（`yay -S jiyue-bin` 或 `paru -S jiyue-bin`，配方见 [packaging/aur](packaging/aur/README.md)）；其他发行版可从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载 `.deb` 或 AppImage（`chmod +x` 后直接运行）。构建和测试流程见 [docs/ci.md](docs/ci.md)。
+- **Android（ARM64 / ARMv7 / x86_64）。** 从 [Releases](https://github.com/limitcool/jiyue/releases/latest) 下载经过正式签名的通用安装包（`Jiyue-<version>-android.apk`）直接安装与内建自更新，也可下载面向 F-Droid / IzzyOnDroid 的纯净源码构建风味 `Jiyue-<version>-android-foss.apk`（见 [docs/fdroid/README.md](docs/fdroid/README.md)）。Android 用户亦可通过 [Obtainium](https://github.com/ImranR98/Obtainium) 一键订阅自动更新（[FOSS 风味直达订阅](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22cool.jiyue.jiyue_mobile%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Flimitcool%2Fjiyue%22%2C%22author%22%3A%22limitcool%22%2C%22name%22%3A%22Jiyue%20Notes%20%28FOSS%29%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22Jiyue-.%2A-android-foss%5C%5C%5C%5C.apk%24%5C%22%2C%5C%22autoApkFilterByArch%5C%22%3Afalse%7D%22%7D)）；更多说明与源码构建见 [mobile/README.md](mobile/README.md)。
+
+<p><a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22cool.jiyue.jiyue_mobile%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Flimitcool%2Fjiyue%22%2C%22author%22%3A%22limitcool%22%2C%22name%22%3A%22Jiyue%20Notes%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22Jiyue-.%2A-android%5C%5C%5C%5C.apk%24%5C%22%2C%5C%22autoApkFilterByArch%5C%22%3Afalse%7D%22%7D"><img src="docs/images/badge_obtainium.png" height="44" alt="Get it on Obtainium"></a></p>
 
 ## 快速开始
 
