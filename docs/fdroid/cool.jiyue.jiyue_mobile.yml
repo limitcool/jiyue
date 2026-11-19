@@ -1,57 +1,55 @@
 Categories:
+  - Note
   - Writing
-  - Productivity
-License: Apache-2.0 OR MIT
+License: MIT
 AuthorName: limitcool
 SourceCode: https://github.com/limitcool/jiyue
 IssueTracker: https://github.com/limitcool/jiyue/issues
 Changelog: https://github.com/limitcool/jiyue/releases
-Translation: https://github.com/limitcool/jiyue
 
-AutoName: Jiyue Notes
-Summary: Local-first Markdown & wikilink notes with S3/WebDAV sync
-Description: |-
-  Jiyue is a fast, local-first, open-source Markdown note-taking app powered
-  by a Rust core engine. Your notes stay as plain Markdown files inside
-  normal folders, compatible with Obsidian vaults.
-
-  Highlights:
-  * Multi-vault management: open local folders, create clean vaults, or import
-    synced vaults via desktop QR export.
-  * Native Rust sync over S3 (AWS, R2, MinIO, RustFS) and WebDAV with three-way merge.
-  * Wikilinks, backlinks, outline navigation, bookmarks, and word statistics.
-  * Pure open-source dependencies without Google Play Services or proprietary blobs.
+AutoName: 霁月
 
 RepoType: git
 Repo: https://github.com/limitcool/jiyue.git
 
 Builds:
-  # Update versionName, versionCode, and commit to match the target release tag
-  # defined in mobile/pubspec.yaml (e.g. version: 0.3.8+9 -> v0.3.8).
   - versionName: 0.4.0
     versionCode: 10
-    commit: v0.4.0
+    commit: 2aabdcb2063efd944ea56e0781dd1fcb4e7697f0
     subdir: mobile
-    output: build/app/outputs/flutter-apk/app-foss-release.apk
     sudo:
       - apt-get update
-      - apt-get install -y --no-install-recommends curl ca-certificates cmake ninja-build clang pkg-config python3
-    ndk: 27.0.12077973
+      - apt-get install -y --no-install-recommends build-essential clang cmake
+      - apt-get install -y --no-install-recommends ninja-build pkg-config python3
+      - apt-get install -y --no-install-recommends ca-certificates rustup
+    output: build/app/outputs/flutter-apk/app-foss-release.apk
     srclibs:
       - flutter@3.29.2
+    rm:
+      - installer
+      - mobile/ios
     prebuild:
-      - export PATH="$$flutter$$/bin:$PATH"
-      - flutter config --no-analytics
-      - flutter pub get
+      - sed -i -e '/maven\.aliyun\.com/d' android/build.gradle.kts
+      - sed -i -e '/maven\.aliyun\.com/d' android/settings.gradle.kts
+      - export PUB_CACHE=/tmp/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get
+      - rustup toolchain install 1.99.1 --profile minimal -c clippy -c rustfmt
+      - rustup default 1.99.1
+      - rustup target add aarch64-linux-android armv7-linux-androideabi
+      - rustup target add x86_64-linux-android
+      - cargo fetch --locked --manifest-path ../Cargo.toml
     build:
-      - export PATH="$$flutter$$/bin:$HOME/.cargo/bin:$PATH"
+      - export CI=true
+      - export PUB_CACHE=/tmp/.pub-cache
+      - export ANDROID_HOME="$$SDK$$"
       - export ANDROID_NDK_HOME="$$NDK$$"
-      - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.99.1 --profile minimal
-      - rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
-      - (cd .. && python3 scripts/build-android-ffi.py --locked)
-      - flutter build apk --release --flavor foss --dart-define=FOSS_BUILD=true
+      - python3 ../scripts/build-android-ffi.py --locked
+      - $$flutter$$/bin/flutter build apk --release --flavor foss --dart-define=FOSS_BUILD=true
+    ndk: 27.0.12077973
 
-AutoUpdateMode: Version v%v
+AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v([0-9]+\.[0-9]+\.[0-9]+)$
+UpdateCheckData: mobile/pubspec.yaml|version:\s.+\+(\d+)|.|version:\s(.+)\+
 CurrentVersion: 0.4.0
 CurrentVersionCode: 10
