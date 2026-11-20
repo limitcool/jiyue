@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../bridge/vault_service.dart';
 import '../models/note.dart';
+import '../services/platform_bridge.dart';
 import '../theme/jiyue_theme.dart';
 import '../theme/theme_provider.dart';
 import '../widgets/bottom_bar.dart';
@@ -10,8 +11,10 @@ import '../widgets/jiyue_icon.dart';
 import '../widgets/note_card.dart';
 import '../widgets/s3_config_sheet.dart';
 import '../widgets/settings_sheet.dart';
+import '../widgets/share_import_sheet.dart';
 import '../widgets/vault_switcher_sheet.dart';
 import 'editor_page.dart';
+import 'inbox_page.dart';
 import 'reader_page.dart';
 
 class VaultPage extends StatefulWidget {
@@ -48,15 +51,57 @@ class _VaultPageState extends State<VaultPage> {
     super.initState();
     _lastVaultId = widget.vaultService.activeVault?.id;
     widget.vaultService.addListener(_onVaultChanged);
+    PlatformBridge.setShareListener(_handleIncomingShare);
     _refreshNotes();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPendingShare();
+    });
   }
 
   @override
   void dispose() {
+    PlatformBridge.setShareListener(null);
     widget.vaultService.removeListener(_onVaultChanged);
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkPendingShare() async {
+    final payload = await PlatformBridge.consumePendingShare();
+    if (payload != null && mounted) {
+      _handleIncomingShare(payload);
+    }
+  }
+
+  void _handleIncomingShare(SharedPayload payload) {
+    if (!mounted || payload.isEmpty) return;
+    ShareImportSheet.show(
+      context,
+      payload: payload,
+      vaultService: widget.vaultService,
+      colors: widget.themeProvider.colors,
+      onImported: () {
+        _refreshNotes();
+        if (mounted) {
+          setState(() => _currentTab = 1);
+        }
+      },
+    );
+  }
+
+  void _openNoteReader(String notePath) {
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (_) => ReaderPage(
+              notePath: notePath,
+              themeProvider: widget.themeProvider,
+              vaultService: widget.vaultService,
+            ),
+          ),
+        )
+        .then((_) => _refreshNotes());
   }
 
   void _onVaultChanged() {
@@ -393,147 +438,142 @@ class _VaultPageState extends State<VaultPage> {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          RefreshIndicator(
-            color: colors.accent,
-            backgroundColor: colors.surface,
-            onRefresh: _refreshNotes,
-            child: ListView(
-              padding: const EdgeInsets.only(top: 10, bottom: 88),
+      body: _currentTab == 1
+          ? InboxPage(
+              vaultService: widget.vaultService,
+              colors: colors,
+              onOpenNote: _openNoteReader,
+              onVaultMutated: _refreshNotes,
+            )
+          : Stack(
               children: [
-                // 搜索栏
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 4,
-                  ),
-                  child: JiyueTextField(
-                    colors: colors,
-                    controller: _searchController,
-                    focusNode: _searchFocusNode,
-                    prefixIcon: 'search',
-                    hintText: '搜索笔记标题、路径、正文或 #标签...',
-                    onChanged: _onSearchChanged,
-                    suffix: _searchQuery.isNotEmpty
-                        ? JiyueIconButton(
-                            colors: colors,
-                            icon: 'x',
-                            size: 28,
-                            iconSize: 14,
-                            tooltip: '清空搜索',
-                            onPressed: () {
-                              _searchController.clear();
-                              _onSearchChanged('');
-                            },
-                          )
-                        : null,
-                  ),
-                ),
+                RefreshIndicator(
+                  color: colors.accent,
+                  backgroundColor: colors.surface,
+                  onRefresh: _refreshNotes,
+                  child: ListView(
+                    padding: const EdgeInsets.only(top: 10, bottom: 88),
+                    children: [
+                      // 搜索栏
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
+                        child: JiyueTextField(
+                          colors: colors,
+                          controller: _searchController,
+                          focusNode: _searchFocusNode,
+                          prefixIcon: 'search',
+                          hintText: '搜索笔记标题、路径、正文或 #标签...',
+                          onChanged: _onSearchChanged,
+                          suffix: _searchQuery.isNotEmpty
+                              ? JiyueIconButton(
+                                  colors: colors,
+                                  icon: 'x',
+                                  size: 28,
+                                  iconSize: 14,
+                                  tooltip: '清空搜索',
+                                  onPressed: () {
+                                    _searchController.clear();
+                                    _onSearchChanged('');
+                                  },
+                                )
+                              : null,
+                        ),
+                      ),
 
-                // 动态标签与收藏筛选栏
-                if (filterChips.length > 1) ...[
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 30,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      children: filterChips.map((chip) {
-                        final isSelected = activeFilter == chip;
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: JiyueChoiceChip(
-                            colors: colors,
-                            label: chip,
-                            icon: chip == _kBookmarkedFilter
-                                ? 'bookmark-filled'
-                                : null,
-                            selected: isSelected,
-                            onTap: () => setState(() => _selectedFilter = chip),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 6),
-
-                // 今日速记 Hero 卡片
-                DailyHeroCard(
-                  colors: colors,
-                  onTapRecord: _openDailyQuickLog,
-                ),
-
-                // 列表小标题
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-                  child: JiyueSectionHeader(
-                    colors: colors,
-                    title: '笔记列表 (${filteredNotes.length} 篇)',
-                    padding: EdgeInsets.zero,
-                    trailing: JiyueBadge(
-                      colors: colors,
-                      label: activeProfile?.syncBadgeLabel ?? '纯本地',
-                      tone: hasRemoteSync
-                          ? JiyueBadgeTone.ok
-                          : JiyueBadgeTone.neutral,
-                    ),
-                  ),
-                ),
-
-                // 笔记列表
-                if (filteredNotes.isEmpty)
-                  JiyueEmptyState(
-                    colors: colors,
-                    icon: 'file-text',
-                    title: _notes.isEmpty ? '当前笔记库为空' : '未找到匹配的笔记',
-                    subtitle: _notes.isEmpty
-                        ? (hasRemoteSync
-                            ? '可点击右上角「同步」拉取 PC 笔记，或点击右下角新建笔记'
-                            : '点击右下角「新建笔记」开始记录')
-                        : '尝试调整搜索关键词或切换其他筛选标签',
-                  )
-                else
-                  ...filteredNotes.map((note) {
-                    return NoteCard(
-                      note: note,
-                      colors: colors,
-                      onTap: () {
-                        Navigator.of(context)
-                            .push(
-                              MaterialPageRoute(
-                                builder: (_) => ReaderPage(
-                                  notePath: note.path,
-                                  themeProvider: widget.themeProvider,
-                                  vaultService: widget.vaultService,
+                      // 动态标签与收藏筛选栏
+                      if (filterChips.length > 1) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 30,
+                          child: ListView(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            children: filterChips.map((chip) {
+                              final isSelected = activeFilter == chip;
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: JiyueChoiceChip(
+                                  colors: colors,
+                                  label: chip,
+                                  icon: chip == _kBookmarkedFilter
+                                      ? 'bookmark-filled'
+                                      : null,
+                                  selected: isSelected,
+                                  onTap: () => setState(() => _selectedFilter = chip),
                                 ),
-                              ),
-                            )
-                            .then((_) => _refreshNotes());
-                      },
-                    );
-                  }),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 6),
+
+                      // 今日速记 Hero 卡片
+                      DailyHeroCard(
+                        colors: colors,
+                        onTapRecord: _openDailyQuickLog,
+                      ),
+
+                      // 列表小标题
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                        child: JiyueSectionHeader(
+                          colors: colors,
+                          title: '笔记列表 (${filteredNotes.length} 篇)',
+                          padding: EdgeInsets.zero,
+                          trailing: JiyueBadge(
+                            colors: colors,
+                            label: activeProfile?.syncBadgeLabel ?? '纯本地',
+                            tone: hasRemoteSync
+                                ? JiyueBadgeTone.ok
+                                : JiyueBadgeTone.neutral,
+                          ),
+                        ),
+                      ),
+
+                      // 笔记列表
+                      if (filteredNotes.isEmpty)
+                        JiyueEmptyState(
+                          colors: colors,
+                          icon: 'file-text',
+                          title: _notes.isEmpty ? '当前笔记库为空' : '未找到匹配的笔记',
+                          subtitle: _notes.isEmpty
+                              ? (hasRemoteSync
+                                  ? '可点击右上角「同步」拉取 PC 笔记，或点击右下角新建笔记'
+                                  : '点击右下角「新建笔记」开始记录')
+                              : '尝试调整搜索关键词或切换其他筛选标签',
+                        )
+                      else
+                        ...filteredNotes.map((note) {
+                          return NoteCard(
+                            note: note,
+                            colors: colors,
+                            onTap: () => _openNoteReader(note.path),
+                          );
+                        }),
+                    ],
+                  ),
+                ),
+
+                // 右下角克制悬浮新建按钮
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: JiyueButton(
+                    colors: colors,
+                    label: '新建笔记',
+                    icon: 'plus',
+                    kind: JiyueButtonKind.primary,
+                    size: JiyueControlSize.lg,
+                    onPressed: _createNewNote,
+                  ),
+                ),
               ],
             ),
-          ),
-
-          // 右下角克制悬浮新建按钮
-          Positioned(
-            right: 16,
-            bottom: 16,
-            child: JiyueButton(
-              colors: colors,
-              label: '新建笔记',
-              icon: 'plus',
-              kind: JiyueButtonKind.primary,
-              size: JiyueControlSize.lg,
-              onPressed: _createNewNote,
-            ),
-          ),
-        ],
-      ),
       bottomNavigationBar: JiyueBottomBar(
         currentIndex: _currentTab,
         colors: colors,
@@ -542,15 +582,13 @@ class _VaultPageState extends State<VaultPage> {
             _searchFocusNode.unfocus();
             setState(() => _currentTab = 0);
           } else if (idx == 1) {
+            _searchFocusNode.unfocus();
             setState(() => _currentTab = 1);
-            _openDailyQuickLog().then((_) {
-              if (mounted) {
-                setState(() => _currentTab = 0);
-              }
-            });
           } else if (idx == 2) {
             setState(() => _currentTab = 2);
-            _searchFocusNode.requestFocus();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) _searchFocusNode.requestFocus();
+            });
           } else if (idx == 3) {
             setState(() => _currentTab = 3);
             _openSettings();

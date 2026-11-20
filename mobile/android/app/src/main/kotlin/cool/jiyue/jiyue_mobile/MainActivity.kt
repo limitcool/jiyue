@@ -8,12 +8,15 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.provider.Settings
+import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.io.FileOutputStream
 
 class MainActivity : FlutterActivity() {
     companion object {
@@ -28,9 +31,14 @@ class MainActivity : FlutterActivity() {
     private var pendingStorageResult: MethodChannel.Result? = null
     private var pendingDirectoryResult: MethodChannel.Result? = null
     private var pendingImageResult: MethodChannel.Result? = null
+    private var platformChannel: MethodChannel? = null
+    private var pendingSharePayload: Map<String, Any>? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        if (pendingSharePayload == null) {
+            pendingSharePayload = extractSharePayload(intent)
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, UPDATER_CHANNEL)
             .setMethodCallHandler { call, result ->
@@ -41,13 +49,19 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PLATFORM_CHANNEL)
-            .setMethodCallHandler { call, result ->
+        val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PLATFORM_CHANNEL)
+        platformChannel = channel
+        channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "hasStoragePermission" -> result.success(hasStoragePermission())
                     "requestStoragePermission" -> handleRequestStoragePermission(result)
                     "pickDirectory" -> handlePickDirectory(result)
                     "pickImageBytes" -> handlePickImageBytes(result)
+                    "consumePendingShare" -> {
+                        val payload = pendingSharePayload
+                        pendingSharePayload = null
+                        result.success(payload)
+                    }
                     "shareFile" -> {
                         val filePath = call.argument<String>("filePath")
                         val title = call.argument<String>("title") ?: "导出笔记"
@@ -60,6 +74,105 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val payload = extractSharePayload(intent) ?: return
+        val ch = platformChannel
+        if (ch != null) {
+            ch.invokeMethod("onShareReceived", payload)
+        } else {
+            pendingSharePayload = payload
+        }
+    }
+
+    private fun extractSharePayload(intent: Intent?): Map<String, Any>? {
+        if (intent == null) return null
+        val action = intent.action
+        if (action != Intent.ACTION_SEND && action != Intent.ACTION_SEND_MULTIPLE) {
+            return null
+        }
+
+        val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
+        val stagedPaths = mutableListOf<String>()
+
+        if (action == Intent.ACTION_SEND) {
+            val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            }
+            if (uri != null) {
+                stageSharedUri(uri)?.let { stagedPaths.add(it) }
+            }
+        } else if (action == Intent.ACTION_SEND_MULTIPLE) {
+            val uris = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+            }
+            uris?.forEach { uri ->
+                stageSharedUri(uri)?.let { stagedPaths.add(it) }
+            }
+        }
+
+        if (text.isEmpty() && stagedPaths.isEmpty()) {
+            return null
+        }
+        return mapOf(
+            "text" to text,
+            "filePaths" to stagedPaths
+        )
+    }
+
+    private fun stageSharedUri(uri: Uri): String? {
+        return try {
+            val stageDir = File(cacheDir, "shared_imports")
+            if (!stageDir.exists()) stageDir.mkdirs()
+
+            var name = resolveDisplayName(uri)
+            if (name.isNullOrBlank()) {
+                val mime = contentResolver.getType(uri)
+                val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(mime)
+                name = if (!ext.isNullOrBlank()) {
+                    "shared_${System.currentTimeMillis()}.$ext"
+                } else {
+                    "shared_${System.currentTimeMillis()}"
+                }
+            }
+            val safeName = name.replace(Regex("[<>:\"/\\\\|?*#\\[\\]^]"), "_")
+            val target = File(stageDir, "${System.currentTimeMillis()}_$safeName")
+            contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(target).use { output ->
+                    input.copyTo(output)
+                }
+            } ?: return null
+            target.absolutePath
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun resolveDisplayName(uri: Uri): String? {
+        if (uri.scheme == "file") {
+            return uri.lastPathSegment
+        }
+        return try {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) cursor.getString(idx) else null
+                } else {
+                    null
+                }
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun readAppVersion(): String {

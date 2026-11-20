@@ -254,4 +254,59 @@ void main() {
       expect(decodedFromYuv, equals(payload));
     });
   });
+
+  group('Jiyue Mobile Inbox & Share Import Tests', () {
+    test('Supports inbox stream capture, todo toggle, delete, and file import', () async {
+      SharedPreferences.setMockInitialValues({});
+      final tempDir = Directory.systemTemp.createTempSync('jiyue_inbox_test');
+      final service = VaultService.testable();
+
+      try {
+        await service.openExternalVault(tempDir.path, name: 'InboxTest');
+
+        expect(await service.appendToInbox('记录一条手机灵感 #随手记'), isTrue);
+        expect(await service.appendToInbox('购买咖啡豆', asTodo: true), isTrue);
+
+        var summary = await service.getInboxSummary();
+        expect(summary.captures.length, equals(1));
+        expect(summary.captures.first.content, contains('记录一条手机灵感'));
+        expect(summary.todos.length, equals(1));
+        expect(summary.todos.first.done, isFalse);
+        expect(summary.todos.first.text, equals('购买咖啡豆'));
+
+        final todo = summary.todos.first;
+        expect(await service.toggleInboxTodo(todo.notePath, todo.lineIndex), isTrue);
+        summary = await service.getInboxSummary();
+        expect(summary.todos.first.done, isTrue);
+
+        final cap = summary.captures.first;
+        expect(await service.deleteInboxEntry(cap.notePath, cap.lineIndex), isTrue);
+        summary = await service.getInboxSummary();
+        expect(summary.captures, isEmpty);
+
+        // Import shared image file
+        final srcFile = File('${tempDir.path}${Platform.pathSeparator}share_demo.png')
+          ..writeAsBytesSync([0x89, 0x50, 0x4E, 0x47]);
+        final importRes = await service.importFileToInbox(
+          srcFile.path,
+          noteText: '来自系统的分享截图',
+        );
+        expect(importRes.success, isTrue);
+        expect(
+          File('${tempDir.path}${Platform.pathSeparator}${importRes.destRel.replaceAll('/', Platform.pathSeparator)}').existsSync(),
+          isTrue,
+        );
+        summary = await service.getInboxSummary();
+        expect(
+          summary.captures.any((c) => c.content.contains('来自系统的分享截图')),
+          isTrue,
+        );
+      } finally {
+        service.dispose();
+        try {
+          tempDir.deleteSync(recursive: true);
+        } catch (_) {}
+      }
+    });
+  });
 }

@@ -14,11 +14,13 @@ use std::time::UNIX_EPOCH;
 use serde::{Deserialize, Serialize};
 
 use jiyue_core::buffer::{Note, wikilink_targets};
-use jiyue_core::daily::Date;
+use jiyue_core::daily::{self, Date};
+use jiyue_core::inbox::{self, CaptureMode, InboxSettings, TodoGroup};
 use jiyue_core::links::{
     LinkKind, LinkOccurrence, NoteRef, extract_links, resolve_link, resolve_occurrence,
 };
 use jiyue_core::vault::Vault;
+use jiyue_md::attach::{AttachSettings, Timestamp, plan_import, write_import};
 use jiyue_sync::store::{OpendalStore, StoreConfig};
 use jiyue_sync::{SyncOptions, run_sync, state};
 
@@ -145,6 +147,173 @@ pub struct ConnectionTestResult {
     pub can_list: bool,
     pub can_write: bool,
     pub message: String,
+}
+
+/// Fleeting capture entry for mobile inbox / stream views
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboxCaptureDto {
+    pub note_path: String,
+    pub note_title: String,
+    pub line_index: Option<usize>,
+    pub date_label: String,
+    pub time_label: Option<String>,
+    pub content: String,
+    pub tags: Vec<String>,
+}
+
+/// Markdown task item (`- [ ]` / `- [x]`) aggregated from vault notes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboxTodoDto {
+    pub note_path: String,
+    pub note_title: String,
+    pub group: String,
+    pub line_index: usize,
+    pub text: String,
+    pub done: bool,
+    pub tags: Vec<String>,
+}
+
+/// Aggregated inbox captures, vault todos, and active target paths
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboxSummaryDto {
+    pub captures: Vec<InboxCaptureDto>,
+    pub todos: Vec<InboxTodoDto>,
+    pub stream_path: String,
+    pub daily_path: String,
+}
+
+/// Result of importing a shared file into vault attachments + inbox capture
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportFileResultDto {
+    pub success: bool,
+    pub dest_rel: String,
+    pub link_text: String,
+    pub note_path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+struct TemplatesFolderConfig {
+    templates_folder: String,
+}
+
+impl Default for TemplatesFolderConfig {
+    fn default() -> Self {
+        Self {
+            templates_folder: "Templates".to_string(),
+        }
+    }
+}
+
+fn load_templates_folder(root: &Path) -> String {
+    let cfg_path = root.join(jiyue_core::config::VAULT_CONFIG_FILE);
+    jiyue_core::config::load_section::<TemplatesFolderConfig>(&cfg_path, "templates")
+        .value
+        .templates_folder
+}
+
+fn load_attach_settings(root: &Path) -> AttachSettings {
+    let cfg_path = root.join(jiyue_core::config::VAULT_CONFIG_FILE);
+    jiyue_core::config::load_section::<AttachSettings>(&cfg_path, "attachments").value
+}
+
+fn today_daily_rel(vault: &Vault, today: Date) -> String {
+    let ds = vault.daily_settings();
+    let title = daily::format_date(today, &ds.date_format);
+    let folder = ds.folder.trim().replace('\\', "/");
+    let folder = folder.trim_matches('/');
+    if folder.is_empty() {
+        format!("{title}.md")
+    } else {
+        format!("{folder}/{title}.md")
+    }
+}
+
+fn current_timestamp(today: Date, hhmm: &str) -> Timestamp {
+    let mut parts = hhmm.split(':');
+    let hh = parts
+        .next()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0);
+    let mm = parts
+        .next()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0);
+    let ss = (std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() % 60)
+        .unwrap_or(0)) as u32;
+    Timestamp {
+        y: today.year.max(1970) as u32,
+        m: today.month,
+        d: today.day,
+        hh,
+        mm,
+        ss,
+    }
+}
+
+fn upsert_and_save_note(
+    vault: &mut Vault,
+    rel_path: &str,
+    new_content: &str,
+) -> Result<(), String> {
+    let norm = rel_path.replace('\\', "/");
+    let idx = if let Some(existing) = vault
+        .notes
+        .iter()
+        .position(|n| n.path.replace('\\', "/").eq_ignore_ascii_case(&norm))
+    {
+        vault.notes[existing].set_content(new_content);
+        existing
+    } else {
+        let stem = Path::new(&norm)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("随手记");
+        let note = Note::new(stem, &norm, new_content);
+        vault.notes.push(note);
+        vault.notes.len() - 1
+    };
+    vault
+        .save_note_to_disk(idx)
+        .map_err(|e| format!("Failed to save note {norm}: {e}"))?;
+    vault.bump_revision();
+    vault.rebuild_graph();
+    Ok(())
+}
+
+fn allocate_inbox_card_path(root: &Path, folder: &str, raw_text: &str) -> String {
+    let clean_folder = folder.trim().replace('\\', "/");
+    let clean_folder = clean_folder.trim_matches('/');
+    let first_line = raw_text
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("随手记");
+    let stripped = first_line
+        .strip_prefix("- [ ] ")
+        .or_else(|| first_line.strip_prefix("- [x] "))
+        .or_else(|| first_line.strip_prefix("- [X] "))
+        .unwrap_or(first_line)
+        .trim();
+    let short: String = stripped.chars().take(24).collect();
+    let base = jiyue_core::vault::safe_note_title(&short).unwrap_or_else(|| "随手记".to_string());
+    let make_rel = |name: &str| -> String {
+        if clean_folder.is_empty() {
+            format!("{name}.md")
+        } else {
+            format!("{clean_folder}/{name}.md")
+        }
+    };
+    let mut candidate = make_rel(&base);
+    let mut seq = 2usize;
+    while root.join(&candidate).exists() {
+        candidate = make_rel(&format!("{base} {seq}"));
+        seq += 1;
+    }
+    candidate
 }
 
 fn note_refs(vault: &Vault) -> Vec<NoteRef> {
@@ -621,8 +790,12 @@ impl VaultBridge {
         Ok(build_note_detail(&vault, idx))
     }
 
-    /// Append a quick log entry to today's daily note
+    /// Append a quick log entry to today's daily note using the standard `## 记录` section
     pub fn append_to_daily(&self, entry: &str) -> Result<(), String> {
+        let trimmed = entry.trim();
+        if trimmed.is_empty() {
+            return Ok(());
+        }
         let mut vault = self.vault.lock().unwrap();
         let today = Date::today();
         let idx = vault
@@ -630,9 +803,8 @@ impl VaultBridge {
             .map_err(|e| format!("Failed to open daily note: {e}"))?;
 
         let old_content = vault.notes[idx].content().to_string();
-        let now_hhmm = jiyue_core::daily::local_hhmm();
-        let new_line = format!("\n- [{}] {}\n", now_hhmm, entry.trim());
-        let updated = format!("{}{}", old_content.trim_end(), new_line);
+        let now_hhmm = daily::local_hhmm();
+        let updated = inbox::append_to_daily_markdown(&old_content, &now_hhmm, trimmed, false);
 
         vault.notes[idx].set_content(&updated);
         vault
@@ -641,6 +813,297 @@ impl VaultBridge {
         vault.bump_revision();
         vault.rebuild_graph();
         Ok(())
+    }
+
+    /// Collect local fleeting captures and aggregated Markdown todos across the vault
+    pub fn inbox_summary(&self) -> InboxSummaryDto {
+        let vault = self.vault.lock().unwrap();
+        let root = vault.root_dir.clone();
+        let inbox_cfg = InboxSettings::load(&root);
+        let templates_folder = load_templates_folder(&root);
+        let daily_folder = vault.daily_settings().folder;
+        let today = Date::today();
+        let today_rel = today_daily_rel(&vault, today);
+        let stream_rel = inbox_cfg.stream_rel_path(today);
+
+        let pairs: Vec<(String, String, &str)> = vault
+            .notes
+            .iter()
+            .map(|n| (n.path.replace('\\', "/"), n.title.clone(), n.content()))
+            .collect();
+        let pair_refs: Vec<(&str, &str, &str)> = pairs
+            .iter()
+            .map(|(p, t, c)| (p.as_str(), t.as_str(), *c))
+            .collect();
+
+        let captures = inbox::collect_local_captures(
+            pair_refs.iter().copied(),
+            &today_rel,
+            &stream_rel,
+            &templates_folder,
+            &inbox_cfg,
+        )
+        .into_iter()
+        .map(|c| InboxCaptureDto {
+            note_path: c.note_path,
+            note_title: c.note_title,
+            line_index: c.line_index,
+            date_label: c.date_label,
+            time_label: c.time_label,
+            content: c.content,
+            tags: c.tags,
+        })
+        .collect();
+
+        let todos = inbox::collect_local_todos(
+            pair_refs,
+            &today_rel,
+            &daily_folder,
+            &templates_folder,
+            &inbox_cfg,
+        )
+        .into_iter()
+        .map(|t| InboxTodoDto {
+            note_path: t.note_path,
+            note_title: t.note_title,
+            group: match t.group {
+                TodoGroup::TodayDaily => "today".to_string(),
+                TodoGroup::CoreFolder => "core".to_string(),
+                TodoGroup::OtherNote => "other".to_string(),
+            },
+            line_index: t.line_index,
+            text: t.text,
+            done: t.done,
+            tags: t.tags,
+        })
+        .collect();
+
+        InboxSummaryDto {
+            captures,
+            todos,
+            stream_path: stream_rel,
+            daily_path: today_rel,
+        }
+    }
+
+    /// Append a quick capture or todo into the local vault according to `[inbox]` settings
+    pub fn inbox_append(&self, raw_text: &str, as_todo: bool) -> Result<String, String> {
+        let trimmed = raw_text.trim();
+        if trimmed.is_empty() {
+            return Err("Capture text cannot be empty".to_string());
+        }
+        let mut vault = self.vault.lock().unwrap();
+        let root = vault.root_dir.clone();
+        let inbox_cfg = InboxSettings::load(&root);
+        let today = Date::today();
+        let hhmm = daily::local_hhmm();
+        let effective_todo = as_todo
+            || trimmed.starts_with("- [ ] ")
+            || trimmed.starts_with("- [x] ")
+            || trimmed.starts_with("- [X] ");
+
+        match inbox_cfg.capture_mode {
+            CaptureMode::StreamFile => {
+                let rel = inbox_cfg.stream_rel_path(today);
+                let existing = vault
+                    .notes
+                    .iter()
+                    .find(|n| n.path.replace('\\', "/").eq_ignore_ascii_case(&rel))
+                    .map(|n| n.content().to_string())
+                    .or_else(|| std::fs::read_to_string(root.join(&rel)).ok())
+                    .unwrap_or_default();
+                let title = inbox_cfg.stream_title(today);
+                let updated = inbox::append_to_stream_markdown(
+                    &existing,
+                    &title,
+                    today,
+                    &hhmm,
+                    trimmed,
+                    effective_todo,
+                );
+                upsert_and_save_note(&mut vault, &rel, &updated)?;
+                Ok(rel)
+            }
+            CaptureMode::DailyNote => {
+                let idx = vault
+                    .open_or_create_daily(today)
+                    .map_err(|e| format!("Failed to open daily note: {e}"))?;
+                let rel = vault.notes[idx].path.replace('\\', "/");
+                let old_content = vault.notes[idx].content().to_string();
+                let updated =
+                    inbox::append_to_daily_markdown(&old_content, &hhmm, trimmed, effective_todo);
+                upsert_and_save_note(&mut vault, &rel, &updated)?;
+                Ok(rel)
+            }
+            CaptureMode::CardNote => {
+                let rel = allocate_inbox_card_path(&root, &inbox_cfg.folder, trimmed);
+                let stem = Path::new(&rel)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("随手记");
+                let body = if effective_todo
+                    && !trimmed.starts_with("- [ ] ")
+                    && !trimmed.starts_with("- [x] ")
+                {
+                    format!("# {stem}\n\n> {hhmm} · #随手记\n\n- [ ] {trimmed}\n")
+                } else {
+                    format!("# {stem}\n\n> {hhmm} · #随手记\n\n{trimmed}\n")
+                };
+                upsert_and_save_note(&mut vault, &rel, &body)?;
+                Ok(rel)
+            }
+        }
+    }
+
+    /// Toggle a Markdown todo item `- [ ]` / `- [x]` inside `note_path` at `line_index`
+    pub fn inbox_toggle_todo(&self, note_path: &str, line_index: usize) -> Result<bool, String> {
+        let mut vault = self.vault.lock().unwrap();
+        let norm = note_path.replace('\\', "/");
+        let idx = vault
+            .notes
+            .iter()
+            .position(|n| n.path.replace('\\', "/").eq_ignore_ascii_case(&norm))
+            .ok_or_else(|| format!("Note not found: {note_path}"))?;
+        let current = vault.notes[idx].content().to_string();
+        let updated = inbox::toggle_todo_line(&current, line_index)
+            .ok_or_else(|| format!("Todo line not found at {norm}:{line_index}"))?;
+        let now_done = updated
+            .lines()
+            .nth(line_index)
+            .and_then(inbox::parse_todo_line)
+            .map(|(done, _)| done)
+            .unwrap_or(false);
+        vault.notes[idx].set_content(&updated);
+        vault
+            .save_note_to_disk(idx)
+            .map_err(|e| format!("Failed to save todo toggle: {e}"))?;
+        vault.bump_revision();
+        vault.rebuild_graph();
+        Ok(now_done)
+    }
+
+    /// Delete a list entry from `note_path` or remove a standalone card note when `line_index` is None
+    pub fn inbox_delete_entry(
+        &self,
+        note_path: &str,
+        line_index: Option<usize>,
+    ) -> Result<(), String> {
+        let mut vault = self.vault.lock().unwrap();
+        let norm = note_path.replace('\\', "/");
+        let idx = vault
+            .notes
+            .iter()
+            .position(|n| n.path.replace('\\', "/").eq_ignore_ascii_case(&norm))
+            .ok_or_else(|| format!("Note not found: {note_path}"))?;
+
+        match line_index {
+            Some(line) => {
+                let current = vault.notes[idx].content().to_string();
+                let updated = inbox::delete_list_entry(&current, line)
+                    .ok_or_else(|| format!("Entry not found at {norm}:{line}"))?;
+                vault.notes[idx].set_content(&updated);
+                vault
+                    .save_note_to_disk(idx)
+                    .map_err(|e| format!("Failed to save note after delete: {e}"))?;
+            }
+            None => {
+                let abs_path = vault.root_dir.join(&vault.notes[idx].path);
+                let _ = std::fs::remove_file(abs_path);
+                vault.notes.remove(idx);
+            }
+        }
+        vault.bump_revision();
+        vault.rebuild_graph();
+        Ok(())
+    }
+
+    /// Import a shared/local file into the vault attachments folder and record it in the inbox stream
+    pub fn inbox_import_file(
+        &self,
+        src_path: &str,
+        note_text: &str,
+    ) -> Result<ImportFileResultDto, String> {
+        let src = Path::new(src_path.trim());
+        if !src.is_file() {
+            return Err(format!("Source file does not exist: {src_path}"));
+        }
+        let bytes = std::fs::read(src).map_err(|e| format!("Failed to read source file: {e}"))?;
+        let original_name = src.file_name().and_then(|s| s.to_str());
+
+        let mut vault = self.vault.lock().unwrap();
+        let root = vault.root_dir.clone();
+        let inbox_cfg = InboxSettings::load(&root);
+        let attach_cfg = load_attach_settings(&root);
+        let today = Date::today();
+        let hhmm = daily::local_hhmm();
+        let target_note_rel = match inbox_cfg.capture_mode {
+            CaptureMode::DailyNote => today_daily_rel(&vault, today),
+            _ => inbox_cfg.stream_rel_path(today),
+        };
+        let now_ts = current_timestamp(today, &hhmm);
+
+        let plan = plan_import(
+            &attach_cfg,
+            &target_note_rel,
+            original_name,
+            &bytes,
+            now_ts,
+            &|rel| std::fs::read(root.join(rel)).ok(),
+        );
+        if !plan.reuse_existing {
+            write_import(&root, &plan, &bytes)
+                .map_err(|e| format!("Failed to write attachment: {e}"))?;
+        }
+
+        let extra = note_text.trim();
+        let capture_line = if extra.is_empty() {
+            plan.link_text.clone()
+        } else {
+            format!("{extra} {}", plan.link_text)
+        };
+
+        let saved_note_path = match inbox_cfg.capture_mode {
+            CaptureMode::DailyNote => {
+                let idx = vault
+                    .open_or_create_daily(today)
+                    .map_err(|e| format!("Failed to open daily note: {e}"))?;
+                let rel = vault.notes[idx].path.replace('\\', "/");
+                let old_content = vault.notes[idx].content().to_string();
+                let updated =
+                    inbox::append_to_daily_markdown(&old_content, &hhmm, &capture_line, false);
+                upsert_and_save_note(&mut vault, &rel, &updated)?;
+                rel
+            }
+            _ => {
+                let rel = inbox_cfg.stream_rel_path(today);
+                let existing = vault
+                    .notes
+                    .iter()
+                    .find(|n| n.path.replace('\\', "/").eq_ignore_ascii_case(&rel))
+                    .map(|n| n.content().to_string())
+                    .or_else(|| std::fs::read_to_string(root.join(&rel)).ok())
+                    .unwrap_or_default();
+                let title = inbox_cfg.stream_title(today);
+                let updated = inbox::append_to_stream_markdown(
+                    &existing,
+                    &title,
+                    today,
+                    &hhmm,
+                    &capture_line,
+                    false,
+                );
+                upsert_and_save_note(&mut vault, &rel, &updated)?;
+                rel
+            }
+        };
+
+        Ok(ImportFileResultDto {
+            success: true,
+            dest_rel: plan.dest_rel,
+            link_text: plan.link_text,
+            note_path: saved_note_path,
+            message: "已导入附件并记录到随手记".to_string(),
+        })
     }
 
     /// Reload vault state from disk (e.g. after background path-based sync)
@@ -851,6 +1314,107 @@ pub extern "C" fn jiyue_daily_append(bridge: *mut VaultBridge, text: *const c_ch
     match bridge.append_to_daily(t) {
         Ok(_) => std::ptr::null_mut(),
         Err(e) => to_c_string(e),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn jiyue_inbox_summary(bridge: *mut VaultBridge) -> *mut c_char {
+    if bridge.is_null() {
+        return to_c_string(
+            r#"{"captures":[],"todos":[],"stream_path":"Inbox/随手记.md","daily_path":""}"#,
+        );
+    }
+    let bridge = unsafe { &*bridge };
+    let summary = bridge.inbox_summary();
+    to_json_c_string(&summary)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn jiyue_inbox_append(
+    bridge: *mut VaultBridge,
+    text: *const c_char,
+    as_todo: bool,
+) -> *mut c_char {
+    if bridge.is_null() {
+        return to_c_string("Vault handle is null");
+    }
+    let bridge = unsafe { &*bridge };
+    let t = c_str_to_str(text);
+    match bridge.inbox_append(t, as_todo) {
+        Ok(_) => std::ptr::null_mut(),
+        Err(e) => to_c_string(e),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn jiyue_inbox_toggle_todo(
+    bridge: *mut VaultBridge,
+    note_path: *const c_char,
+    line_index: i32,
+) -> *mut c_char {
+    if bridge.is_null() {
+        return to_c_string("Vault handle is null");
+    }
+    if line_index < 0 {
+        return to_c_string("Invalid line index");
+    }
+    let bridge = unsafe { &*bridge };
+    let path = c_str_to_str(note_path);
+    match bridge.inbox_toggle_todo(path, line_index as usize) {
+        Ok(_) => std::ptr::null_mut(),
+        Err(e) => to_c_string(e),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn jiyue_inbox_delete_entry(
+    bridge: *mut VaultBridge,
+    note_path: *const c_char,
+    line_index: i32,
+) -> *mut c_char {
+    if bridge.is_null() {
+        return to_c_string("Vault handle is null");
+    }
+    let bridge = unsafe { &*bridge };
+    let path = c_str_to_str(note_path);
+    let line = if line_index < 0 {
+        None
+    } else {
+        Some(line_index as usize)
+    };
+    match bridge.inbox_delete_entry(path, line) {
+        Ok(_) => std::ptr::null_mut(),
+        Err(e) => to_c_string(e),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn jiyue_inbox_import_file(
+    bridge: *mut VaultBridge,
+    src_path: *const c_char,
+    note_text: *const c_char,
+) -> *mut c_char {
+    if bridge.is_null() {
+        return to_json_c_string(&ImportFileResultDto {
+            success: false,
+            dest_rel: String::new(),
+            link_text: String::new(),
+            note_path: String::new(),
+            message: "Vault handle is null".to_string(),
+        });
+    }
+    let bridge = unsafe { &*bridge };
+    let src = c_str_to_str(src_path);
+    let extra = c_str_to_str(note_text);
+    match bridge.inbox_import_file(src, extra) {
+        Ok(res) => to_json_c_string(&res),
+        Err(err) => to_json_c_string(&ImportFileResultDto {
+            success: false,
+            dest_rel: String::new(),
+            link_text: String::new(),
+            note_path: String::new(),
+            message: err,
+        }),
     }
 }
 
@@ -1092,6 +1656,78 @@ mod tests {
         let res_str = c_str_to_str(res_ptr).to_string();
         jiyue_string_free(res_ptr);
         assert_eq!(res_str, "\"backend/README.md\"");
+        jiyue_vault_close(handle);
+    }
+
+    #[test]
+    fn test_inbox_captures_todos_and_file_import() {
+        let dir = tempdir().unwrap();
+        let bridge = VaultBridge::open_or_create(dir.path());
+
+        // 1. Append fleeting capture and todo into Inbox stream
+        let note_rel = bridge
+            .inbox_append("移动端随手记想法 #灵感", false)
+            .expect("append capture");
+        assert_eq!(note_rel, "Inbox/随手记.md");
+
+        bridge
+            .inbox_append("整理随手记同步方案", true)
+            .expect("append todo");
+
+        let summary = bridge.inbox_summary();
+        assert_eq!(summary.captures.len(), 2);
+        assert_eq!(summary.todos.len(), 1);
+        assert!(!summary.todos[0].done);
+        assert_eq!(summary.todos[0].text, "整理随手记同步方案");
+
+        // 2. Toggle todo line
+        let line_idx = summary.todos[0].line_index;
+        let now_done = bridge
+            .inbox_toggle_todo(&summary.todos[0].note_path, line_idx)
+            .expect("toggle todo");
+        assert!(now_done);
+        let after_toggle = bridge.inbox_summary();
+        assert!(after_toggle.todos[0].done);
+
+        // 3. Delete capture entry
+        let cap = after_toggle
+            .captures
+            .iter()
+            .find(|c| c.content.contains("移动端随手记想法"))
+            .expect("capture found");
+        bridge
+            .inbox_delete_entry(&cap.note_path, cap.line_index)
+            .expect("delete capture");
+        let after_del = bridge.inbox_summary();
+        assert!(
+            !after_del
+                .captures
+                .iter()
+                .any(|c| c.content.contains("移动端随手记想法"))
+        );
+
+        // 4. Import a shared file into attachments + inbox
+        let src_dir = tempdir().unwrap();
+        let src_file = src_dir.path().join("demo.png");
+        std::fs::write(&src_file, b"\x89PNG\r\n\x1a\ndemo").unwrap();
+        let import_res = bridge
+            .inbox_import_file(src_file.to_str().unwrap(), "分享截图")
+            .expect("import file");
+        assert!(import_res.success);
+        assert!(dir.path().join(&import_res.dest_rel).is_file());
+        assert!(import_res.link_text.contains("demo"));
+
+        // 5. C-ABI inbox summary & append
+        let path_c = CString::new(dir.path().to_str().unwrap()).unwrap();
+        let handle = jiyue_vault_open(path_c.as_ptr());
+        let txt_c = CString::new("C ABI 随手记").unwrap();
+        let err_ptr = jiyue_inbox_append(handle, txt_c.as_ptr(), false);
+        assert!(err_ptr.is_null());
+
+        let sum_ptr = jiyue_inbox_summary(handle);
+        let sum_json = c_str_to_str(sum_ptr).to_string();
+        jiyue_string_free(sum_ptr);
+        assert!(sum_json.contains("C ABI 随手记"));
         jiyue_vault_close(handle);
     }
 }

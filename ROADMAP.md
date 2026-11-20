@@ -21,7 +21,7 @@ Jiyue is currently in **beta** across Windows, macOS, Linux and Android. This pa
 - **PDF export** without going through a browser. Today a note is exported as HTML and printed to PDF from a browser.
 - **Bundled fonts**, so the interface looks the same on every system.
 - **Whole-interface scaling (all sizes).** Scale menus, sidebars and widgets together with the text. Today the font sizes in the settings change the note text and code only.
-- **Mobile feature parity & iOS.** Bring the Android client on par with desktop captures/todos, attachment insertion, and system share capture, and consider iOS support atop `jiyue-ffi`.
+- **iOS support.** Consider iOS support atop `jiyue-ffi` (Android already covers local captures/todos, image attachment import, and system share capture).
 
 ### Done
 
@@ -54,7 +54,7 @@ Live preview with rendered tables, callouts, multi-language code blocks, images,
 - **不经过浏览器的 PDF 导出。** 现在是导出 HTML，再用浏览器打印成 PDF。
 - **随应用附带字体，**让界面在各个系统上看起来一致。
 - **整个界面的缩放（所有尺寸统一缩放）。** 菜单、侧栏和控件与文字一起缩放。现在设置里的字号只改变笔记正文和代码。
-- **移动端能力对齐与 iOS 支持。** 让 Android 端追平桌面端本地随手记/待办、图片附件插入与系统分享入库体验，并在 `jiyue-ffi` 之上评估 iOS 支持。
+- **iOS 端支持。** Android 端已对齐桌面端本地随手记/待办、图片附件导入与系统分享入库，后续在 `jiyue-ffi` 之上评估 iOS 支持。
 
 ### 已完成
 

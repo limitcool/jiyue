@@ -116,6 +116,61 @@ typedef DartDailyAppend =
       ffi.Pointer<Utf8> text,
     );
 
+typedef CInboxSummary = ffi.Pointer<Utf8> Function(ffi.Pointer<ffi.Void> bridge);
+typedef DartInboxSummary = ffi.Pointer<Utf8> Function(ffi.Pointer<ffi.Void> bridge);
+
+typedef CInboxAppend =
+    ffi.Pointer<Utf8> Function(
+      ffi.Pointer<ffi.Void> bridge,
+      ffi.Pointer<Utf8> text,
+      ffi.Bool asTodo,
+    );
+typedef DartInboxAppend =
+    ffi.Pointer<Utf8> Function(
+      ffi.Pointer<ffi.Void> bridge,
+      ffi.Pointer<Utf8> text,
+      bool asTodo,
+    );
+
+typedef CInboxToggleTodo =
+    ffi.Pointer<Utf8> Function(
+      ffi.Pointer<ffi.Void> bridge,
+      ffi.Pointer<Utf8> notePath,
+      ffi.Int32 lineIndex,
+    );
+typedef DartInboxToggleTodo =
+    ffi.Pointer<Utf8> Function(
+      ffi.Pointer<ffi.Void> bridge,
+      ffi.Pointer<Utf8> notePath,
+      int lineIndex,
+    );
+
+typedef CInboxDeleteEntry =
+    ffi.Pointer<Utf8> Function(
+      ffi.Pointer<ffi.Void> bridge,
+      ffi.Pointer<Utf8> notePath,
+      ffi.Int32 lineIndex,
+    );
+typedef DartInboxDeleteEntry =
+    ffi.Pointer<Utf8> Function(
+      ffi.Pointer<ffi.Void> bridge,
+      ffi.Pointer<Utf8> notePath,
+      int lineIndex,
+    );
+
+typedef CInboxImportFile =
+    ffi.Pointer<Utf8> Function(
+      ffi.Pointer<ffi.Void> bridge,
+      ffi.Pointer<Utf8> srcPath,
+      ffi.Pointer<Utf8> noteText,
+    );
+typedef DartInboxImportFile =
+    ffi.Pointer<Utf8> Function(
+      ffi.Pointer<ffi.Void> bridge,
+      ffi.Pointer<Utf8> srcPath,
+      ffi.Pointer<Utf8> noteText,
+    );
+
 typedef CSyncTest = ffi.Pointer<Utf8> Function(ffi.Pointer<Utf8> configJson);
 typedef DartSyncTest = ffi.Pointer<Utf8> Function(ffi.Pointer<Utf8> configJson);
 
@@ -296,6 +351,11 @@ class VaultService extends ChangeNotifier {
   DartSearch? _fnSearch;
   DartDailyGet? _fnDailyGet;
   DartDailyAppend? _fnDailyAppend;
+  DartInboxSummary? _fnInboxSummary;
+  DartInboxAppend? _fnInboxAppend;
+  DartInboxToggleTodo? _fnInboxToggleTodo;
+  DartInboxDeleteEntry? _fnInboxDeleteEntry;
+  DartInboxImportFile? _fnInboxImportFile;
   DartFree? _fnFree;
 
   List<VaultProfile> _vaults = [];
@@ -790,6 +850,33 @@ class VaultService extends ChangeNotifier {
       );
       _fnFree = lib.lookupFunction<CFree, DartFree>('jiyue_string_free');
 
+      try {
+        _fnInboxSummary = lib.lookupFunction<CInboxSummary, DartInboxSummary>(
+          'jiyue_inbox_summary',
+        );
+        _fnInboxAppend = lib.lookupFunction<CInboxAppend, DartInboxAppend>(
+          'jiyue_inbox_append',
+        );
+        _fnInboxToggleTodo = lib
+            .lookupFunction<CInboxToggleTodo, DartInboxToggleTodo>(
+              'jiyue_inbox_toggle_todo',
+            );
+        _fnInboxDeleteEntry = lib
+            .lookupFunction<CInboxDeleteEntry, DartInboxDeleteEntry>(
+              'jiyue_inbox_delete_entry',
+            );
+        _fnInboxImportFile = lib
+            .lookupFunction<CInboxImportFile, DartInboxImportFile>(
+              'jiyue_inbox_import_file',
+            );
+      } catch (_) {
+        _fnInboxSummary = null;
+        _fnInboxAppend = null;
+        _fnInboxToggleTodo = null;
+        _fnInboxDeleteEntry = null;
+        _fnInboxImportFile = null;
+      }
+
       final pathPtr = _vaultDir!.path.toNativeUtf8();
       _ffiBridge = _fnOpen!(pathPtr);
       calloc.free(pathPtr);
@@ -804,6 +891,11 @@ class VaultService extends ChangeNotifier {
       _fnClose!(_ffiBridge!);
     }
     _ffiBridge = null;
+    _fnInboxSummary = null;
+    _fnInboxAppend = null;
+    _fnInboxToggleTodo = null;
+    _fnInboxDeleteEntry = null;
+    _fnInboxImportFile = null;
     _useFfi = false;
   }
 
@@ -1375,11 +1467,16 @@ class VaultService extends ChangeNotifier {
   }
 
   Future<void> appendToDaily(String text) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
     if (_useFfi && _fnDailyAppend != null && _ffiBridge != null) {
-      final textPtr = text.toNativeUtf8();
+      final textPtr = trimmed.toNativeUtf8();
       final errPtr = _fnDailyAppend!(_ffiBridge!, textPtr);
       calloc.free(textPtr);
-      if (errPtr == ffi.nullptr) return;
+      if (errPtr == ffi.nullptr) {
+        notifyListeners();
+        return;
+      }
       _fnFree!(errPtr);
     }
 
@@ -1387,8 +1484,379 @@ class VaultService extends ChangeNotifier {
     final now = DateTime.now();
     final timeStr =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-    final updated = '${daily.content.trimRight()}\n- [$timeStr] ${text.trim()}\n';
+    final updated = _appendEntryToDailyDart(daily.content, timeStr, trimmed);
     await saveNote(daily.path, updated);
+  }
+
+  Future<InboxSummary> getInboxSummary() async {
+    if (_vaultDir == null) return InboxSummary.empty;
+    if (_useFfi && _fnInboxSummary != null && _ffiBridge != null) {
+      final jsonPtr = _fnInboxSummary!(_ffiBridge!);
+      final jsonStr = jsonPtr.toDartString();
+      _fnFree!(jsonPtr);
+      return InboxSummary.fromJson(jsonDecode(jsonStr) as Map<String, dynamic>);
+    }
+
+    return _collectInboxSummaryDart();
+  }
+
+  Future<bool> appendToInbox(String text, {bool asTodo = false}) async {
+    final trimmed = text.trim();
+    if (_vaultDir == null || trimmed.isEmpty) return false;
+
+    if (_useFfi && _fnInboxAppend != null && _ffiBridge != null) {
+      final textPtr = trimmed.toNativeUtf8();
+      final errPtr = _fnInboxAppend!(_ffiBridge!, textPtr, asTodo);
+      calloc.free(textPtr);
+      if (errPtr == ffi.nullptr) {
+        notifyListeners();
+        return true;
+      }
+      _fnFree!(errPtr);
+    }
+
+    final now = DateTime.now();
+    final hhmm =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+    const relPath = 'Inbox/随手记.md';
+    final file = _vaultFile(relPath);
+    if (!await file.parent.exists()) {
+      await file.parent.create(recursive: true);
+    }
+    final existing = await file.exists() ? await file.readAsString() : '';
+    final updated = _appendEntryToStreamDart(
+      existing,
+      now,
+      hhmm,
+      trimmed,
+      asTodo,
+    );
+    await file.writeAsString(updated);
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> toggleInboxTodo(String notePath, int lineIndex) async {
+    if (_vaultDir == null || lineIndex < 0) return false;
+    final norm = _normalizeRel(notePath);
+    if (_useFfi && _fnInboxToggleTodo != null && _ffiBridge != null) {
+      final pathPtr = norm.toNativeUtf8();
+      final errPtr = _fnInboxToggleTodo!(_ffiBridge!, pathPtr, lineIndex);
+      calloc.free(pathPtr);
+      if (errPtr == ffi.nullptr) {
+        notifyListeners();
+        return true;
+      }
+      _fnFree!(errPtr);
+    }
+
+    final file = _vaultFile(norm);
+    if (!await file.exists()) return false;
+    final lines = (await file.readAsString()).replaceAll('\r\n', '\n').split('\n');
+    if (lineIndex >= lines.length) return false;
+    final line = lines[lineIndex];
+    final uncheckedIdx = line.indexOf('- [ ] ');
+    final checkedIdx = line.indexOf('- [x] ');
+    final checkedUpperIdx = line.indexOf('- [X] ');
+    if (uncheckedIdx >= 0) {
+      lines[lineIndex] = line.replaceFirst('- [ ] ', '- [x] ');
+    } else if (checkedIdx >= 0) {
+      lines[lineIndex] = line.replaceFirst('- [x] ', '- [ ] ');
+    } else if (checkedUpperIdx >= 0) {
+      lines[lineIndex] = line.replaceFirst('- [X] ', '- [ ] ');
+    } else {
+      return false;
+    }
+    await file.writeAsString(lines.join('\n'));
+    notifyListeners();
+    return true;
+  }
+
+  Future<bool> deleteInboxEntry(String notePath, int? lineIndex) async {
+    if (_vaultDir == null) return false;
+    final norm = _normalizeRel(notePath);
+    if (_useFfi && _fnInboxDeleteEntry != null && _ffiBridge != null) {
+      final pathPtr = norm.toNativeUtf8();
+      final errPtr = _fnInboxDeleteEntry!(_ffiBridge!, pathPtr, lineIndex ?? -1);
+      calloc.free(pathPtr);
+      if (errPtr == ffi.nullptr) {
+        notifyListeners();
+        return true;
+      }
+      _fnFree!(errPtr);
+    }
+
+    if (lineIndex == null) {
+      return deleteNote(norm);
+    }
+    final file = _vaultFile(norm);
+    if (!await file.exists()) return false;
+    final lines = (await file.readAsString()).replaceAll('\r\n', '\n').split('\n');
+    if (lineIndex < 0 || lineIndex >= lines.length) return false;
+    lines.removeAt(lineIndex);
+    await file.writeAsString(lines.join('\n'));
+    notifyListeners();
+    return true;
+  }
+
+  Future<ImportFileResult> importFileToInbox(
+    String srcPath, {
+    String noteText = '',
+  }) async {
+    if (_vaultDir == null) {
+      return const ImportFileResult(
+        success: false,
+        destRel: '',
+        linkText: '',
+        notePath: '',
+        message: '未打开笔记库',
+      );
+    }
+    if (_useFfi && _fnInboxImportFile != null && _ffiBridge != null) {
+      final srcPtr = srcPath.toNativeUtf8();
+      final textPtr = noteText.toNativeUtf8();
+      final jsonPtr = _fnInboxImportFile!(_ffiBridge!, srcPtr, textPtr);
+      calloc.free(srcPtr);
+      calloc.free(textPtr);
+      final jsonStr = jsonPtr.toDartString();
+      _fnFree!(jsonPtr);
+      final res = ImportFileResult.fromJson(
+        jsonDecode(jsonStr) as Map<String, dynamic>,
+      );
+      if (res.success) notifyListeners();
+      return res;
+    }
+
+    final src = File(srcPath);
+    if (!await src.exists()) {
+      return const ImportFileResult(
+        success: false,
+        destRel: '',
+        linkText: '',
+        notePath: '',
+        message: '源文件不存在',
+      );
+    }
+    final rawName = src.uri.pathSegments.lastWhere(
+      (s) => s.isNotEmpty,
+      orElse: () => 'shared_file',
+    );
+    final sanitized = rawName.replaceAll(RegExp(r'[<>:"/\\|?*\[\]#^]'), '_');
+    var destRel = '附件/$sanitized';
+    var destFile = _vaultFile(destRel);
+    if (!await destFile.parent.exists()) {
+      await destFile.parent.create(recursive: true);
+    }
+    if (await destFile.exists()) {
+      final dot = sanitized.lastIndexOf('.');
+      final stamp = DateTime.now().millisecondsSinceEpoch;
+      final unique =
+          dot > 0
+              ? '${sanitized.substring(0, dot)}-$stamp${sanitized.substring(dot)}'
+              : '$sanitized-$stamp';
+      destRel = '附件/$unique';
+      destFile = _vaultFile(destRel);
+    }
+    await src.copy(destFile.path);
+    final linkText = '![[${destFile.uri.pathSegments.last}]]';
+    final extra = noteText.trim();
+    final line = extra.isEmpty ? linkText : '$extra $linkText';
+    await appendToInbox(line, asTodo: false);
+    return ImportFileResult(
+      success: true,
+      destRel: destRel,
+      linkText: linkText,
+      notePath: 'Inbox/随手记.md',
+      message: '已导入附件并记录到随手记',
+    );
+  }
+
+  String _appendEntryToDailyDart(String existing, String hhmm, String text) {
+    final normalized = existing.replaceAll('\r\n', '\n');
+    final lines = normalized.split('\n');
+    if (normalized.endsWith('\n') && lines.isNotEmpty && lines.last.isEmpty) {
+      lines.removeLast();
+    }
+    final entry = '- $hhmm $text';
+    final idx = lines.indexWhere(
+      (l) => l.trim() == '## 记录' || l.trim() == '## 随手记',
+    );
+    if (idx >= 0) {
+      var nextSec = lines.length;
+      for (var i = idx + 1; i < lines.length; i++) {
+        if (lines[i].trimLeft().startsWith('## ')) {
+          nextSec = i;
+          break;
+        }
+      }
+      var insertAt = nextSec;
+      while (insertAt > idx + 1 && lines[insertAt - 1].trim().isEmpty) {
+        insertAt--;
+      }
+      lines.insert(insertAt, entry);
+      if (insertAt + 1 < lines.length && lines[insertAt + 1].trim().isNotEmpty) {
+        lines.insert(insertAt + 1, '');
+      }
+      return '${lines.join('\n')}\n';
+    }
+    while (lines.isNotEmpty && lines.last.trim().isEmpty) {
+      lines.removeLast();
+    }
+    if (lines.isNotEmpty) lines.add('');
+    lines.add('## 记录');
+    lines.add(entry);
+    return '${lines.join('\n')}\n';
+  }
+
+  String _appendEntryToStreamDart(
+    String existing,
+    DateTime date,
+    String hhmm,
+    String rawText,
+    bool asTodo,
+  ) {
+    const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
+    final dateStr =
+        '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final heading = '## $dateStr ${weekdays[date.weekday - 1]}';
+    final entry = asTodo ? '- [ ] $rawText' : '- $hhmm $rawText';
+    if (existing.trim().isEmpty) {
+      return '# 随手记\n\n$heading\n$entry\n';
+    }
+    final lines = existing.replaceAll('\r\n', '\n').split('\n');
+    if (lines.isNotEmpty && lines.last.isEmpty) lines.removeLast();
+    final secIdx = lines.indexWhere((l) => l.trimLeft().startsWith('## $dateStr'));
+    if (secIdx >= 0) {
+      var nextSec = lines.length;
+      for (var i = secIdx + 1; i < lines.length; i++) {
+        if (lines[i].trimLeft().startsWith('## ')) {
+          nextSec = i;
+          break;
+        }
+      }
+      var insertAt = nextSec;
+      while (insertAt > secIdx + 1 && lines[insertAt - 1].trim().isEmpty) {
+        insertAt--;
+      }
+      lines.insert(insertAt, entry);
+      return '${lines.join('\n')}\n';
+    }
+    final h1Idx = lines.indexWhere((l) => l.startsWith('# ') && !l.startsWith('##'));
+    var insertAt = h1Idx >= 0 ? h1Idx + 1 : 0;
+    while (insertAt < lines.length && lines[insertAt].trim().isEmpty) {
+      insertAt++;
+    }
+    final block = <String>[
+      if (insertAt > 0 && lines[insertAt - 1].trim().isNotEmpty) '',
+      heading,
+      entry,
+      if (insertAt < lines.length) '',
+    ];
+    lines.insertAll(insertAt, block);
+    return '${lines.join('\n')}\n';
+  }
+
+  Future<InboxSummary> _collectInboxSummaryDart() async {
+    final files = await _scanMarkdownFiles();
+    final captures = <InboxCapture>[];
+    final todos = <InboxTodo>[];
+    final now = DateTime.now();
+    final todayStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final dailyPath =
+        await _vaultFile('$todayStr.md').exists()
+            ? '$todayStr.md'
+            : 'Daily/$todayStr.md';
+
+    for (final (rel, file) in files) {
+      if (rel.toLowerCase().startsWith('templates/')) continue;
+      final title = _titleFromRelPath(rel);
+      final content = await file.readAsString();
+      final lines = content.replaceAll('\r\n', '\n').split('\n');
+      final inInbox =
+          rel.toLowerCase() == 'inbox/随手记.md' ||
+          rel.toLowerCase().startsWith('inbox/');
+      final isToday = rel.toLowerCase() == dailyPath.toLowerCase();
+      final inCore =
+          inInbox ||
+          isToday ||
+          rel.toLowerCase().startsWith('daily/') ||
+          rel.toLowerCase().startsWith('todo/');
+
+      if (inInbox) {
+        var curDate = title;
+        final bucket = <InboxCapture>[];
+        for (var i = 0; i < lines.length; i++) {
+          final trimmed = lines[i].trim();
+          if (trimmed.startsWith('## ')) {
+            captures.addAll(bucket.reversed);
+            bucket.clear();
+            curDate = trimmed.substring(3).trim();
+          } else if (trimmed.startsWith('- ') &&
+              !trimmed.startsWith('- [ ]') &&
+              !trimmed.startsWith('- [x]') &&
+              !trimmed.startsWith('- [X]')) {
+            final body = trimmed.substring(2).trim();
+            String? timeLabel;
+            var text = body;
+            if (RegExp(r'^\d{2}:\d{2}\s+').hasMatch(body)) {
+              timeLabel = body.substring(0, 5);
+              text = body.substring(5).trim();
+            }
+            if (text.isNotEmpty) {
+              bucket.add(
+                InboxCapture(
+                  notePath: rel,
+                  noteTitle: title,
+                  lineIndex: i,
+                  dateLabel: curDate,
+                  timeLabel: timeLabel,
+                  content: text,
+                  tags: _extractTagsDart(text),
+                ),
+              );
+            }
+          }
+        }
+        captures.addAll(bucket.reversed);
+      }
+
+      if (inCore) {
+        for (var i = 0; i < lines.length; i++) {
+          final trimmed = lines[i].trimLeft();
+          bool? done;
+          String taskText = '';
+          if (trimmed.startsWith('- [ ] ')) {
+            done = false;
+            taskText = trimmed.substring(6).trim();
+          } else if (trimmed.startsWith('- [x] ') ||
+              trimmed.startsWith('- [X] ')) {
+            done = true;
+            taskText = trimmed.substring(6).trim();
+          }
+          if (done != null && taskText.isNotEmpty) {
+            todos.add(
+              InboxTodo(
+                notePath: rel,
+                noteTitle: title,
+                group: isToday ? 'today' : 'core',
+                lineIndex: i,
+                text: taskText,
+                done: done,
+                tags: _extractTagsDart(taskText),
+              ),
+            );
+          }
+        }
+      }
+    }
+
+    return InboxSummary(
+      captures: captures,
+      todos: todos,
+      streamPath: 'Inbox/随手记.md',
+      dailyPath: dailyPath,
+    );
   }
 
   @override

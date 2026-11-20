@@ -117,3 +117,161 @@ class SearchResultItem {
     );
   }
 }
+
+class InboxCapture {
+  final String notePath;
+  final String noteTitle;
+  final int? lineIndex;
+  final String dateLabel;
+  final String? timeLabel;
+  final String content;
+  final List<String> tags;
+
+  const InboxCapture({
+    required this.notePath,
+    required this.noteTitle,
+    required this.lineIndex,
+    required this.dateLabel,
+    required this.timeLabel,
+    required this.content,
+    required this.tags,
+  });
+
+  factory InboxCapture.fromJson(Map<String, dynamic> json) {
+    return InboxCapture(
+      notePath: json['note_path'] as String? ?? '',
+      noteTitle: json['note_title'] as String? ?? '',
+      lineIndex: json['line_index'] as int?,
+      dateLabel: json['date_label'] as String? ?? '',
+      timeLabel: json['time_label'] as String?,
+      content: json['content'] as String? ?? '',
+      tags:
+          (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
+              const [],
+    );
+  }
+}
+
+class InboxTodo {
+  final String notePath;
+  final String noteTitle;
+  final String group;
+  final int lineIndex;
+  final String text;
+  final bool done;
+  final List<String> tags;
+
+  const InboxTodo({
+    required this.notePath,
+    required this.noteTitle,
+    required this.group,
+    required this.lineIndex,
+    required this.text,
+    required this.done,
+    required this.tags,
+  });
+
+  factory InboxTodo.fromJson(Map<String, dynamic> json) {
+    return InboxTodo(
+      notePath: json['note_path'] as String? ?? '',
+      noteTitle: json['note_title'] as String? ?? '',
+      group: json['group'] as String? ?? 'core',
+      lineIndex: json['line_index'] as int? ?? 0,
+      text: json['text'] as String? ?? '',
+      done: json['done'] as bool? ?? false,
+      tags:
+          (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
+              const [],
+    );
+  }
+}
+
+class InboxSummary {
+  final List<InboxCapture> captures;
+  final List<InboxTodo> todos;
+  final String streamPath;
+  final String dailyPath;
+
+  const InboxSummary({
+    required this.captures,
+    required this.todos,
+    required this.streamPath,
+    required this.dailyPath,
+  });
+
+  static const empty = InboxSummary(
+    captures: [],
+    todos: [],
+    streamPath: 'Inbox/随手记.md',
+    dailyPath: '',
+  );
+
+  factory InboxSummary.fromJson(Map<String, dynamic> json) {
+    final rawCaps = json['captures'] as List<dynamic>? ?? const [];
+    final rawTodos = json['todos'] as List<dynamic>? ?? const [];
+    return InboxSummary(
+      captures:
+          rawCaps
+              .whereType<Map<String, dynamic>>()
+              .map(InboxCapture.fromJson)
+              .toList(),
+      todos:
+          rawTodos
+              .whereType<Map<String, dynamic>>()
+              .map(InboxTodo.fromJson)
+              .toList(),
+      streamPath: json['stream_path'] as String? ?? 'Inbox/随手记.md',
+      dailyPath: json['daily_path'] as String? ?? '',
+    );
+  }
+}
+
+class ImportFileResult {
+  final bool success;
+  final String destRel;
+  final String linkText;
+  final String notePath;
+  final String message;
+
+  const ImportFileResult({
+    required this.success,
+    required this.destRel,
+    required this.linkText,
+    required this.notePath,
+    required this.message,
+  });
+
+  factory ImportFileResult.fromJson(Map<String, dynamic> json) {
+    return ImportFileResult(
+      success: json['success'] as bool? ?? false,
+      destRel: json['dest_rel'] as String? ?? '',
+      linkText: json['link_text'] as String? ?? '',
+      notePath: json['note_path'] as String? ?? '',
+      message: json['message'] as String? ?? '',
+    );
+  }
+}
+
+class SharedPayload {
+  final String text;
+  final List<String> filePaths;
+
+  const SharedPayload({
+    required this.text,
+    required this.filePaths,
+  });
+
+  bool get isEmpty => text.trim().isEmpty && filePaths.isEmpty;
+
+  factory SharedPayload.fromMap(Map<dynamic, dynamic> map) {
+    final rawPaths = map['filePaths'] as List<dynamic>? ?? const [];
+    return SharedPayload(
+      text: (map['text'] as String? ?? '').trim(),
+      filePaths:
+          rawPaths
+              .map((e) => e.toString().trim())
+              .where((p) => p.isNotEmpty)
+              .toList(),
+    );
+  }
+}

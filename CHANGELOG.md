@@ -3,6 +3,28 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.4.1] - 2026-11-20
+
+### 中文
+
+**移动端「速记 · 笔记待办」闭环与 Android 系统分享入库**
+- **Rust FFI 收件箱与附件原子导入（`jiyue-ffi`）**：
+  - 复用 `jiyue-core::inbox` 与 `jiyue-md::attach`，新增 `jiyue_inbox_summary`、`jiyue_inbox_append`、`jiyue_inbox_toggle_todo`、`jiyue_inbox_delete_entry` 与 `jiyue_inbox_import_file` C-ABI 接口，使移动端与桌面端共用同一套 `Inbox/随手记.md`、`## 记录` 日记节与附件导入规则。
+- **Android 移动端「速记」一级视图与系统分享接收**：
+  - 将底部「速记」标签升级为完整收件箱页面（`InboxPage`）：支持在「随手记 / 待办 `- [ ]` / 今日日记」三种模式间一键切换录入、相册图片直导入库、随手记时间线浏览/复制/移除，以及笔记内 `- [ ]` 待办汇总与原地勾选。
+  - 注册并打通 Android 系统 `ACTION_SEND`（纯文本 / 图片 / 任意文件）与 `ACTION_SEND_MULTIPLE`（多图）分享接收链路，支持冷启动与热启动弹出确认弹窗（`ShareImportSheet`），将外部分享内容直接沉淀到笔记库并参与 S3 / WebDAV 跨端同步。
+
+---
+
+### English
+
+**Mobile Quick Capture, Vault Todo Dashboard & Android System Share Ingestion**
+- **Rust FFI Inbox & Atomic Attachment Import (`jiyue-ffi`)**:
+  - Exposed `jiyue_inbox_summary`, `jiyue_inbox_append`, `jiyue_inbox_toggle_todo`, `jiyue_inbox_delete_entry`, and `jiyue_inbox_import_file` atop `jiyue-core::inbox` and `jiyue-md::attach`, aligning mobile capture streams (`Inbox/随手记.md`), daily `## 记录` entries, and attachment imports with desktop.
+- **Android Mobile Inbox Tab & System Share Receiver**:
+  - Upgraded the mobile Quick Capture tab into a full `InboxPage` supporting mode switching (Fleeting Note / `- [ ]` Todo / Daily Note), gallery image import, chronological capture timeline (copy, delete, jump to source note), and vault todo aggregation with inline checkbox toggling.
+  - Added Android `ACTION_SEND` (`text/plain`, `image/*`, `*/*`) and `ACTION_SEND_MULTIPLE` (`image/*`) share sheet integration with `ShareImportSheet`, letting external text, images, and files land directly in the vault for S3 / WebDAV sync.
+
 ## [0.4.0] - 2026-11-18
 
 ### 中文
