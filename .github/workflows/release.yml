@@ -99,9 +99,10 @@ jobs:
           ENABLE_ARM_VAR: ${{ vars.ENABLE_ARM_RUNNERS }}
         run: |
           set -euo pipefail
-          # The ARM64 runners (windows-11-arm, ubuntu-24.04-arm) are free only for public repositories.
+          # The ARM64 runners (windows-11-arm, ubuntu-22.04-arm) are free only for public repositories.
           # On a private repository a job with such a label would wait forever, so they are left out
           # unless the repository is public, include_arm is set, or the variable ENABLE_ARM_RUNNERS is true.
+          # Linux release packages build on Ubuntu 22.04 so binaries stay compatible with glibc >= 2.35 (AppImage / Debian 12 / Ubuntu 22.04).
           want_arm=false
           reason="private repository, ARM64 runners off"
           if [ "$REPO_PRIVATE" = "false" ]; then
@@ -113,10 +114,10 @@ jobs:
             reason="enabled by the include_arm input or ENABLE_ARM_RUNNERS"
           fi
           windows='[{"os":"windows-latest","arch":"x64"},{"os":"windows-11-arm","arch":"arm64"}]'
-          linux='[{"os":"ubuntu-24.04","arch":"x86_64"},{"os":"ubuntu-24.04-arm","arch":"aarch64"}]'
+          linux='[{"os":"ubuntu-22.04","arch":"x86_64"},{"os":"ubuntu-22.04-arm","arch":"aarch64"}]'
           if [ "$want_arm" != true ]; then
             windows='[{"os":"windows-latest","arch":"x64"}]'
-            linux='[{"os":"ubuntu-24.04","arch":"x86_64"}]'
+            linux='[{"os":"ubuntu-22.04","arch":"x86_64"}]'
           fi
           # macOS: Apple silicon and Intel. The Intel label is macos-15-intel (macos-13 no longer exists).
           macos='[{"os":"macos-latest","arch":"arm64"},{"os":"macos-15-intel","arch":"x64"}]'
@@ -293,7 +294,7 @@ jobs:
       - name: Linux system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends $LINUX_APT
+          sudo apt-get install -y --no-install-recommends $LINUX_APT desktop-file-utils appstream
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -302,14 +303,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-          key: linux-release-${{ matrix.arch }}
+          key: linux-release-${{ matrix.os }}-${{ matrix.arch }}
 
       - name: Cache cargo-packager binary
         id: packager_cache
         uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-packager
-          key: cargo-packager-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_PACKAGER_VERSION }}
+          key: cargo-packager-${{ matrix.os }}-${{ runner.arch }}-${{ env.CARGO_PACKAGER_VERSION }}
 
       - name: Install cargo-packager (pinned)
         if: steps.packager_cache.outputs.cache-hit != 'true'
@@ -328,10 +329,60 @@ jobs:
         run: cargo packager -p jiyue --release -f deb
 
       # Optional: AppImage. cargo-packager downloads linuxdeploy itself (its "continuous" release is unpinned).
+      # Repack with appimagetool to fix cargo-packager 0.11.8 packing AppRun with mode 0744 (fails under firejail)
+      # and to embed AppStream metadata (usr/share/metainfo/com.limitcool.jiyue.appdata.xml).
       - name: Package the AppImage (optional)
         id: appimage
         continue-on-error: true
-        run: cargo packager -p jiyue --release -f appimage
+        shell: bash
+        env:
+          APPIMAGE_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          cargo packager -p jiyue --release -f appimage
+
+          appimage=$(ls dist/*.AppImage | head -n 1)
+          if [ -z "${appimage:-}" ]; then
+            echo "No AppImage produced by cargo-packager" >&2
+            exit 1
+          fi
+
+          workdir=$(mktemp -d)
+          trap 'rm -rf "$workdir"' EXIT
+
+          # Move the raw AppImage out of dist/ so a failed repack never uploads an unfixed artifact.
+          mv "$appimage" "$workdir/raw.AppImage"
+
+          (
+            cd "$workdir"
+            ./raw.AppImage --appimage-extract >/dev/null
+            chmod 0755 squashfs-root/AppRun
+            chmod -R a+rX squashfs-root
+            install -Dm644 "$GITHUB_WORKSPACE/packaging/linux/com.limitcool.jiyue.appdata.xml" \
+              squashfs-root/usr/share/metainfo/com.limitcool.jiyue.appdata.xml
+
+            desktop-file-validate squashfs-root/*.desktop
+            appstreamcli validate-tree --no-net squashfs-root
+
+            curl -fsSL -o appimagetool \
+              "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${APPIMAGE_ARCH}.AppImage"
+            chmod +x appimagetool
+            ARCH="${APPIMAGE_ARCH}" ./appimagetool --no-appstream squashfs-root "$workdir/repacked.AppImage"
+          )
+
+          # Verify the repacked AppImage before moving it back into dist/.
+          (
+            cd "$workdir"
+            rm -rf squashfs-root
+            ./repacked.AppImage --appimage-extract >/dev/null
+            mode=$(stat -c '%a' squashfs-root/AppRun)
+            echo "Verified AppRun mode: $mode"
+            [ "$mode" = "755" ] || { echo "Expected AppRun mode 755, got $mode" >&2; exit 1; }
+            [ -f squashfs-root/usr/share/metainfo/com.limitcool.jiyue.appdata.xml ]
+          )
+
+          mv "$workdir/repacked.AppImage" "$appimage"
+          chmod +x "$appimage"
 
       - uses: actions/upload-artifact@v7
         with:

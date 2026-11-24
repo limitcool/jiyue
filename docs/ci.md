@@ -93,8 +93,10 @@ workflow; if not, `checks` fails and `publish` never runs. Then copy the jobs in
   architecture (`windows-release-<arch>`, `macos-release-<arch>`, `linux-release-<arch>`).
 - Runner labels (checked against actions/runner-images, 2026-11-06): `windows-latest`, `windows-11-arm`
   (Windows 11 Arm64 with Visual Studio 2026, which includes the MSVC ARM64 tools and LLVM), `macos-latest`
-  (Apple silicon), `macos-15-intel` (macOS 15, x86_64), `ubuntu-24.04`, `ubuntu-24.04-arm`. `macos-13` is no
-  longer offered, so `macos-15-intel` is the Intel label used here.
+  (Apple silicon), `macos-15-intel` (macOS 15, x86_64), `ubuntu-24.04`, `ubuntu-24.04-arm` (used by `ci.yml`
+  and non-Linux release jobs), plus `ubuntu-22.04` and `ubuntu-22.04-arm` (used by `release.yml` for Linux
+  packaging so binaries remain compatible with `glibc >= 2.35`). `macos-13` is no longer offered, so
+  `macos-15-intel` is the Intel label used here.
 - `rust-toolchain.toml` sets only the channel. It does not set `targets`, so every macOS job builds for its
   own host (`x86_64-apple-darwin` on `macos-15-intel`, `aarch64-apple-darwin` on `macos-latest`). No
   cross-compilation is involved.
@@ -143,11 +145,12 @@ The `prepare` job fails when the tag does not equal `v` + that version. Without 
   cargo-packager builds the dmg name from the product name (`Jiyue`), the version and the host architecture
   (`x86_64` is written as `x64`, `aarch64` stays `aarch64`); this was read in the cargo-packager 0.11.8
   source (`src/package/dmg/mod.rs`). The real names are checked on the first run.
-- Linux x86_64: `jiyue_<version>_amd64.deb`, and `jiyue_<version>_amd64.AppImage` when the optional
-  AppImage step succeeds
+- Linux x86_64 (`ubuntu-22.04`): `jiyue_<version>_amd64.deb`, and `jiyue_<version>_x86_64.AppImage` when the optional
+  AppImage step succeeds (the AppImage is repacked with `appimagetool` to fix `AppRun` `0755` permissions and embed
+  `packaging/linux/com.limitcool.jiyue.appdata.xml`)
 - Linux ARM64 (only when the ARM64 entries are on): `jiyue_<version>_arm64.deb`, and
-  `jiyue_<version>_aarch64.AppImage` when the optional step succeeds. The job builds natively on `ubuntu-24.04-arm` (no `--target`, because cargo-packager reads
-  `target/release`). The deb and AppImage names are cargo-packager's and were not checked on a run yet.
+  `jiyue_<version>_aarch64.AppImage` when the optional step succeeds. The job builds natively on `ubuntu-22.04-arm` (no `--target`, because cargo-packager reads
+  `target/release`) and repacks the AppImage with `appimagetool` for `AppRun` `0755` permissions and AppStream metadata.
 - `SHA256SUMS` (`sha256sum` over all files, added by the publish job)
 
 Workflow artifacts of the packages are named `release-windows-<arch>`, `release-macos-<arch>` (`arm64` or
@@ -193,9 +196,9 @@ in `release.yml` until it is cancelled.
 | Windows 11 x64 | yes (`windows-latest`) | MSI installer |
 | macOS arm64 (Apple silicon) | yes (`macos-latest`) | unsigned unless secrets are set |
 | macOS x86_64 (Intel) | yes (`macos-15-intel`) | unsigned unless secrets are set; dmg `Jiyue_<version>_x64.dmg`; see "Known gaps" |
-| Linux x86_64 | yes (`ubuntu-24.04`) | X11 and Wayland through GPUI; title bar drawn by the app |
+| Linux x86_64 | yes (`ci.yml`: `ubuntu-24.04`; `release.yml`: `ubuntu-22.04`) | X11 and Wayland through GPUI; title bar drawn by the app |
 | Windows 11 ARM64 | yes (`windows-11-arm`), only when the ARM64 entries are on | MSI built by CI; the MSI installs only on ARM64 Windows |
-| Linux ARM64 | yes (`ubuntu-24.04-arm`), only when the ARM64 entries are on | deb and AppImage built by CI |
+| Linux ARM64 | yes (`ci.yml`: `ubuntu-24.04-arm`; `release.yml`: `ubuntu-22.04-arm`), only when the ARM64 entries are on | deb and AppImage built by CI |
 
 
 Known differences: on Linux the window has client-side decorations (the tab strip is the title bar) and
@@ -268,7 +271,7 @@ cargo-packager reads the binaries from `target/release` (`binaries-dir`) and wri
 
 ## Linux system packages
 
-The release and CI jobs install these with `apt-get` (Ubuntu 24.04):
+The CI jobs (`ubuntu-24.04`) and release packaging jobs (`ubuntu-22.04`) install these with `apt-get` (`release.yml` also installs `desktop-file-utils` and `appstream` for AppImage validation):
 
 ```
 pkg-config cmake clang libclang-dev libfontconfig-dev libfreetype-dev

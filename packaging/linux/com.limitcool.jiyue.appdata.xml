@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.limitcool.jiyue</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0 OR MIT</project_license>
+  <name>Jiyue</name>
+  <summary>Local-first Markdown notes app with live preview, CJK search and S3 sync</summary>
+  <description>
+    <p>Jiyue is a local-first Markdown note-taking app built with Rust and GPUI. Your notes stay as plain Markdown files in normal folders on your disk, with live preview, wikilinks, backlinks, knowledge graph, full-text CJK/English search, local version history, and S3/WebDAV sync.</p>
+  </description>
+  <launchable type="desktop-id">jiyue.desktop</launchable>
+  <provides>
+    <binary>jiyue</binary>
+  </provides>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Live preview with tables, callouts, sidebar and outline panel</caption>
+      <image>https://raw.githubusercontent.com/limitcool/jiyue/main/docs/images/hero-ink.png</image>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/limitcool/jiyue</url>
+  <url type="bugtracker">https://github.com/limitcool/jiyue/issues</url>
+  <developer_name>limitcool</developer_name>
+  <content_rating type="oars-1.1" />
+</component>

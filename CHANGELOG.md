@@ -3,6 +3,22 @@
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。每个版本的说明同时用中文和英文书写。
 Versions follow [Semantic Versioning](https://semver.org/). Every entry is written in Chinese and English.
 
+## [0.4.2] - 2026-11-24
+
+### 中文
+
+**Linux AppImage 兼容性与打包修复**
+- **Linux 发布环境切换至 Ubuntu 22.04**：将 Release 流水线的 Linux x86_64 与 ARM64 构建环境切换为 `ubuntu-22.04` / `ubuntu-22.04-arm`，使生成的二进制与 AppImage 兼容 `glibc >= 2.35`（支持 Ubuntu 22.04、Debian 12 等主流发行版）。
+- **修复 AppImage 权限并补充 AppStream 元数据**：在 `cargo-packager` 打包后使用 `appimagetool` 重打包，将 `AppRun` 权限由 `0744` 修正为 `0755`（修复 `firejail` 等沙箱下的 `Permission denied` 启动失败），并嵌入 `com.limitcool.jiyue.appdata.xml`（包含 `desktop-file-validate` 与 `appstreamcli validate-tree` 校验）。
+
+---
+
+### English
+
+**Linux AppImage Compatibility & Packaging Fixes**
+- **Build Linux releases on Ubuntu 22.04**: Switched Linux x86_64 and ARM64 release runners to `ubuntu-22.04` / `ubuntu-22.04-arm` so binaries and AppImages stay compatible with `glibc >= 2.35` (Ubuntu 22.04, Debian 12, and newer distributions).
+- **Fix AppImage permissions & embed AppStream metadata**: Repack the `cargo-packager` output with `appimagetool` to fix `AppRun` permissions from `0744` to `0755` (resolving `Permission denied` under firejail/sandboxes), embed `com.limitcool.jiyue.appdata.xml`, and validate with `desktop-file-validate` and `appstreamcli validate-tree`.
+
 ## [0.4.1] - 2026-11-20
 
 ### 中文
