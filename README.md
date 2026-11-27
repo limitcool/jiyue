@@ -4,7 +4,7 @@
 
 # 霁月 Jiyue
 
-**一款本地优先的 Markdown 笔记应用，覆盖桌面端（Windows / macOS / Linux）与 Android，由 Rust 与 Flutter 驱动。**
+**一款本地优先的 Markdown 笔记应用：桌面端（Windows / macOS / Linux）基于 Rust + GPUI 原生构建，Android 端基于 Flutter 共享 Rust 核心。**
 笔记就是你选的文件夹里的普通 `.md` 文件。
 
 [English](README.en.md) | [简体中文](README.md)

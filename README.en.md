@@ -4,7 +4,7 @@
 
 # Jiyue 霁月
 
-**A local-first Markdown notes app for Desktop (Windows / macOS / Linux) and Android, powered by Rust and Flutter.**
+**A local-first Markdown notes app: native Desktop (Windows / macOS / Linux) built with Rust and GPUI, and an Android companion built with Flutter sharing the Rust core.**
 Your notes stay plain `.md` files in a folder you choose.
 
 [English](README.en.md) | [简体中文](README.md)
